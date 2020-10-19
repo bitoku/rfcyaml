@@ -1,0 +1,562 @@
+- title: __initial_text__
+  contents:
+  - '       Connection Reuse in the Session Initiation Protocol (SIP)
+
+    '
+- title: Abstract
+  contents:
+  - "Abstract\n   This document enables a pair of communicating proxies to reuse a\n\
+    \   congestion-controlled connection between themselves for sending\n   requests\
+    \ in the forwards and backwards direction.  Because the\n   connection is essentially\
+    \ aliased for requests going in the backwards\n   direction, reuse is predicated\
+    \ upon both the communicating endpoints\n   authenticating themselves using X.509\
+    \ certificates through Transport\n   Layer Security (TLS).  For this reason, we\
+    \ only consider connection\n   reuse for TLS over TCP and TLS over Stream Control\
+    \ Transmission\n   Protocol (SCTP).  This document also provides guidelines on\n\
+    \   connection reuse and virtual SIP servers and the interaction of\n   connection\
+    \ reuse and DNS SRV lookups in SIP.\n"
+- title: Status of This Memo
+  contents:
+  - "Status of This Memo\n   This is an Internet Standards Track document.\n   This\
+    \ document is a product of the Internet Engineering Task Force\n   (IETF).  It\
+    \ represents the consensus of the IETF community.  It has\n   received public\
+    \ review and has been approved for publication by the\n   Internet Engineering\
+    \ Steering Group (IESG).  Further information on\n   Internet Standards is available\
+    \ in Section 2 of RFC 5741.\n   Information about the current status of this document,\
+    \ any errata,\n   and how to provide feedback on it may be obtained at\n   http://www.rfc-editor.org/info/rfc5923.\n"
+- title: Copyright Notice
+  contents:
+  - "Copyright Notice\n   Copyright (c) 2010 IETF Trust and the persons identified\
+    \ as the\n   document authors.  All rights reserved.\n   This document is subject\
+    \ to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n\
+    \   (http://trustee.ietf.org/license-info) in effect on the date of\n   publication\
+    \ of this document.  Please review these documents\n   carefully, as they describe\
+    \ your rights and restrictions with respect\n   to this document.  Code Components\
+    \ extracted from this document must\n   include Simplified BSD License text as\
+    \ described in Section 4.e of\n   the Trust Legal Provisions and are provided\
+    \ without warranty as\n   described in the Simplified BSD License.\n"
+- title: Table of Contents
+  contents:
+  - "Table of Contents\n   1.  Introduction ...................................................3\n\
+    \   2.  Terminology ....................................................4\n  \
+    \ 3.  Applicability Statement ........................................5\n   4.\
+    \  Benefits of TLS Connection Reuse ...............................5\n   5.  Overview\
+    \ of Operation ..........................................6\n   6.  Requirements\
+    \ ..................................................10\n   7.  Formal Syntax .................................................11\n\
+    \   8.  Normative Behavior ............................................11\n  \
+    \   8.1.  Client Behavior ...........................................11\n    \
+    \ 8.2.  Server Behavior ...........................................13\n     8.3.\
+    \  Closing a TLS Connection ..................................14\n   9.  Security\
+    \ Considerations .......................................14\n     9.1.  Authenticating\
+    \ TLS Connections: Client View ...............14\n     9.2.  Authenticating TLS\
+    \ Connections: Server View ...............15\n     9.3.  Connection Reuse and\
+    \ Virtual Servers ......................15\n   10. Connection Reuse and SRV Interaction\
+    \ ..........................17\n   11. IANA Considerations ...........................................17\n\
+    \   12. Acknowledgments ...............................................17\n  \
+    \ 13. References ....................................................18\n    \
+    \ 13.1. Normative References ......................................18\n     13.2.\
+    \ Informative References ....................................18\n"
+- title: 1.  Introduction
+  contents:
+  - "1.  Introduction\n   SIP entities can communicate using either unreliable/connectionless\n\
+    \   (e.g., UDP) or reliable/connection-oriented (e.g., TCP, SCTP\n   [RFC4960])\
+    \ transport protocols.  When SIP entities use a connection-\n   oriented protocol\
+    \ (such as TCP or SCTP) to send a request, they\n   typically originate their\
+    \ connections from an ephemeral port.\n   In the following example, A listens\
+    \ for SIP requests over TLS on TCP\n   port 5061 (the default port for SIP over\
+    \ TLS over TCP), but uses an\n   ephemeral port (port 49160) for a new connection\
+    \ to B.  These\n   entities could be SIP user agents or SIP proxy servers.\n \
+    \         +-----------+ 49160 (UAC)     5061 (UAS) +-----------+\n          |\
+    \           |--------------------------->|           |\n          |  Entity  \
+    \ |                            |  Entity   |\n          |     A     |        \
+    \                    |     B     |\n          |           | 5061 (UAS)       \
+    \          |           |\n          +-----------+                            +-----------+\n\
+    \       Figure 1: Uni-directional connection for requests from A to B\n   The\
+    \ SIP protocol includes the notion of a persistent connection\n   (defined in\
+    \ Section 2), which is a mechanisms to insure that\n   responses to a request\
+    \ reuse the existing connection that is\n   typically still available, as well\
+    \ as reusing the existing\n   connections for other requests sent by the originator\
+    \ of the\n   connection.  However, new requests sent in the backwards direction\
+    \ --\n   in the example above, requests from B destined to A -- are unlikely\n\
+    \   to reuse the existing connection.  This frequently causes a pair of\n   SIP\
+    \ entities to use one connection for requests sent in each\n   direction, as shown\
+    \ below.\n          +-----------+ 49160             5061 +-----------+\n     \
+    \     |           |.......................>|           |\n          |  Entity\
+    \   |                        |  Entity   |\n          |     A     | 5061     \
+    \        49170 |     B     |\n          |           |<-----------------------|\
+    \           |\n          +-----------+                        +-----------+\n\
+    \          Figure 2: Two connections for requests between A and B\n   Unlike TCP,\
+    \ TLS connections can be reused to send requests in the\n   backwards direction\
+    \ since each end can be authenticated when the\n   connection is initially set\
+    \ up.  Once the authentication step has\n   been performed, the situation can\
+    \ thought to resemble the picture in\n   Figure 1 except that A and B both use\
+    \ a single shared connection, for\n   example, between port 49160 on A and port\
+    \ 5061 on B.  When A wants to\n   send a request to B, it will reuse this connection,\
+    \ and when B wants\n   to send a request to A, it will reuse the same connection.\n"
+- title: 2.  Terminology
+  contents:
+  - "2.  Terminology\n   The key words \"MUST\", \"MUST NOT\", \"REQUIRED\", \"SHALL\"\
+    , \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\", \"MAY\", and\
+    \ \"OPTIONAL\" in this\n   document are to be interpreted as described in RFC\
+    \ 2119 [RFC2119].\n   Additional terminology used in this document:\n   Advertised\
+    \ address:  The address that occurs in the Via header\n      field's sent-by production\
+    \ rule, including the port number and\n      transport.\n   Alias:  Reusing an\
+    \ existing connection to send requests in the\n      backwards direction; i.e.,\
+    \ A opens a connection to B to send a\n      request, and B uses that connection\
+    \ to send requests in the\n      backwards direction to A.\n   Connection reuse:\
+    \  See \"Alias\".\n   Persistent connection:  The process of sending multiple,\
+    \ possibly\n      unrelated requests on the same connection, and receiving responses\n\
+    \      on that connection as well.  More succinctly, A opens a connection\n  \
+    \    to B to send a request, and later reuses the same connection to\n      send\
+    \ other requests, possibly unrelated to the dialog established\n      by the first\
+    \ request.  Responses will arrive over the same\n      connection.  Persistent\
+    \ connection behavior is specified in\n      Section 18 of RFC 3261 [RFC3261].\
+    \  Persistent connections do not\n      imply connection reuse.\n   Resolved address:\
+    \  The network identifiers (IP address, port,\n      transport) associated with\
+    \ a user agent as a result of executing\n      RFC 3263 [RFC3263] on a Uniform\
+    \ Resource Identifier (URI).\n   Shared connection:  See \"Persistent connection\"\
+    .\n"
+- title: 3.  Applicability Statement
+  contents:
+  - "3.  Applicability Statement\n   The applicability of the mechanism described\
+    \ in this document is for\n   two adjacent SIP entities to reuse connections when\
+    \ they are agnostic\n   about the direction of the connection, i.e., either end\
+    \ can initiate\n   the connection.  SIP entities that can only open a connection\
+    \ in a\n   specific direction -- perhaps because of Network Address Translation\n\
+    \   (NAT) and firewalls -- reuse their connections using the mechanism\n   described\
+    \ in the outbound document [RFC5626].\n   This memo concerns connection reuse,\
+    \ not persistent connections (see\n   definitions of these in Section 2).  Behavior\
+    \ for persistent\n   connections is specified in Section 18 of RFC 3261 [RFC3261]\
+    \ and is\n   not altered by this memo.\n   This memo documents that it is good\
+    \ practice to only reuse those\n   connections where the identity of the sender\
+    \ can be verified by the\n   receiver.  Thus, TLS (RFC 5246 [RFC5246]) connections\
+    \ (over any\n   connection-oriented transport) formed by exchanging X.509\n  \
+    \ certificates can be reused because they authoritatively establish\n   identities\
+    \ of the communicating parties (see Section 5).\n"
+- title: 4.  Benefits of TLS Connection Reuse
+  contents:
+  - "4.  Benefits of TLS Connection Reuse\n   Opening an extra connection where an\
+    \ existing one is sufficient can\n   result in potential scaling and performance\
+    \ problems.  Each new\n   connection using TLS requires a TCP three-way handshake,\
+    \ a handful of\n   round trips to establish TLS, typically expensive asymmetric\n\
+    \   authentication and key generation algorithms, and certificate\n   verification.\
+    \  This can lead to a build up of considerable queues as\n   the server CPU saturates\
+    \ by the TLS handshakes it is already\n   performing (Section 6.19 of Rescorla\
+    \ [Book-Rescorla-TLS]).\n   Consider the call flow shown below where Proxy A and\
+    \ Proxy B use the\n   Record-Route mechanism to stay involved in a dialog.  Proxy\
+    \ B will\n   establish a new TLS connection just to send a BYE request.\n    \
+    \                  Proxy A    Proxy B\n                         |          |\n\
+    \     Create connection 1 +---INV--->|\n                         |          |\n\
+    \                         |<---200---+ Response over connection 1\n          \
+    \               |          |\n     Reuse connection 1  +---ACK--->|\n        \
+    \                 |          |\n                         =          =\n      \
+    \                   |          |\n                         |<---BYE---+ Create\
+    \ connection 2\n                         |          |\n          Response over\
+    \  +---200--->|\n          connection 2\n                Figure 3: Multiple connections\
+    \ for requests\n   Setting up a second connection (from B to A above) for subsequent\n\
+    \   requests, even requests in the context of an existing dialog (e.g.,\n   re-INVITE\
+    \ request or BYE request after an initial INVITE request, or\n   a NOTIFY request\
+    \ after a SUBSCRIBE request or a REFER request), can\n   also cause excessive\
+    \ delay (especially in networks with long round-\n   trip times).  Thus, it is\
+    \ advantageous to reuse connections whenever\n   possible.\n   From the user expectation\
+    \ point of view, it is advantageous if the\n   re-INVITE requests or UPDATE requests\
+    \ are handled automatically and\n   rapidly in order to avoid media and session\
+    \ state from being out of\n   step.  If a re-INVITE request requires a new TLS\
+    \ connection, the re-\n   INVITE request could be delayed by several extra round-trip\
+    \ times.\n   Depending on the round-trip time, this combined delay could be\n\
+    \   perceptible or even annoying to a human user.  This is especially\n   problematic\
+    \ for some common SIP call flows (for example, the\n   recommended example flow\
+    \ in Figure 4 in RFC 3725 [RFC3725] uses many\n   re-INVITE requests).\n   The\
+    \ mechanism described in this document can mitigate the delays\n   associated\
+    \ with subsequent requests.\n"
+- title: 5.  Overview of Operation
+  contents:
+  - "5.  Overview of Operation\n   This section is tutorial in nature, and does not\
+    \ specify any\n   normative behavior.\n   We now explain this working in more\
+    \ detail in the context of\n   communication between two adjacent proxies.  Without\
+    \ any loss of\n   generality, the same technique can be used for connection reuse\n\
+    \   between a User Agent Client (UAC) and an edge proxy, or between an\n   edge\
+    \ proxy and a UAS, or between an UAC and an UAS.\n   P1 and P2 are proxies responsible\
+    \ for routing SIP requests to user\n   agents that use them as edge proxies (see\
+    \ Figure 4).\n                   P1 <===================> P2\n              p1.example.com\
+    \          p2.example.net\n               (192.0.2.1)              (192.0.2.128)\n\
+    \        +---+                                    +---+\n        |   |   0---0\
+    \                   0---0    |   |\n        |___|    /-\\                    \
+    \ /-\\     |___|\n       /    /   +---+                   +---+   /    /\n   \
+    \   +----+                                   +----+\n      User Agents       \
+    \                User Agents\n      example.com domain                example.net\
+    \ domain\n                           Figure 4: Proxy setup\n   For illustration\
+    \ purpose the discussion below uses TCP as a transport\n   for TLS operations.\
+    \  Another streaming transport -- such as SCTP --\n   can be used as well.\n \
+    \  The act of reusing a connection is initiated by P1 when it adds an\n   \"alias\"\
+    \ header field parameter (defined later) to the Via header\n   field.  When P2\
+    \ receives the request, it examines the topmost Via\n   header field.  If the\
+    \ Via header contained an \"alias\" header field\n   parameter, P2 establishes\
+    \ a binding such that subsequent requests\n   going to P1 will reuse the connection;\
+    \ i.e., requests are sent over\n   the established connection.\n   With reference\
+    \ to Figure 4, in order for P2 to reuse a connection for\n   requests in the backwards\
+    \ direction, it is important that the\n   validation model for requests sent in\
+    \ this direction (i.e., P2 to P1)\n   is equivalent to the normal \"connection\
+    \ in each direction\" model,\n   wherein P2 acting as client would open up a new\
+    \ connection in the\n   backwards direction and validate the connection by examining\
+    \ the\n   X.509 certificate presented.  The act of reusing a connection needs\n\
+    \   the desired property that requests get delivered in the backwards\n   direction\
+    \ only if they would have been delivered to the same\n   destination had connection\
+    \ reuse not been employed.  To guarantee\n   this property, the X.509 certificate\
+    \ presented by P1 to P2 when a TLS\n   connection is first authenticated are cached\
+    \ for later use.\n   To aid the discussion of connection reuse, this document\
+    \ defines a\n   data structure called the connection alias table (or simply, alias\n\
+    \   table), which is used to store aliased addresses and is used by user\n   agents\
+    \ to search for an existing connection before a new one is\n   opened up to a\
+    \ destination.  It is not the intent of this memo to\n   standardize the implementation\
+    \ of an alias table; rather, we use it\n   as a convenience to aid subsequent\
+    \ discussions.\n   P1 gets a request from one of its upstream user agents, and\
+    \ after\n   performing RFC3263 [RFC3263] server selection, arrives at a resolved\n\
+    \   address of P2.  P1 maintains an alias table, and it populates the\n   alias\
+    \ table with the IP address, port number, and transport of P2 as\n   determined\
+    \ through RFC3263 server selection.  P1 adds an \"alias\"\n   header field parameter\
+    \ to the topmost Via header field (inserted by\n   it) before sending the request\
+    \ to P2.  The value in the sent-by\n   production rule of the Via header field\
+    \ (including the port number),\n   and the transport over which the request was\
+    \ sent becomes the\n   advertised address of P1:\n   Via: SIP/2.0/TLS p1.example.com;branch=z9hG4bKa7c8dze;alias\n\
+    \   Assuming that P1 does not already have an existing aliased connection\n  \
+    \ with P2, P1 now opens a connection with P2.  P2 presents its X.509\n   certificate\
+    \ to P1 for validation (see Section 9.1).  Upon connection\n   authentication\
+    \ and acceptance, P1 adds P2 to its alias table.  P1's\n   alias table now looks\
+    \ like:\n   Destination  Destination  Destination  Destination      Alias\n  \
+    \ IP Address   Port         Transport    Identity         Descriptor\n   ...\n\
+    \   192.0.2.128  5061         TLS          sip:example.net     25\n          \
+    \                                sip:p2.example.net\n   Subsequent requests that\
+    \ traverse from P1 to P2 will reuse this\n   connection; i.e., the requests will\
+    \ be sent over the descriptor 25.\n   The following columns in the alias table\
+    \ created at the client\n   warrant an explanation:\n   1.  The IP address, port,\
+    \ and transport are a result of executing the\n       RFC3263 server resolution\
+    \ process on a next-hop URI.\n   2.  The entries in the fourth column consists\
+    \ of the identities of\n       the server as asserted in the X.509 certificate\
+    \ presented by the\n       server.  These identities are cached by the client\
+    \ after the\n       server has been duly authenticated (see Section 9.1).\n  \
+    \ 3.  The entry in the last column is the socket descriptor over which\n     \
+    \  P1, acting as a client, actively opened a TLS connection.  At\n       some\
+    \ later time, when P1 gets a request from one of the user\n       agents in its\
+    \ domain, it will reuse the aliased connection\n       accessible through socket\
+    \ descriptor 25 if and only if all of the\n       following conditions hold:\n\
+    \       A.  P1 determines through the RFC3263 server resolution process\n    \
+    \       that the {transport, IP-address, port} tuple of P2 to be\n           {TLS,\
+    \ 192.0.2.128, 5061}, and\n       B.  The URI used for the RFC3263 server resolution\
+    \ matches one of\n           the identities stored in the cached certificate (fourth\n\
+    \           column).\n   When P2 receives the request, it examines the topmost\
+    \ Via header\n   field to determine whether P1 is willing to use this connection\
+    \ as an\n   aliased connection (i.e., accept requests from P2 towards P1).  The\n\
+    \   Via header field at P2 now looks like the following (the \"received\"\n  \
+    \ header field parameter is added by P2):\n   Via: SIP/2.0/TLS p1.example.com;branch=z9hG4bKa7c8dze;alias;\n\
+    \     received=192.0.2.1\n   The presence of the \"alias\" Via header field parameter\
+    \ indicates that\n   P1 supports aliasing on this connection.  P2 now authenticates\
+    \ the\n   connection (see Section 9.2) and if the authentication was\n   successful,\
+    \ P2 creates an alias to P1 using the advertised address in\n   the topmost Via\
+    \ header field.  P2's alias table looks like the\n   following:\n   Destination\
+    \  Destination  Destination  Destination     Alias\n   IP Address   Port     \
+    \    Transport    Identity        Descriptor\n   ...\n   192.0.2.1    5061   \
+    \          TLS      sip:example.com     18\n                                 \
+    \         sip:p1.example.com\n   There are a few items of interest here:\n   1.\
+    \  The IP address field is populated with the source address of the\n       client.\n\
+    \   2.  The port field is populated from the advertised address (topmost\n   \
+    \    Via header field), if a port is present in it, or 5061 if it is\n       not.\n\
+    \   3.  The transport field is populated from the advertised address\n       (topmost\
+    \ Via header field).\n   4.  The entries in the fourth column consist of the identities\
+    \ of the\n       client as asserted in the X.509 certificate presented by the\n\
+    \       client.  These identities are cached by the server after the\n       client\
+    \ has been duly authenticated (see Section 9.2).\n   5.  The entry in the last\
+    \ column is the socket descriptor over which\n       the connection was passively\
+    \ accepted.  At some later time, when\n       P2 gets a request from one of the\
+    \ user agents in its domain, it\n       will reuse the aliased connection accessible\
+    \ through socket\n       descriptor 18 if and only if all of the following conditions\n\
+    \       hold:\n       A.  P2 determines through RFC3263 server resolution process\
+    \ that\n           the {transport, IP-address, port} tuple of P1 to be {TLS,\n\
+    \           192.0.2.1, 5061}, and\n       B.  The URI used for RFC3263 server\
+    \ resolution matches one of the\n           identities stored in the cached certificate\
+    \ (fourth column).\n   6.  The network address inserted in the \"Destination IP\
+    \ Address\"\n       column is the source address as seen by P2 (i.e., the \"received\"\
+    \n       header field parameter).  It could be the case that the host name\n \
+    \      of P1 resolves to different IP addresses due to round-robin DNS.\n    \
+    \   However, the aliased connection is to be established with the\n       original\
+    \ sender of the request.\n"
+- title: 6.  Requirements
+  contents:
+  - "6.  Requirements\n   The following are the requirements that motivated this specification:\n\
+    \   1.  A connection sharing mechanism should allow SIP entities to reuse\n  \
+    \     existing connections for requests and responses originated from\n      \
+    \ either peer in the connection.\n   2.  A connection sharing mechanism must not\
+    \ require clients to send\n       all traffic from well-know SIP ports.\n   3.\
+    \  A connection sharing mechanism must not require configuring\n       ephemeral\
+    \ port numbers in DNS.\n   4.  A connection sharing mechanism must prevent unauthorized\n\
+    \       hijacking of other connections.\n   5.  Connection sharing should persist\
+    \ across SIP transactions and\n       dialogs.\n   6.  Connection sharing must\
+    \ work across name-based virtual SIP\n       servers.\n   7.  There is no requirement\
+    \ to share a complete path for ordinary\n       connection reuse.  Hop-by-hop\
+    \ connection sharing is more\n       appropriate.\n"
+- title: 7.  Formal Syntax
+  contents:
+  - "7.  Formal Syntax\n   The following syntax specification uses the augmented Backus-Naur\n\
+    \   Form (BNF) as described in RFC 5234 [RFC5234].  This document extends\n  \
+    \ the via-params to include a new via-alias defined below.\n      via-params =/\
+    \ via-alias\n      via-alias  =  \"alias\"\n"
+- title: 8.  Normative Behavior
+  contents:
+  - '8.  Normative Behavior
+
+    '
+- title: 8.1.  Client Behavior
+  contents:
+  - "8.1.  Client Behavior\n   Clients SHOULD keep connections up as long as they\
+    \ are needed.\n   Connection reuse works best when the client and the server maintain\n\
+    \   their connections for long periods of time.  Clients, therefore,\n   SHOULD\
+    \ NOT automatically drop connections on completion of a\n   transaction or termination\
+    \ of a dialog.\n   The mechanism for connection reuse uses a new Via header field\n\
+    \   parameter.  The \"alias\" header field parameter is included in a Via\n  \
+    \ header field value to indicate that the client wants to create a\n   transport\
+    \ layer alias.  The client places its advertised address in\n   the Via header\
+    \ field value (in the sent-by production).\n   If the client places an \"alias\"\
+    \ header field parameter in the topmost\n   Via header of the request, the client\
+    \ SHOULD keep the connection open\n   for as long as the resources on the host\
+    \ operating system allow it\n   to, and that the client MUST accept requests over\
+    \ this connection --\n   in addition to the default listening port -- from its\
+    \ downstream\n   peer.  And furthermore, the client SHOULD reuse the connection\
+    \ when\n   subsequent requests in the same or different transactions are\n   destined\
+    \ to the same resolved address.\n      Note that RFC 3261 states that a response\
+    \ arrives over the same\n      connection that was opened for a request.\n   Whether\
+    \ or not to allow an aliased connection ultimately depends on\n   the recipient\
+    \ of the request; i.e., the client does not get any\n   confirmation that its\
+    \ downstream peer created the alias, or indeed\n   that it even supports this\
+    \ specification.  Thus, clients MUST NOT\n   assume that the acceptance of a request\
+    \ by a server automatically\n   enables connection aliasing.  Clients MUST continue\
+    \ receiving\n   requests on their default port.\n   Clients MUST authenticate\
+    \ the connection before forming an alias;\n   Section 9.1 discusses the authentication\
+    \ steps in more detail.  Once\n   the server has been authenticated, the client\
+    \ MUST cache, in the\n   alias table, the identity (or identities) of the server\
+    \ as determined\n   in Section 7.1 of RFC 5922 [RFC5922].  The client MUST also\
+    \ populate\n   the destination IP address, port, and transport of the server in\
+    \ the\n   alias table; these fields are retrieved from executing RFC3263 server\n\
+    \   resolution process on the next-hop URI.  And finally, the client MUST\n  \
+    \ populate the alias descriptor field with the connection handle (or\n   identifier)\
+    \ used to connect to the server.\n   Once the alias table has been updated with\
+    \ a resolved address, and\n   the client wants to send a new request in the direction\
+    \ of the\n   server, the client reuses the connection only if all of the following\n\
+    \   conditions hold:\n   1.  The client uses the RFC3263 resolution on a URI and\
+    \ arrives at a\n       resolved address contained in the alias table, and\n  \
+    \ 2.  The URI used for RFC3263 server resolution matches one of the\n       identities\
+    \ stored in the alias table row corresponding to that\n       resolved address.\n\
+    \   Clients MUST be prepared for the case that the connection no longer\n   exists\
+    \ when they are ready to send a subsequent request over it.  In\n   such a case,\
+    \ a new connection MUST be opened to the resolved address\n   and the alias table\
+    \ updated accordingly.\n   This behavior has an adverse side effect when a CANCEL\
+    \ request or an\n   ACK request for a non-2xx response is sent downstream.  Normally,\n\
+    \   these would be sent over the same connection over which the INVITE\n   request\
+    \ was sent.  However, if between the sending of the INVITE\n   request and subsequent\
+    \ sending of the CANCEL request or ACK request\n   to a non-2xx response, the\
+    \ connection was closed, then the client\n   SHOULD open a new connection to the\
+    \ resolved address and send the\n   CANCEL request or ACK request there instead.\
+    \  The client MAY insert\n   the newly opened connection into the alias table.\n"
+- title: 8.2.  Server Behavior
+  contents:
+  - "8.2.  Server Behavior\n   Servers SHOULD keep connections up unless they need\
+    \ to reclaim\n   resources.  Connection reuse works best when the client and the\n\
+    \   server maintain their connections for long periods of time.  Servers,\n  \
+    \ therefore, SHOULD NOT automatically drop connections on completion of\n   a\
+    \ transaction or termination of a dialog.\n   When a server receives a request\
+    \ over TLS whose topmost Via header\n   field contains an \"alias\" header field\
+    \ parameter, it signifies that\n   the upstream client will leave the connection\
+    \ open beyond the\n   transaction and dialog lifetime, and that subsequent transactions\
+    \ and\n   dialogs that are destined to a resolved address that matches the\n \
+    \  identifiers in the advertised address in the topmost Via header field\n   can\
+    \ reuse this connection.\n   Whether or not to use in the reverse direction a\
+    \ connection marked\n   with the \"alias\" Via header field parameter ultimately\
+    \ depends on the\n   policies of the server.  It can choose to honor it, and thereby\
+    \ send\n   subsequent requests over the aliased connection.  If the server\n \
+    \  chooses not to honor an aliased connection, the server MUST allow the\n   request\
+    \ to proceed as though the \"alias\" header field parameter was\n   not present\
+    \ in the topmost Via header.\n      This assures interoperability with RFC3261\
+    \ server behavior.\n      Clients can include the \"alias\" header field parameter\
+    \ without\n      fear that the server will reject the SIP request because of its\n\
+    \      presence.\n   Servers MUST be prepared to deal with the case that the aliased\n\
+    \   connection no longer exist when they are ready to send a subsequent\n   request\
+    \ over it.  This can happen if the peer ran out of operating\n   system resources\
+    \ and had to close the connection.  In such a case,\n   the server MUST open a\
+    \ new connection to the resolved address and the\n   alias table updated accordingly.\n\
+    \   If the sent-by production of the Via header field contains a port,\n   the\
+    \ server MUST use it as a destination port.  Otherwise, the default\n   port is\
+    \ the destination port.\n   Servers MUST follow the authentication steps outlined\
+    \ in Section 9.2\n   to authenticate the connection before forming an alias.\n\
+    \   The server, if it decides to reuse the connection, MUST cache in the\n   alias\
+    \ table the identity (or identities) of the client as they appear\n   in the X.509\
+    \ certificate subjectAlternativeName extension field.  The\n   server also populates\
+    \ the destination IP address, port, and transport\n   in the alias table from\
+    \ the topmost Via header field (using the\n   \";received\" parameter for the\
+    \ destination IP address).  If the port\n   number is omitted, a default port\
+    \ number of 5061 is to be used.  And\n   finally, the server populates the alias\
+    \ descriptor field with the\n   connection handle (or identifier) used to accept\
+    \ the connection from\n   the client (see Section 5 for the contents of the alias\
+    \ table).\n   Once the alias table has been updated, and the server wants to send\
+    \ a\n   request in the direction of the client, it reuses the connection only\n\
+    \   if all of the following conditions hold:\n   1.  The server, which acts as\
+    \ a client for this transaction, uses the\n       RFC3263 resolution process on\
+    \ a URI and arrives at a resolved\n       address contained in the alias table,\
+    \ and\n   2.  The URI used for RFC3263 server resolution matches one of the\n\
+    \       identities stored in the alias table row corresponding to that\n     \
+    \  resolved address.\n"
+- title: 8.3.  Closing a TLS connection
+  contents:
+  - "8.3.  Closing a TLS connection\n   Either the client or the server may terminate\
+    \ a TLS session by\n   sending a TLS closure alert.  Before closing a TLS connection,\
+    \ the\n   initiator of the closure MUST either wait for any outstanding SIP\n\
+    \   transactions to complete, or explicitly abandon them.\n   After the initiator\
+    \ of the close has sent a closure alert, it MUST\n   discard any TLS messages\
+    \ until it has received a similar alert from\n   its peer.  The receiver of the\
+    \ closure alert MUST NOT start any new\n   SIP transactions after the receipt\
+    \ of the closure alert.\n"
+- title: 9.  Security Considerations
+  contents:
+  - "9.  Security Considerations\n   This document presents requirements and a mechanism\
+    \ for reusing\n   existing connections easily.  Unauthenticated connection reuse\
+    \ would\n   present many opportunities for rampant abuse and hijacking.\n   Authenticating\
+    \ connection aliases is essential to prevent connection\n   hijacking.  For example,\
+    \ a program run by a malicious user of a\n   multiuser system could attempt to\
+    \ hijack SIP requests destined for\n   the well-known SIP port from a large relay\
+    \ proxy.\n"
+- title: '9.1.  Authenticating TLS Connections: Client View'
+  contents:
+  - "9.1.  Authenticating TLS Connections: Client View\n   When a TLS client establishes\
+    \ a connection with a server, it is\n   presented with the server's X.509 certificate.\
+    \  Authentication\n   proceeds as described in Section 7.3 (\"Client behavior\"\
+    ) of RFC 5922\n   [RFC5922].\n"
+- title: '9.2.  Authenticating TLS Connections: Server View'
+  contents:
+  - "9.2.  Authenticating TLS Connections: Server View\n   A TLS server conformant\
+    \ to this specification MUST ask for a client\n   certificate; if the client possesses\
+    \ a certificate, it will be\n   presented to the server for mutual authentication,\
+    \ and authentication\n   proceeds as described in Section 7.4 (\"Server behavior\"\
+    ) of RFC 5922\n   [RFC5922].\n   If the client does not present a certificate,\
+    \ the server MUST proceed\n   as if the \"alias\" header field parameter was not\
+    \ present in the\n   topmost Via header.  In this case, the server MUST NOT update\
+    \ the\n   alias table.\n"
+- title: 9.3.  Connection Reuse and Virtual Servers
+  contents:
+  - "9.3.  Connection Reuse and Virtual Servers\n   Virtual servers present special\
+    \ considerations for connection reuse.\n   Under the name-based virtual server\
+    \ scheme, one SIP proxy can host\n   many virtual domains using one IP address\
+    \ and port number.  If\n   adequate defenses are not put in place, a connection\
+    \ opened to a\n   downstream server on behalf of one domain can be reused to send\n\
+    \   requests in the backwards direction to a different domain.  The\n   \"Destination\
+    \ Identity\" column in the alias table has been added to\n   aid in such defenses.\n\
+    \   Virtual servers MUST only perform connection reuse for TLS\n   connections;\
+    \ virtual servers MUST NOT perform connection reuse for\n   other connection-oriented\
+    \ transports.  To understand why this is the\n   case, note that the alias table\
+    \ caches not only which connections go\n   to which destination addresses, but\
+    \ also which connections have\n   authenticated themselves as responsible for\
+    \ which domains.  If a\n   message is to be sent in the backwards direction to\
+    \ a new SIP domain\n   that resolves to an address with a cached connection, the\
+    \ cached\n   connection cannot be used because it is not authenticated for the\
+    \ new\n   domain.\n   As an example, consider a proxy P1 that hosts two virtual\
+    \ domains --\n   example.com and example.net -- on the same IP address and port.\n\
+    \   RFC3263 server resolution is set up such that a DNS lookup of\n   example.com\
+    \ and example.net both resolve to an {IP-address, port,\n   transport} tuple of\
+    \ {192.0.2.1, 5061, TLS}.  A user agent in the\n   example.com domain sends a\
+    \ request to P1 causing it to make a\n   downstream connection to its peering\
+    \ proxy, P2, and authenticating\n   itself as a proxy in the example.com domain\
+    \ by sending it a X.509\n   certificate asserting such an identity.  P2's alias\
+    \ table now looks\n   like the following:\n   Destination  Destination  Destination\
+    \  Destination     Alias\n   IP Address   Port         Transport    Identity \
+    \       Descriptor\n   ...\n   192.0.2.1    5061             TLS      sip:example.com\
+    \     18\n   At some later point in time, a user agent in P2's domain wants to\n\
+    \   send a request to a user agent in the example.net domain.  P2\n   performs\
+    \ an RFC3263 server resolution process on sips:example.net to\n   derive a resolved\
+    \ address tuple {192.0.2.1, 5061, TLS}.  It appears\n   that a connection to this\
+    \ network address is already cached in the\n   alias table; however, P2 cannot\
+    \ reuse this connection because the\n   destination identity (sip:example.com)\
+    \ does not match the server\n   identity used for RFC3261 resolution (sips:example.net).\
+    \  Hence, P2\n   will open up a new connection to the example.net virtual domain\n\
+    \   hosted on P1.  P2's alias table will now look like:\n   Destination  Destination\
+    \  Destination  Destination     Alias\n   IP Address   Port         Transport\
+    \    Identity        Descriptor\n   ...\n   192.0.2.1    5061             TLS\
+    \      sip:example.com     18\n   192.0.2.1    5061             TLS      sip:example.net\
+    \     54\n   The identities conveyed in an X.509 certificate are associated with\
+    \ a\n   specific TLS connection.  Absent such a guarantee of an identity tied\n\
+    \   to a specific connection, a normal TCP or SCTP connection cannot be\n   used\
+    \ to send requests in the backwards direction without a\n   significant risk of\
+    \ inadvertent (or otherwise) connection hijacking.\n   The above discussion details\
+    \ the impact on P2 when connection reuse\n   is desired for virtual servers. \
+    \ There is a subtle, but important\n   impact on P1 as well.\n   P1 should keep\
+    \ separate alias tables for the requests served from the\n   UAs in the example.com\
+    \ domain from those served by the UAs in the\n   example.net domain.  This is\
+    \ so that the boundary between the two\n   domains is preserved; P1 MUST NOT open\
+    \ a connection on behalf of one\n   domain and reuse it to send a new request\
+    \ on behalf of another\n   domain.\n"
+- title: 10.  Connection Reuse and SRV Interaction
+  contents:
+  - "10.  Connection Reuse and SRV Interaction\n   Connection reuse has an interaction\
+    \ with the DNS SRV load balancing\n   mechanism.  To understand the interaction,\
+    \ consider the following\n   figure:\n             /+---- S1\n   +-------+/\n\
+    \   | Proxy |------- S2\n   +-------+\\\n             \\+---- S3\n           \
+    \              Figure 5: Load balancing\n   Here, the proxy uses the DNS SRV to\
+    \ load balance across the three\n   servers, S1, S2, and S3.  Using the connect\
+    \ reuse mechanism specified\n   in this document, over time the proxy will maintain\
+    \ a distinct\n   aliased connection to each of the servers.  However, once this\
+    \ is\n   done, subsequent traffic is load balanced across the three downstream\n\
+    \   servers in the normal manner.\n"
+- title: 11.  IANA Considerations
+  contents:
+  - "11.  IANA Considerations\n   This specification defines a new Via header field\
+    \ parameter called\n   \"alias\" in the \"Header Field Parameters and Parameter\
+    \ Values\" sub-\n   registry as per the registry created by RFC 3968 [RFC3968].\
+    \  The\n   required information is:\n   Header Field  Parameter Name  Predefined\
+    \ Values  Reference\n   ___________________________________________________________________\n\
+    \   Via           alias                 No           RFC5923\n"
+- title: 12.  Acknowledgments
+  contents:
+  - "12.  Acknowledgments\n   Thanks to Jon Peterson for helpful answers about certificate\
+    \ behavior\n   with SIP, Jonathan Rosenberg for his initial support of this concept,\n\
+    \   and Cullen Jennings for providing a sounding board for this idea.\n   Other\
+    \ members of the SIP WG that contributed to this document include\n   Jeroen van\
+    \ Bemmel, Keith Drage, Matthew Gardiner, Rajnish Jain, Benny\n   Prijono, and\
+    \ Rocky Wang.\n   Dale Worley and Hadriel Kaplan graciously performed a WGLC review\
+    \ of\n   the document.  The resulting revision has benefited tremendously from\n\
+    \   their feedback.\n"
+- title: 13.  References
+  contents:
+  - '13.  References
+
+    '
+- title: 13.1.  Normative References
+  contents:
+  - "13.1.  Normative References\n   [RFC3261]  Rosenberg, J., Schulzrinne, H., Camarillo,\
+    \ G., Johnston,\n              A., Peterson, J., Sparks, R., Handley, M., and\
+    \ E.\n              Schooler, \"SIP: Session Initiation Protocol\", RFC 3261,\n\
+    \              June 2002.\n   [RFC2119]  Bradner, S., \"Key words for use in RFCs\
+    \ to Indicate\n              Requirement Levels\", BCP 14, RFC 2119, March 1997.\n\
+    \   [RFC5246]  Dierks, T. and E. Rescorla, \"The Transport Layer Security\n  \
+    \            (TLS) Protocol Version 1.2\", RFC 5246, August 2008.\n   [RFC3263]\
+    \  Rosenberg, J. and H. Schulzrinne, \"Session Initiation\n              Protocol\
+    \ (SIP): Locating SIP Servers\", RFC 3263,\n              June 2002.\n   [RFC5234]\
+    \  Crocker, D. and P. Overell, \"Augmented BNF for Syntax\n              Specifications:\
+    \ ABNF\", RFC 5234, January 2008.\n   [RFC5922]  Gurbani, V., Lawrence, S., and\
+    \ B. Laboratories, \"Domain\n              Certificates in the Session Initiation\
+    \ Protocol (SIP)\",\n              RFC 5922, June 2010.\n"
+- title: 13.2.  Informative References
+  contents:
+  - "13.2.  Informative References\n   [RFC3968]  Camarillo, G., \"The Internet Assigned\
+    \ Number Authority\n              (IANA) Header Field Parameter Registry for the\
+    \ Session\n              Initiation Protocol (SIP)\", BCP 98, RFC 3968,\n    \
+    \          December 2004.\n   [RFC5626]  Jennings, C., Mahy, R., and F. Audet,\
+    \ \"Managing Client-\n              Initiated Connections in the Session Initiation\
+    \ Protocol\n              (SIP)\", RFC 5626, October 2009.\n   [Book-Rescorla-TLS]\n\
+    \              Rescorla, E., \"SSL and TLS: Designing and Building Secure\n  \
+    \            Systems\", Addison-Wesley Publishing, 2001.\n   [RFC3725]  Rosenberg,\
+    \ J., Peterson, J., Schulzrinne, H., and G.\n              Camarillo, \"Best Current\
+    \ Practices for Third Party Call\n              Control (3pcc) in the Session\
+    \ Initiation Protocol (SIP)\",\n              BCP 85, RFC 3725, April 2004.\n\
+    \   [RFC4960]  Stewart, R., \"Stream Control Transmission Protocol\",\n      \
+    \        RFC 4960, September 2007.\n"
+- title: Authors' Addresses
+  contents:
+  - "Authors' Addresses\n   Vijay K. Gurbani (editor)\n   Bell Laboratories, Alcatel-Lucent\n\
+    \   EMail: vkg@alcatel-lucent.com\n   Rohan Mahy\n   Unaffiliated\n   EMail: rohan@ekabal.com\n\
+    \   Brett Tate\n   BroadSoft\n   EMail: brett@broadsoft.com\n"

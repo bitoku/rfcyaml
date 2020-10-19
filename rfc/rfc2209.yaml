@@ -1,0 +1,630 @@
+- title: __initial_text__
+  contents:
+  - "                Resource ReSerVation Protocol (RSVP) --\n                   Version\
+    \ 1 Message Processing Rules\n"
+- title: Status of this Memo
+  contents:
+  - "Status of this Memo\n   This memo provides information for the Internet community.\
+    \  It does\n   not specify an Internet standard of any kind.  Distribution of\
+    \ this\n   memo is unlimited.\n"
+- title: Abstract
+  contents:
+  - "Abstract\n   This memo contains an algorithmic description of the rules used\
+    \ by an\n   RSVP implementation for processing messages.  It is intended to\n\
+    \   clarify the version 1 RSVP protocol specification.\n   This memo provides\
+    \ a generic description of the rules for the\n   operation of Version 1 of RSVP\
+    \ [RFC 2205].  It is intended to outline\n   a set of algorithms that will accomplish\
+    \ the needed function,\n   omitting many details.\n"
+- title: 1. GENERIC DATA STRUCTURES
+  contents:
+  - "1. GENERIC DATA STRUCTURES\n   This memo assumes the generic interface calls\
+    \ defined in [RFC 2005]\n   and the following data structures.  An actual implementation\
+    \ may use\n   additional or different data structures and interfaces.  The data\n\
+    \   structure fields that are shown are required unless they are\n   explicitly\
+    \ labelled as optional.\n   o    PSB -- Path State Block\n        Each PSB holds\
+    \ path state for a particular (session, sender)\n        pair, defined by SESSION\
+    \ and SENDER_TEMPLATE objects,\n        respectively, received in a PATH message.\n\
+    \        PSB contents include the following values from a PATH message:\n    \
+    \    -    Session\n        -    Sender_Template\n        -    Sender_Tspec\n \
+    \       -    The previous hop IP address and the Logical Interface\n         \
+    \    Handle (LIH) from a PHOP object\n        -    The remaining IP TTL\n    \
+    \    -    POLICY_DATA and/or ADSPEC objects (optional)\n        -    Non_RSVP\
+    \ flag\n        -    E_Police flag\n        -    Local_Only flag\n        In addition,\
+    \ the PSB contains the following information provided\n        by routing: OutInterface_list,\
+    \ which is the list of outgoing\n        interfaces for this (sender, destination),\
+    \ and IncInterface,\n        which is the expected incoming interface.  For a\
+    \ unicast\n        destination, OutInterface_list contains one entry and\n   \
+    \     IncInterface is undefined.\n        Note that there may be more than one\
+    \ PSB for the same (session,\n        sender) pair but different incoming interfaces.\
+    \  At most one of\n        these, which will have the Local_Only flag off, will\
+    \ be the PSB\n        used for forwarding PATH messages downstream; we will refer\
+    \ to\n        it as the \"forwarding PSB\" in the following.  The other PSB's\n\
+    \        will have the Local_Only flag on and an empty\n        OutInterface_list.h\
+    \ The Local_Only flag is needed to correctly\n        match PSB's against RSB's,\
+    \ by the rules of [RFC 2205].\n   o    RSB -- Reservation State Block\n      \
+    \  Each RSB holds a reservation request that arrived in a\n        particular\
+    \ RESV message, corresponding to the triple:  (session,\n        next hop, Filter_spec_list).\
+    \  Here \"Filter_spec_list\" may be a\n        list of FILTER_SPECs (for SE style),\
+    \ a single FILTER_SPEC (FF\n        style), or empty (WF style).  We define the\
+    \ virtual object type\n        \"FILTER_SPEC*\" for such a data structure.\n \
+    \       RSB contents include:\n        -    Session specification\n        - \
+    \   Next hop IP address\n        -    Filter_spec_list\n        -    The outgoing\
+    \ (logical) interface OI on which the\n             reservation is to be made\
+    \ or has been made.\n        -    Style\n        -    Flowspec\n        -    A\
+    \ SCOPE object (optional, depending upon style)\n        -    RESV_CONFIRM object\
+    \ that was received (optional)\n   o    TCSB -- Traffic Control State Block\n\
+    \        Each TCSB holds the reservation specification that has been\n       \
+    \ handed to traffic control for a specific outgoing interface.  In\n        general,\
+    \ TCSB information is derived from RSB's for the same\n        outgoing interface.\
+    \  Each TCSB defines a single reservation for\n        a particular triple: (session,\
+    \ OI, Filter_spec_list).   TCSB\n        contents include:\n        -    Session\n\
+    \        -    OI (Outgoing Interface)\n        -    Filter_spec_list\n       \
+    \ -    TC_Flowspec, the effective flowspec, i.e., the LUB over the\n         \
+    \    corresponding FLOWSPEC values from matching RSB's.\n             TC_Flowspec\
+    \ is passed to traffic control to make the actual\n             reservation.\n\
+    \         -   Fwd_Flowspec, the updated object to be forwarded\n             after\
+    \ merging.\n        -    TC_Tspec, equal to Path_Te, the effective sender Tspec.\n\
+    \        -    Police Flags\n             The flags are E_Police_Flag, M_Police_Flag,\
+    \ and\n             B_Police_Flag.\n        -    Rhandle, F_Handle_list\n    \
+    \         Handles returned by the traffic control interface,\n             corresponding\
+    \ to a flowspec and perhaps a list of filter\n             specs.\n        - \
+    \   A RESV_CONFIRM object to be forwarded.\n   o    BSB -- Blockade State Block\n\
+    \        Each BSB contains an element of blockade state.  Depending upon\n   \
+    \     the reservation style in use, the BSB's may be per (session,\n        sender_template)\
+    \ pair or per (session, PHOP) pair.  In practice,\n        an implementation might\
+    \ embed a BSB within a PSB; however, for\n        clarity we describe BSB's independently.\n\
+    \        The contents of a BSB include:\n        -    Session\n        -    Sender_Template\
+    \ (which is also a filter spec)\n        -    PHOP\n        -    FLOWSPEC Qb\n\
+    \        -    Blockade timer Tb\n        The following Boolean Flag variables\
+    \ are used in this section:\n        Path_Refresh_Needed, Resv_Refresh_Needed,\
+    \ Tear_Needed,\n        Need_Scope, B_Merge, and NeworMod.  Refresh_PHOP_list\
+    \ is a\n        variable-length list of PHOPs to be refreshed.\n"
+- title: 2. PROCESSING RULES
+  contents:
+  - "2. PROCESSING RULES\n   MESSAGE ARRIVES\n   Verify version number and RSVP checksum,\
+    \ and discard message if any\n   mismatch is found.\n   If the message type is\
+    \ not PATH or PTEAR or RACK and if the IP\n   destination address does not match\
+    \ any of the addresses of the local\n   interfaces, then forward the message to\
+    \ IP destination address and\n   return.\n   Parse the sequence of objects in\
+    \ the message.  If any required\n   objects are missing or the length field of\
+    \ the common header does not\n   match an object boundary, discard the message\
+    \ and return.\n   Verify the INTEGRITY object, if any.  If the check fails, discard\
+    \ the\n   message and return.\n   Verify the consistent use of port fields.  If\
+    \ the DstPort in the\n   SESSION object is zero but the SrcPort in a SENDER_TEMPLATE\
+    \ or\n   FILTER_SPEC object is non-zero, then the message has a \"conflicting\n\
+    \   source port\" error; silently discard the message and return.\n   Processing\
+    \ of POLICY_DATA objects will be specified in the future.\n   Further processing\
+    \ depends upon message type.\n   PATH MESSAGE ARRIVES\n   Assume the PATH message\
+    \ arrives on interface InIf.\n   Process the sender descriptor object sequence\
+    \ in the message as\n   follows.  The Path_Refresh_Needed and Resv_Refresh_Needed\
+    \ flags are\n   initially off.\n   o    Search for a path state block (PSB) whose\
+    \ (session,\n        sender_template) pair matches the corresponding objects in\
+    \ the\n        message, and whose IncInterface matches InIf.\n             During\
+    \ this search:\n             1.   If a PSB is found whose session matches the\n\
+    \                  DestAddress and Protocol Id fields of the received\n      \
+    \            SESSION object, but the DstPorts differ and one is\n            \
+    \      zero, then build and send a \"Conflicting Dst Port\"\n                \
+    \  PERR message, drop the PATH message, and return.\n             2.   If a PSB\
+    \ is found with a matching sender host but the\n                  Src Ports differ\
+    \ and one of the SrcPorts is zero, then\n                  build and send an \"\
+    Ambiguous Path\" PERR message, drop\n                  the PATH message, and return.\n\
+    \             3.   If a forwarding PSB is found, i.e., a PSB that matches\n  \
+    \                the (session, sender_template) pair and whose\n             \
+    \     Local_Only flag is off, save a pointer to it in the\n                  variable\
+    \ fPSB.  If none is found, set fPSB to NULL.\n        o    If there was no matching\
+    \ PSB, then:\n             1.   Create a new PSB.\n             2.   Copy contents\
+    \ of the SESSION, SENDER_TEMPLATE,\n                  SENDER_TSPEC, and PHOP (IP\
+    \ address and LIH) objects\n                  into the PSB.\n             3. \
+    \  If the sender is from the local API, set\n                  OutInterface_List\
+    \ to the single interface whose\n                  address matches the sender\
+    \ address, and make\n                  IncInterface undefined.  Otherwise, turn\
+    \ on the\n                  Local_Only flag.\n             4.   Turn on the Path_Refresh_Needed\
+    \ flag.\n        o    Otherwise (there is a matching PSB):\n             -   \
+    \ If the PHOP IP address, the LIH, or Sender_Tspec\n                  differs\
+    \ between the message and the PSB, copy the new\n                  value into\
+    \ the PSB and turn on the Path_Refresh_Needed\n                  flag.  If the\
+    \ PHOP IP address or the LIH differ, also\n                  turn on the Resv_Refresh_Needed\
+    \ flag.\n        o    Call the resulting PSB the \"current PSB\" (cPSB).  Update\n\
+    \             the cPSB, as follows:\n             -    Start or Restart the cleanup\
+    \ timer for the PSB.\n             -    If the message contains an ADSPEC object,\
+    \ copy it into\n                  the PSB.\n             -    Copy E_Police flag\
+    \ from SESSION object into PSB.\n             -    Store the received TTL into\
+    \ the PSB.\n                  If the received TTL differs from Send_TTL in the\
+    \ RSVP\n                  common header, set the Non_RSVP flag on in the PSB.\n\
+    \        o    If the PSB is new or if there is no route change\n             notification\
+    \ in place, then perform the following routing\n             manipulations, but\
+    \ not if the cPSB is from the local API.\n             1.   Invoke the appropriate\
+    \ Route_Query routine using\n                  DestAddress from SESSION and (for\
+    \ multicast routing)\n                  SrcAddress from Sender_Template.\n   \
+    \               Call the results (Rt_OutL, Rt_InIf).\n             2.   If the\
+    \ destination is multicast and Rt_InIf differs\n                  from IncInterface\
+    \ in the cPSB, but fPSB points to the\n                  cPSB, then do the following.\n\
+    \                  -    Turn on the Local_Only flag and clear the\n          \
+    \             OutInterface_list of the fPSB.  Set the fPSB\n                 \
+    \      pointer to NULL.\n                  -    Search for a PSB for the same\
+    \ (session,\n                       sender_template) pair whose IncInterface matches\n\
+    \                       Rt_InIf.  If one is found, set fPSB to point to\n    \
+    \                   it.\n             3.   If the destination is multicast and\
+    \ Rt_InIf is the\n                  same as IncInterface in the cPSB, but fPSB\
+    \ does not\n                  point to the cPSB, then do the following.\n    \
+    \              -    Copy into the cPSB the OutInterface_list from the\n      \
+    \                 PSB, if any, pointed to by fPSB.  Clear\n                  \
+    \     OutInterface_list and turn on the Local_Only flag\n                    \
+    \   in the PSB pointed to by fPSB, if any.\n                  -    Turn off the\
+    \ Local_Only flag in the cPSB and set\n                       fPSB to point to\
+    \ cPSB.\n             4.   If Rt_OutL differs from OutInterface_list of the PSB\n\
+    \                  pointed to by fPSB, then:\n                  -    Update the\
+    \ OutInterface_list of the PSB from\n                       Rt_OutL, and then\
+    \ execute the PATH LOCAL REPAIR\n                       event sequence below.\n\
+    \        o    If the Path_Refresh_Needed flag is now off, drop the PATH\n    \
+    \         message and return.\n             Otherwise (the path state is new or\
+    \ modified), do\n             refreshes, upcalls, and state updates as follows.\n\
+    \             1.   If this PATH message came from a network interface and\n  \
+    \                not from a local application, make a Path Event upcall\n    \
+    \              for each local application for this session:\n                \
+    \       Call: <Upcall_Proc>( session-id, PATH_EVENT,\n                       \
+    \             flags, sender_tspec, sender_template\n                         \
+    \           [ , ADSPEC] [ , POLICY_DATA] )\n             2.   If OutInterface_list\
+    \ is not empty, execute the PATH\n                  REFRESH event sequence (below)\
+    \ for the sender defined\n                  by the PSB.\n             3.   Search\
+    \ for any matching reservation state, i.e., an\n                  RSB whose Filter_spec_list\
+    \ includes a FILTER_SPEC\n                  matching the SENDER_TEMPLATE and whose\
+    \ OI appears in\n                  the OutInterface_list, and make this the `active\
+    \ RSB'.\n                  If none is found, drop the PATH message and return.\n\
+    \             4.   Execute the RESV REFRESH sequence (below) for the PHOP\n  \
+    \                in the PSB.\n             5.   Execute the event sequence UPDATE\
+    \ TRAFFIC CONTROL to\n                  update the local traffic control state\
+    \ if necessary.\n                  This sequence will turn on the Resv_Refresh_Needed\n\
+    \                  flag if the traffic control state has been modified in\n  \
+    \                a manner that should trigger a reservation refresh.\n       \
+    \           If so, execute the RESV REFRESH sequence for the PHOP\n          \
+    \        in the PSB.\n        o    Drop the PATH message and return.\n   PTEAR\
+    \ MESSAGE ARRIVES\n        o    Search for a PSB whose (Session, Sender_Template)\
+    \ pair\n             matches the corresponding objects in the message.  If no\n\
+    \             matching PSB is found, drop the PTEAR message and return.\n    \
+    \    o    Forward a copy of the PTEAR message to each outgoing\n             interface\
+    \ listed in OutInterface_list of the PSB.\n        o    Find each RSB that matches\
+    \ this PSB, i.e., whose\n             Filter_spec_list matches Sender_Template\
+    \ in the PSB and\n             whose OI is included in OutInterface_list.\n  \
+    \           1.   If the RSB style is explicit, then:\n                  -    Delete\
+    \ from Filter_spec_list the FILTER_SPEC that\n                       matches the\
+    \ PSB.\n                  -    if Filter_spec_list is now empty, delete the RSB.\n\
+    \             2.   Otherwise (RSB style is wildcard) then:\n                 \
+    \ -    If this RSB matches no other PSB, then delete the\n                   \
+    \    RSB.\n             3.   If an RSB was found, execute the event sequence UPDATE\n\
+    \                  TRAFFIC CONTROL (below) to update the traffic control\n   \
+    \               state to be consistent with the current reservation\n        \
+    \          and path state.\n        o    Delete the PSB.\n        o    Drop the\
+    \ PTEAR message and return.\n   PERR MESSAGE ARRIVES\n        o    Search for\
+    \ a PSB whose (SESSION, SENDER_TEMPLATE) pair\n             matches the corresponding\
+    \ objects in the message.  If no\n             matching PSB is found, drop the\
+    \ PERR message and return.\n        o    If the previous hop address in the PSB\
+    \ is the local API,\n             make an error upcall to the application:\n \
+    \                 Call: <Upcall_Proc>( session-id, PATH_ERROR,\n             \
+    \                    Error_code, Error_value, Node_Addr,\n                   \
+    \              Sender_Template [ , Policy_Data] )\n             Any SENDER_TSPEC\
+    \ or ADSPEC object in the message is\n             ignored.\n             Otherwise,\
+    \ send a copy of the PERR message to the PHOP IP\n             address.\n    \
+    \    o    Drop the PERR message and return.\n   RESV MESSAGE ARRIVES\n       \
+    \ Initially, Refresh_PHOP_list is empty and the\n        Resv_Refresh_Needed and\
+    \ NeworMod flags are off.  These variables\n        are used to control immediate\
+    \ reservation refreshes.\n        o    Determine the Outgoing Interface OI\n \
+    \            The logical outgoing interface OI is taken from the LIH in\n    \
+    \         the NHOP object.  (If the physical interface is not implied\n      \
+    \       by the LIH, it can be learned from the interface matching\n          \
+    \   the IP destination address).\n        o    Check the path state\n        \
+    \     1.   If there are no existing PSB's for SESSION then build\n           \
+    \       and send a RERR message (as described later)\n                  specifying\
+    \ \"No path information\", drop the RESV\n                  message, and return.\n\
+    \             2.   If a PSB is found with a matching sender host but the\n   \
+    \               SrcPorts differ and one of the SrcPorts is zero, then\n      \
+    \            build and send an \"Ambiguous Path\" PERR message, drop\n       \
+    \           the RESV message, and return.\n        o    Check for incompatible\
+    \ styles.\n             If any existing RSB for the session has a style that is\n\
+    \             incompatible with the style of the message, build and send\n   \
+    \          a RERR message specifying \"Conflicting Style\", drop the\n       \
+    \      RESV message, and return.\n        Process the flow descriptor list to\
+    \ make reservations, as\n        follows, depending upon the style.  The following\
+    \ uses a filter\n        spec list struct Filtss of type FILTER_SPEC* (defined\
+    \ earlier).\n        For FF style: execute the following steps independently for\
+    \ each\n        flow descriptor in the message, i.e., for each (FLOWSPEC,\n  \
+    \      Filtss) pair.  Here the structure Filtss consists of the\n        FILTER_SPEC\
+    \ from the flow descriptor.\n        For SE style, execute the following steps\
+    \ once for (FLOWSPEC,\n        Filtss), with Filtss consisting of the list of\
+    \ FILTER_SPEC\n        objects from the flow descriptor.\n        For WF style,\
+    \ execute the following steps once for (FLOWSPEC,\n        Filtss), with Filtss\
+    \ an empty list.\n        o    Check the path state, as follows.\n           \
+    \  1.   Locate the set of PSBs (senders) that route to OI and\n              \
+    \    whose SENDER_TEMPLATEs match a FILTER_SPEC in Filtss.\n                 \
+    \ If this set is empty, build and send an error message\n                  specifying\
+    \ \"No sender information\", and continue with\n                  the next flow\
+    \ descriptor in the RESV message.\n             2.   If the style has explicit\
+    \ sender selection (e.g., FF\n                  or SE) and if any FILTER_SPEC\
+    \ included in Filtss\n                  matches more than one PSB, build and send\
+    \ a RERR\n                  message specifying \"Ambiguous filter spec\" and\n\
+    \                  continue with the next flow descriptor in the RESV\n      \
+    \            message.\n             3.   If the style is SE and if some FILTER_SPEC\
+    \ included in\n                  Filtss matches no PSB, delete that FILTER_SPEC\
+    \ from\n                  Filtss.\n             4.   Add the PHOP from the PSB\
+    \ to Refresh_PHOP_list, if the\n                  PHOP is not already on the list.\n\
+    \        o    Find or create a reservation state block (RSB) for\n           \
+    \  (SESSION, NHOP).  If the style is distinct, Filtss is also\n             used\
+    \ in the selection.  Call this the \"active RSB\".\n        o    If the active\
+    \ RSB is new:\n             1.   Set the session, NHOP, OI and style of the RSB\
+    \ from\n                  the message.\n             2.   Copy Filtss into the\
+    \ Filter_spec_list of the RSB.\n             3.   Copy the FLOWSPEC and any SCOPE\
+    \ object from the\n                  message into the RSB.\n             4.  \
+    \ Set NeworMod flag on.\n        o    If the active RSB is not new, check whether\
+    \ Filtss from the\n             message contains FILTER_SPECs that are not in\
+    \ the RSB; if\n             so, add the new FILTER_SPECs and turn on the NeworMod\
+    \ flag.\n        o    Start or restart the cleanup timer on the active RSB, or,\n\
+    \             in the case of SE style, on each FILTER_SPEC of the RSB\n      \
+    \       that also appears in Filtss.\n        o    If the active RSB is not new,\
+    \ check whether STYLE, FLOWSPEC\n             or SCOPE objects have changed; if\
+    \ so, copy changed object\n             into RSB and turn on the NeworMod flag.\n\
+    \        o    If the message contained a RESV_CONFIRM object, copy it\n      \
+    \       into the RSB and turn on NeworMod flag.\n        o    If the NeworMod\
+    \ flag is off, continue with the next flow\n             descriptor in the RESV\
+    \ message, if any.\n        o    Otherwise (the NeworMod flag is on, i.e., the\
+    \ active RSB is\n             new or modified), execute the UPDATE TRAFFIC CONTROL\
+    \ event\n             sequence (below).  If the result is to modify the traffic\n\
+    \             control state, this sequence will turn on the\n             Resv_Refresh_Needed\
+    \ flag and make a RESV_EVENT upcall to\n             any local application.\n\
+    \             If the UPDATE TRAFFIC CONTROL sequence fails with an error,\n  \
+    \           then delete a new RSB but restore the original reservation\n     \
+    \        in an old RSB.\n        o    Continue with the next flow descriptor.\n\
+    \        o    When all flow descriptors have been processed, check the\n     \
+    \        Resv_Refresh_Needed flag.  If it is now on, execute the\n           \
+    \  RESV REFRESH sequence (below) for each PHOP in\n             Refresh_PHOP_list.\n\
+    \        o    Drop the RESV message and return.\n             If processing a\
+    \ RESV message finds an error, a RERR message\n             is created containing\
+    \ flow descriptor and an ERRORS object.\n             The Error Node field of\
+    \ the ERRORS object is set to the IP\n             address of OI, and the message\
+    \ is sent unicast to NHOP.\n   RTEAR MESSAGE ARRIVES\n        Processing of a\
+    \ RTEAR message roughly parallels the processing\n        of the corresponding\
+    \ RESV message\n        A RTEAR message arrives with an IP destination address\
+    \ matching\n        outgoing interface OI.  Flag Resv_Refresh_Needed is initially\n\
+    \        off and Refresh_PHOP_list is empty.\n        o    Determine the Outgoing\
+    \ Interface OI\n             The logical outgoing interface OI is taken from the\
+    \ LIH in\n             the NHOP object.  (If the physical interface is not implied\n\
+    \             by the LIH, it can be learned from the interface matching\n    \
+    \         the IP destination address).\n        o    Process the flow descriptor\
+    \ list in the RTEAR message to\n             tear down local reservation state,\
+    \ as follows, depending\n             upon the style.  The following uses a filter\
+    \ spec list\n             struct Filtss of type FILTER_SPEC* (defined earlier).\n\
+    \             For FF style: execute the following steps independently for\n  \
+    \           each flow descriptor in the message, i.e., for each\n            \
+    \ (FLOWSPEC, Filtss) pair.  Here the structure Filtss\n             consists of\
+    \ the FILTER_SPEC from the flow descriptor.\n             For SE style, execute\
+    \ the following steps once for\n             (FLOWSPEC, Filtss), with Filtss consisting\
+    \ of the list of\n             FILTER_SPEC objects from the flow descriptor.\n\
+    \             For WF style, execute the following steps once for\n           \
+    \  (FLOWSPEC, Filtss), with Filtss an empty list.\n             1.   Find an RSB\
+    \ matching (SESSION, NHOP).  If the style is\n                  distinct, Filtss\
+    \ is also used in the selection.  Call\n                  this the \"active RSB\"\
+    .  If no active RSB is found,\n                  continue with next flow descriptor.\n\
+    \             2.   Check the style\n                  If the active RSB has a\
+    \ style that is incompatible\n                  with the style of the message,\
+    \ drop the RTEAR message\n                  and return.\n             3.   Delete\
+    \ from the active RSB each FILTER_SPEC that\n                  matches a FILTER_SPEC\
+    \ in Filtss.\n             4.   If all FILTER_SPECs have now been deleted from\
+    \ the\n                  active RSB, delete the active RSB.\n             5. \
+    \  Execute the UPDATE TRAFFIC CONTROL event sequence\n                  (below)\
+    \ to update the traffic control state to be\n                  consistent with\
+    \ the reservation state.  If the result\n                  is to modify the traffic\
+    \ control state, the\n                  Resv_Refresh_Needed flag will be turned\
+    \ on and a\n                  RESV_EVENT upcall will be made to any local\n  \
+    \                application.\n             6.   Continue with the next flow descriptor.\n\
+    \        o    All flow descriptors have been processed.\n             Build and\
+    \ send any RTEAR messages to be forwarded, in the\n             following manner.\n\
+    \             1.   Select each PSB that routes to the outgoing interface\n   \
+    \               OI, and, for distinct style, that has a\n                  SENDER_TEMPLATE\
+    \ matching Filtss.\n             2.   Select a flow descriptor (Qj,Fj) (where\
+    \ Fj may be a\n                  list) in the RTEAR message whose FILTER_SPEC\
+    \ matches\n                  the SENDER_TEMPLATE in the PSB.  If not match is\n\
+    \                  found, return for next PSB.\n                  -    Search\
+    \ for an RSB (for any outgoing interface) to\n                       which the\
+    \ PSB routes and whose Filter_spec_list\n                       includes the SENDER_TEMPLATE\
+    \ from the PSB.\n                  -    If an RSB is found, add the PHOP of the\
+    \ PSB to\n                       the Refresh_PHOP_list.\n                  - \
+    \   Otherwise (no RSB is found), add the flow\n                       descriptor\
+    \ (Qj,Fj) to the new RTEAR message being\n                       built, in a manner\
+    \ appropriate to the style.\n                  -    Continue with the next PSB.\n\
+    \             3.   If the next PSB is for a different PHOP or the last\n     \
+    \             PSB has been processed, forward any RTEAR message that\n       \
+    \           has been built.\n        o    If any PSB's were found in the preceding\
+    \ step, and if the\n             Resv_Refresh_Needed flag is now on, execute the\
+    \ RESV\n             REFRESH sequence (below) for each PHOP in\n             Refresh_PHOP_list.\n\
+    \        o    Drop the RTEAR message and return.\n   RERR MESSAGE ARRIVES\n  \
+    \      A RERR message arrives through the (real) incoming interface\n        In_If.\n\
+    \        o    If there is no path state for SESSION, drop the RERR\n         \
+    \    message and return.\n        o    If the Error Code = 01 (Admission Control\
+    \ failure), do\n             special processing as follows:\n             1. \
+    \  Find or create a Blockade State Block (BSB), in the\n                  following\
+    \ style-dependent manner.\n                  For WF (wildcard) style, there will\
+    \ be one BSB per\n                  (session, PHOP) pair.\n                  For\
+    \ FF style, there will be one BSB per (session,\n                  filter_spec)\
+    \ pair.  Note that an FF style RERR message\n                  carries only one\
+    \ flow descriptor.\n                  For SE style, there will be one BSB per\
+    \ (session,\n                  filter_spec), for each filter_spec contained in\
+    \ the\n                  filter spec list of the flow descriptor.\n          \
+    \   2.   For each BSB in the preceding step, set (or replace)\n              \
+    \    its FLOWSPEC Qb with FLOWSPEC from the message, and\n                  set\
+    \ (or reset) its timer Tb to Kb*R seconds.  If the\n                  BSB is new,\
+    \ set its PHOP value, and set its\n                  Sender_Template equal to\
+    \ the appropriate filter_spec\n                  from the message.\n         \
+    \    3.   Execute the RESV REFRESH event sequence (shown below)\n            \
+    \      for the previous hop PHOP, but only with the B_Merge\n                \
+    \  flag off.  That is, if processing in the RESV REFRESH\n                  sequence\
+    \ reaches the point of turning the B_Merge flag\n                  on (because\
+    \ all matching reservations are blockaded),\n                  do not turn it\
+    \ on but instead exit the REFRESH\n                  sequence and return here.\n\
+    \        o    Execute the following for each RSB for this session whose\n    \
+    \         OI differs from In_If and whose Filter_spec_list has at\n          \
+    \   least one filter spec in common with the FILTER_SPEC* in\n             the\
+    \ RERR message.   For WF style, empty FILTER_SPEC*\n             structures are\
+    \ assumed to match.\n             1.   If Error_Code = 01 and the InPlace flag\
+    \ in the\n                  ERROR_SPEC is 1 and one or more of the BSB's\n   \
+    \               found/created above has a Qb that is strictly greater\n      \
+    \            than Flowspec in the RSB, then continue with the next\n         \
+    \         matching RSB, if any.\n             2.   If NHOP in the RSB is the local\
+    \ API, then:\n                  -    If the FLOWSPEC in the RERR message is strictly\n\
+    \                       greater than the RSB Flowspec, then turn on the\n    \
+    \                   NotGuilty flag in the ERROR_SPEC.\n                  -   \
+    \ Deliver an error upcall to application:\n                        Call: <Upcall_Proc>(\
+    \ session-id, RESV_ERROR,\n                                        Error_code,\
+    \ Error_value,\n                                           Node_Addr,  Error_flags,\n\
+    \                                           Flowspec, Filter_Spec_List\n     \
+    \                                       [ , Policy_data] )\n                 \
+    \      and continue with the next RSB.\n             3.   If the style has wildcard\
+    \ sender selection, use the\n                  SCOPE object SC.In from the RERR\
+    \ message to construct\n                  a SCOPE object SC.Out to be forwarded.\
+    \  SC.Out should\n                  contain those sender addresses that appeared\
+    \ in SC.In\n                  and that route to OI, as determined by scanning\
+    \ the\n                  PSB's.  If SC.Out is empty, continue with the next\n\
+    \                  RSB.\n             4.   Create a new RERR message containing\
+    \ the error flow\n                  descriptor and send to the NHOP address specified\
+    \ by\n                  the RSB.  Include SC.Out if the style has wildcard\n \
+    \                 sender selection.\n             5.   Continue with the next\
+    \ RSB.\n        o    Drop the RERR message and return.\n   RESV CONFIRM ARRIVES\n\
+    \        o    If the (unicast) IP address found in the RESV_CONFIRM\n        \
+    \     object in the RACK message matches an interface of the\n             node,\
+    \ a confirmation upcall is made to the matching\n             application:\n \
+    \                 Call: <Upcall_Proc>( session-id, RESV_CONFIRM,\n           \
+    \                   Error_code, Error_value, Node_Addr,\n                    \
+    \              LUB-Used, nlist, Flowspec,\n                                  Filter_Spec_List,\
+    \ NULL, NULL )\n        o    Otherwise, forward the RACK message to the IP address\
+    \ in\n             its RESV_CONFIRM object.\n        Drop the RACK message and\
+    \ return.\n   UPDATE TRAFFIC CONTROL\n        The sequence is invoked by many\
+    \ of the message arrival sequences\n        to set or adjust the local traffic\
+    \ control state in accordance\n        with the current reservation and path state.\
+    \  An implicit\n        parameter of this sequence is the `active' RSB.\n    \
+    \    If the result is to modify the traffic control state, this\n        sequence\
+    \ notifies any matching local applications with a\n        RESV_EVENT upcall.\
+    \  If the state change is such that it should\n        trigger immediate RESV\
+    \ refresh messages, it also turns on the\n        Resv_Refresh_Needed flag.\n\
+    \        o    Compute the traffic control parameters using the following\n   \
+    \          steps.\n             1.   Initially the local flag Is_Biggest is off.\n\
+    \             2.   Consider the set of RSB's matching SESSION and OI from\n  \
+    \                the active RSB.  If the style of the active RSB is\n        \
+    \          distinct, then the Filter_spec_list must also be\n                \
+    \  matched.\n                  -    Compute the effective kernel flowspec,\n \
+    \                      TC_Flowspec, as the LUB of the FLOWSPEC values in\n   \
+    \                    these RSB's.\n                  -    Compute the effective\
+    \ traffic control filter spec\n                       (list) TC_Filter_Spec* as\
+    \ the union of the\n                       Filter_spec_lists from these RSB's.\n\
+    \                  -    If the active RSB has a FLOWSPEC larger than all\n   \
+    \                    the others, turn on the Is_Biggest flag.\n             3.\
+    \   Scan all RSB's matching session and Filtss, for all\n                  OI.\
+    \  Set TC_B_Police_flag on if TC_Flowspec is smaller\n                  than,\
+    \ or incomparable to, any FLOWSPEC in those RSB's.\n             4.   Locate the\
+    \ set of PSBs (senders) whose\n                  SENDER_TEMPLATEs match Filter_spec_list\
+    \ in the active\n                  RSB and whose OutInterface_list includes OI.\n\
+    \             5.   Set TC_E_Police_flag on if any of these PSBs have\n       \
+    \           their E_Police flag on.  Set TC_M_Police_flag on if it\n         \
+    \         is a shared style and there is more than one PSB in\n              \
+    \    the set.\n             6.   Compute Path_Te as the sum of the SENDER_TSPEC\
+    \ objects\n                  in this set of PSBs.\n        o    Search for a TCSB\
+    \ matching SESSION and OI; for distinct\n             style (FF), it must also\
+    \ match Filter_spec_list.\n             If none is found, create a new TCSB.\n\
+    \        o    If TCSB is new:\n             1.   Store TC_Flowspec, TC_Filter_Spec*,\
+    \ Path_Te, and the\n                  police flags into TCSB.\n             2.\
+    \   Turn the Resv_Refresh_Needed flag on and make the\n                  traffic\
+    \ control call:\n                 TC_AddFlowspec( OI, TC_Flowspec,\n         \
+    \                     Path_Te, police_flags)\n                               ->\
+    \  Rhandle, Fwd_Flowspec\n             3.   If this call fails, build and send\
+    \ a RERR message\n                  specifying \"Admission control failed\" and\
+    \ with the\n                  InPlace flag off.  Delete the TCSB, delete any\n\
+    \                  RESV_CONFIRM object from the active RSB, and return.\n    \
+    \         4.   Otherwise (call succeeds), record Rhandle and\n               \
+    \   Fwd_Flowspec in the TCSB.  For each filter_spec F in\n                  TC_Filter_Spec*,\
+    \ call:\n                 TC_AddFilter( OI, Rhandle, Session, F)\n           \
+    \                          -> Fhandle\n             and record the returned Fhandle\
+    \ in the TCSB.\n        o    Otherwise, if TCSB is not new but no effective kernel\n\
+    \             flowspec TC_Flowspec was computed earlier, then:\n             1.\
+    \   Turn on the Resv_Refresh_Needed flag.\n             2.   Call traffic control\
+    \ to delete the reservation:\n                 TC_DelFlowspec( OI, Rhandle )\n\
+    \             3.   Delete the TCSB and return.\n        o    Otherwise, if TCSB\
+    \ is not new but the TC_Flowspec, Path_Te,\n             and/or police flags just\
+    \ computed differ from corresponding\n             values in the TCSB, then:\n\
+    \             1.   If the TC_Flowspec and/or Path_Te values differ, turn\n   \
+    \               the Resv_Refresh_Needed flag on.\n             2.   Call traffic\
+    \ control to modify the reservation:\n                 TC_ModFlowspec( OI, Rhandle,\
+    \ TC_Flowspec,\n                                Path_Te, police_flags )\n    \
+    \                                 -> Fwd_Flowspec\n             3.   If this call\
+    \ fails, build and send a RERR message\n                  specifying \"Admission\
+    \ control failed\" and with the\n                  InPlace bit on.  Delete any\
+    \ RESV_CONFIRM object from\n                  the active RSB and return.\n   \
+    \          4.   Otherwise (the call succeeds), update the TCSB with\n        \
+    \          the new values and save Fwd_Flowspec in the TCSB.\n        o    If\
+    \ the TCSB is not new but the TC_Filter_Spec* just\n             computed differs\
+    \ from the FILTER_SPEC* in the TCSB, then:\n             1.   Make an appropriate\
+    \ set of TC_DelFilter and\n                  TC_AddFilter calls to transform the\
+    \ Filter_spec_list\n                  in the TCSB into the new TC_Filter_Spec*.\n\
+    \             2.   Turn on the Resv_Refresh_Needed flag.\n        o    If the\
+    \ active RSB contains a RESV_CONFIRM object, then:\n             1.   If the Is_Biggest\
+    \ flag is on, move the RESV_CONFIRM\n                  object into the TCSB and\
+    \ turn on the\n                  Resv_Refresh_Needed flag. (This will later cause\
+    \ the\n                  RESV REFRESH sequence to be invoked, which will either\n\
+    \                  forward or return the RESV_CONFIRM object, deleting it\n  \
+    \                from the TCSB in either case).\n             2.   Otherwise,\
+    \ create and send a RACK message to the\n                  address in the RESV_CONFIRM\
+    \ object.  Include the\n                  RESV_CONFIRM object in the RACK message.\
+    \  The RACK\n                  message should also include an ERROR_SPEC object\
+    \ whose\n                  Error_Node parameter is IP address of OI from the TCSB\n\
+    \                  and that specifies \"No Error\".\n        o    If the Resv_Refresh_Needed\
+    \ flag is on and the RSB is not\n             from the API, make a RESV_EVENT\
+    \ upcall to any matching\n             application:\n                  Call: <Upcall_Proc>(\
+    \ session-id, RESV_EVENT,\n                              style, Flowspec, Filter_spec_list\
+    \ [ ,\n                              POLICY_DATA] )\n             where Flowspec\
+    \ and Filter_spec_list come from the TCSB and\n             the style comes from\
+    \ the active RSB.\n        o    Return to the event sequence that invoked this\
+    \ one.\n   PATH REFRESH\n        This sequence sends a path refresh for a particular\
+    \ sender,\n        i.e., a PSB.  This sequence may be entered by either the\n\
+    \        expiration of a refresh timer or directly as the result of the\n    \
+    \    Path_Refresh_Needed flag being turned on during the processing\n        of\
+    \ a received PATH message.\n        o    Insert TIME_VALUES object into the PATH\
+    \ message being\n             built.  Compute the IP TTL for the PATH message\
+    \ as one less\n             than the TTL value received in the message.  However,\
+    \ if\n             the result is zero, return without sending the PATH\n     \
+    \        message.\n        o    Create a sender descriptor containing the SENDER_TEMPLATE,\n\
+    \             SENDER_TSPEC, and POLICY_DATA objects, if present in the\n     \
+    \        PSB, and pack it into the PATH message being built.\n        o    Send\
+    \ a copy of the PATH message to each interface OI in\n             OutInterface_list.\
+    \  Before sending each copy:\n             1.   If the PSB has the E_Police flag\
+    \ on and if interface\n                  OI is not capable of policing, turn the\
+    \ E_Police flag\n                  on in the PATH message being built.\n     \
+    \        2.   Pass the ADSPEC object and Non_RSVP flag present in\n          \
+    \        the PSB to the traffic control call TC_Advertise.\n                 \
+    \ Insert the modified ADSPEC object that is returned\n                  into the\
+    \ PATH message being built.\n             3.   Insert into its PHOP object the\
+    \ interface address and\n                  the LIH for the interface.\n   RESV\
+    \ REFRESH\n        This sequence sends a reservation refresh towards a particular\n\
+    \        previous hop with IP address PH.  This sequence may be entered\n    \
+    \    by the expiration of a refresh timer, or invoked from the PATH\n        MESSAGE\
+    \ ARRIVES, RESV MESSAGE ARRIVES, RTEAR MESSAGE ARRIVES, or\n        RERR MESSAGE\
+    \ ARRIVES sequence.\n        In general, this sequence considers each of the PSB's\
+    \ with PHOP\n        address PH.  For a given PSB, it scans the TCSBs for matching\n\
+    \        reservations and merges the styles, FLOWSPECs and\n        Filter_spec_list's\
+    \ appropriately.  It then builds a RESV message\n        and sends it to PH. \
+    \ The details depend upon the attributes of\n        the style(s) included in\
+    \ the reservations.\n        Initially the Need_Scope flag is off and the new_SCOPE\
+    \ object is\n        empty.\n        o    Create an output message containing\
+    \ INTEGRITY (if\n             configured), SESSION, RSVP_HOP, and TIME_VALUES\
+    \ objects.\n        o    Determine the style for these reservations from the first\n\
+    \             RSB for the session, and move the STYLE object into the\n      \
+    \       proto-message.  (Note that the present set of styles are\n           \
+    \  never themselves merged; if future styles can be merged,\n             these\
+    \ rules will become more complex).\n        o    If style is wildcard and if there\
+    \ are PSB's from more than\n             one PHOP and if the multicast routing\
+    \ protocol does not use\n             shared trees, set the Need_Scope flag on.\n\
+    \        o    Select each sender PSB whose PHOP has address PH.  Set the\n   \
+    \          local flag B_Merge off and execute the following steps.\n         \
+    \    1.   Select all TCSB's whose Filter_spec_list's match the\n             \
+    \     SENDER_TEMPLATE object in the PSB and whose OI appears\n               \
+    \   in the OutInterface_list of the PSB.\n             2.   If the PSB is from\
+    \ the API, then:\n                  -    If TCSB contains a CONFIRM object, then\
+    \ create\n                       and send a RACK message containing the object\
+    \ and\n                       delete the CONFIRM object from the TCSB.\n     \
+    \             -    Continue with next PSB.\n             3.   If B_Merge flag\
+    \ is off then ignore a blockaded TCSB,\n                  as follows.\n      \
+    \            -    Select BSB's that match this TCSB.  If a selected\n        \
+    \               BSB is expired, delete it.  If any of the\n                  \
+    \     unexpired BSB's has a Qb that is not strictly\n                       larger\
+    \ than TC_Flowspec, then continue processing\n                       with the\
+    \ next TCSB.\n                  However, if steps 1 and 2 result in finding that\
+    \ all\n                  TCSB's matching this PSB are blockaded, then:\n     \
+    \             -    If this RESV REFRESH sequence was invoked from\n          \
+    \             RESV ERROR RECEIVED, then return to the latter.\n              \
+    \    -    Otherwise, turn on the B_Merge flag and restart\n                  \
+    \     at step 1, immediately above.\n             4.   Merge the flowspecs from\
+    \ this set of TCSB's, as\n                  follows:\n                  -    If\
+    \ B_Merge flag is off, compute the LUB over the\n                       flowspec\
+    \ objects.  From each TCSB, use the\n                       Fwd_Flowspec object\
+    \ if present, else use the\n                       normal Flowspec object.\n \
+    \                      While computing the LUB, check for a RESV_CONFIRM\n   \
+    \                    object in each TCSB.  If a RESV_CONFIRM object is\n     \
+    \                  found:\n                       -    If the flowspec (Fwd_Flowspec\
+    \ or Flowspec)\n                            in that TCSB is larger than all other\
+    \ (non-\n                            blockaded) flowspecs being compared, then\n\
+    \                            save this RESV_CONFIRM object for forwarding\n  \
+    \                          and delete from the TCSB.\n                       -\
+    \    Otherwise (the corresponding flowspec is not\n                          \
+    \  the largest), create and send a RACK message\n                            to\
+    \ the address in the RESV_CONFIRM object.\n                            Include\
+    \ the RESV_CONFIRM object in the RACK\n                            message.  The\
+    \ RACK message should also\n                            include an ERROR_SPEC\
+    \ object whose\n                            Error_Node parameter is IP address\
+    \ of OI\n                            from the TCSB and specifying \"No Error\"\
+    .\n                       -    Delete the RESV_CONFIRM object from the\n     \
+    \                       TCSB.\n                  -    Otherwise (B_Merge flag\
+    \ is on), compute the GLB\n                       over the Flowspec objects of\
+    \ this set of TCSB's.\n                  While computing the GLB, delete any RESV_CONFIRM\n\
+    \                  object object in any of these TCSB's.\n             5.   (All\
+    \ matching TCSB's have been processed).  The next\n                  step depends\
+    \ upon the style attributes.\n                  Distinct reservation (FF) style\n\
+    \                       Use the Sender_Template as the merged\n              \
+    \         FILTER_SPEC.  Pack the merged (FLOWSPEC,\n                       FILTER_SPEC,\
+    \ F_POLICY_DATA) triplet into the\n                       message as a flow descriptor.\n\
+    \                  Shared wildcard reservation (WF) style\n                  \
+    \     There is no merged FILTER_SPEC.  Merge (compute\n                      \
+    \ the LUB of) the merged FLOWSPECS from the TCSB's,\n                       across\
+    \ all PSB's for PH.\n                  Shared distinct reservation (SE) style\n\
+    \                       Using the Sender_Template as the merged\n            \
+    \           FILTER_SPEC, form the union of the FILTER_SPECS\n                \
+    \       obtained from the TCSB's.  Merge (compute the LUB\n                  \
+    \     of) the merged FLOWSPECS from the TCSB's, across\n                     \
+    \  all PSB's for PH.\n             6.   If the Need_Scope flag is on and the sender\
+    \ specified\n                  by the PSB is not the local API:\n            \
+    \      -    Find each RSB that matches this PSB, i.e., whose\n               \
+    \        Filter_spec_list matches Sender_Template in the\n                   \
+    \    PSB and whose OI is included in\n                       OutInterface_list.\n\
+    \                  -    If the RSB either has no SCOPE list or its SCOPE\n   \
+    \                    list includes the sender IP address from the PSB,\n     \
+    \                  insert the sender IP address into new_SCOPE.\n        o   \
+    \ (All PSB's for PH have been processed).  Finish the RESV\n             message.\n\
+    \             1.   If Need_Scope flag is on but new_SCOPE is empty, no\n     \
+    \             RESV message should be sent; return.  Otherwise, if\n          \
+    \        Need_Scope is on, move new_SCOPE into the message.\n             2. \
+    \  If a shared reservation style is being built, move the\n                  final\
+    \ merged FLOWSPEC object and filter spec list into\n                  the message.\n\
+    \             3.   If a RESV_CONFIRM object was saved earlier, move it\n     \
+    \             into the new RESV message.\n             4.   Set the RSVP_HOP object\
+    \ in the message to contain the\n                  IncInterface address through\
+    \ which it will be sent and\n                  the LIH from (one of) the PSB's.\n\
+    \        o    Send the message to the address PH.\n   ROUTE CHANGE NOTIFICATION\n\
+    \        This sequence is triggered when routing sends a route change\n      \
+    \  notification to RSVP.\n        o    Each PSB is located whose SESSION matches\
+    \ the destination\n             address and whose SENDER_TEMPLATE matches the\
+    \ source\n             address (for multicast).\n             1.   If the OutInterface_list\
+    \ from the notification differs\n                  from that in the PSB, execute\
+    \ the PATH LOCAL REPAIR\n                  sequence.\n             2.   If the\
+    \ IncInterface from the notification differs from\n                  that in the\
+    \ PSB, update the PSB.\n   PATH LOCAL REPAIR\n        The sequence is entered\
+    \ to effect local repair after a route\n        change for a given PSB.\n    \
+    \    o    Wait for a delay time of W seconds.\n        o    Execute the PATH REFRESH\
+    \ event sequence (above) for the\n             PSB.\n"
+- title: References
+  contents:
+  - "References\n   [Baker96]  Baker, F., \"RSVP Cryptographic Authentication\", Work\
+    \ in\n        Progress.\n   [RFC 2205]  Braden, R., Ed., Zhang, L., Berson, S.,\
+    \ Herzog, S., and\n        S. Jamin, \"Resource ReSerVation Protocol (RSVP) --\
+    \ Version 1\n        FunctionalSpecification\", RFC 2205, September 1997.\n  \
+    \ [RFC 2207]  Berger, L. and T. O'Malley, \"RSVP Extensions for IPSEC\n      \
+    \  IPv4 Data Flows\", RFC 2207, September 1997.\n   [RSVP93]  Zhang, L., Deering,\
+    \ S., Estrin, D., Shenker, S., and D.\n        Zappala, \"RSVP: A New Resource\
+    \ ReSerVation Protocol\", IEEE\n        Network, September 1993.\n"
+- title: Security Considerations
+  contents:
+  - "Security Considerations\n   Processing the RSVP INTEGRITY object [Baker96] is\
+    \ only mentioned in\n   this memo, because the processing rules are described\
+    \ here only in\n   general terms.  The RSVP support for IPSEC [RFC 2207] will\
+    \ imply\n   modifications that have not yet been incorporated into these\n   processing\
+    \ rules.\n"
+- title: Authors' Addresses
+  contents:
+  - "Authors' Addresses\n   Bob Braden\n   USC Information Sciences Institute\n  \
+    \ 4676 Admiralty Way\n   Marina del Rey, CA 90292\n   Phone: (310) 822-1511\n\
+    \   EMail: Braden@ISI.EDU\n   Lixia Zhang\n   UCLA Computer Science Department\n\
+    \   4531G Boelter Hall\n   Los Angeles, CA 90095-1596 USA\n   Phone: 310-825-2695\n\
+    \   EMail: lixia@cs.ucla.edu\n"

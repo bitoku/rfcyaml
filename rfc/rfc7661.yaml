@@ -1,0 +1,681 @@
+- title: __initial_text__
+  contents:
+  - '              Updating TCP to Support Rate-Limited Traffic
+
+    '
+- title: Abstract
+  contents:
+  - "Abstract\n   This document provides a mechanism to address issues that arise\
+    \ when\n   TCP is used for traffic that exhibits periods where the sending rate\n\
+    \   is limited by the application rather than the congestion window.  It\n   provides\
+    \ an experimental update to TCP that allows a TCP sender to\n   restart quickly\
+    \ following a rate-limited interval.  This method is\n   expected to benefit applications\
+    \ that send rate-limited traffic using\n   TCP while also providing an appropriate\
+    \ response if congestion is\n   experienced.\n   This document also evaluates\
+    \ the Experimental specification of TCP\n   Congestion Window Validation (CWV)\
+    \ defined in RFC 2861 and concludes\n   that RFC 2861 sought to address important\
+    \ issues but failed to\n   deliver a widely used solution.  This document therefore\
+    \ reclassifies\n   the status of RFC 2861 from Experimental to Historic.  This\
+    \ document\n   obsoletes RFC 2861.\n"
+- title: Status of This Memo
+  contents:
+  - "Status of This Memo\n   This document is not an Internet Standards Track specification;\
+    \ it is\n   published for examination, experimental implementation, and\n   evaluation.\n\
+    \   This document defines an Experimental Protocol for the Internet\n   community.\
+    \  This document is a product of the Internet Engineering\n   Task Force (IETF).\
+    \  It represents the consensus of the IETF\n   community.  It has received public\
+    \ review and has been approved for\n   publication by the Internet Engineering\
+    \ Steering Group (IESG).  Not\n   all documents approved by the IESG are a candidate\
+    \ for any level of\n   Internet Standard; see Section 2 of RFC 5741.\n   Information\
+    \ about the current status of this document, any errata,\n   and how to provide\
+    \ feedback on it may be obtained at\n   http://www.rfc-editor.org/info/rfc7661.\n"
+- title: Copyright Notice
+  contents:
+  - "Copyright Notice\n   Copyright (c) 2015 IETF Trust and the persons identified\
+    \ as the\n   document authors.  All rights reserved.\n   This document is subject\
+    \ to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n\
+    \   (http://trustee.ietf.org/license-info) in effect on the date of\n   publication\
+    \ of this document.  Please review these documents\n   carefully, as they describe\
+    \ your rights and restrictions with respect\n   to this document.  Code Components\
+    \ extracted from this document must\n   include Simplified BSD License text as\
+    \ described in Section 4.e of\n   the Trust Legal Provisions and are provided\
+    \ without warranty as\n   described in the Simplified BSD License.\n"
+- title: Table of Contents
+  contents:
+  - "Table of Contents\n   1. Introduction ....................................................3\n\
+    \      1.1. Implementation of New CWV ..................................5\n  \
+    \    1.2. Standards Status of This Document ..........................5\n   2.\
+    \ Reviewing Experience with TCP-CWV ...............................5\n   3. Terminology\
+    \ .....................................................7\n   4. A New Congestion\
+    \ Window Validation Method .......................8\n      4.1. Initialisation\
+    \ .............................................8\n      4.2. Estimating the Validated\
+    \ Capacity Supported by a Path ......8\n      4.3. Preserving cwnd during a Rate-Limited\
+    \ Period ..............10\n      4.4. TCP Congestion Control during the Non-validated\
+    \ Phase .....11\n           4.4.1. Response to Congestion in the Non-validated\
+    \ Phase ..12\n           4.4.2. Sender Burst Control during the\n            \
+    \      Non-validated Phase ................................14\n           4.4.3.\
+    \ Adjustment at the End of the Non-validated\n                  Period (NVP) .......................................14\n\
+    \      4.5. Examples of Implementation ................................15\n  \
+    \         4.5.1. Implementing the pipeACK Measurement ...............15\n    \
+    \       4.5.2. Measurement of the NVP and pipeACK Samples .........16\n      \
+    \     4.5.3. Implementing Detection of the cwnd-Limited\n                  Condition\
+    \ ..........................................17\n   5. Determining a Safe Period\
+    \ to Preserve cwnd .....................17\n   6. Security Considerations ........................................18\n\
+    \   7. References .....................................................18\n  \
+    \    7.1. Normative References ......................................18\n    \
+    \  7.2. Informative References ....................................19\n   Acknowledgments\
+    \ ...................................................21\n   Authors' Addresses\
+    \ ................................................21\n"
+- title: 1.  Introduction
+  contents:
+  - "1.  Introduction\n   TCP is used for traffic with a range of application behaviours.\
+    \  The\n   TCP congestion window (cwnd) controls the maximum number of\n   unacknowledged\
+    \ packets/bytes that a TCP flow may have in the network\n   at any time, a value\
+    \ known as the FlightSize [RFC5681].  FlightSize\n   is a measure of the volume\
+    \ of data that is unacknowledged at a\n   specific time.  A bulk application will\
+    \ always have data available to\n   transmit.  The rate at which it sends is therefore\
+    \ limited by the\n   maximum permitted by the receiver advertised window and the\
+    \ sender\n   congestion window (cwnd).  The FlightSize of a bulk flow increases\n\
+    \   with the cwnd and tracks the volume of data acknowledged in the last\n   Round-Trip\
+    \ Time (RTT).\n   In contrast, a rate-limited application will experience periods\
+    \ when\n   the sender is either idle or unable to send at the maximum rate\n \
+    \  permitted by the cwnd.  In this case, the volume of data sent\n   (FlightSize)\
+    \ can change significantly from one RTT to another and can\n   be much less than\
+    \ the cwnd.  Hence, it is possible that the\n   FlightSize could significantly\
+    \ exceed the recently used capacity.\n   The update in this document targets the\
+    \ operation of TCP in such\n   rate-limited cases.\n   Standard TCP states that\
+    \ a TCP sender SHOULD set cwnd to no more than\n   the Restart Window (RW) before\
+    \ beginning transmission if the TCP\n   sender has not sent data in an interval\
+    \ exceeding the retransmission\n   timeout, i.e., when an application becomes\
+    \ idle [RFC5681].  [RFC2861]\n   notes that this TCP behaviour was not always\
+    \ observed in current\n   implementations.  Experiments confirm this to still\
+    \ be the case (see\n   [Bis08]).\n   Congestion Window Validation (CWV) [RFC2861]\
+    \ introduced the term\n   \"application-limited period\" for the time when the\
+    \ sender sends less\n   than is allowed by the congestion or receiver windows.\
+    \  [RFC2861]\n   described a method that improved support for applications that\
+    \ vary\n   their transmission rate, i.e., applications that either have (short)\n\
+    \   idle periods between transmissions or change the rate at which they\n   send.\
+    \  These applications are characterised by the TCP FlightSize\n   often being\
+    \ less than the cwnd.  Many Internet applications exhibit\n   this behaviour,\
+    \ including web browsing, HTTP-based adaptive\n   streaming, applications that\
+    \ support query/response type protocols,\n   network file sharing, and live video\
+    \ transmission.  Many such\n   applications currently avoid using long-lived (persistent)\
+    \ TCP\n   connections (e.g., servers that use HTTP/1.1 [RFC7230] typically\n \
+    \  support persistent HTTP connections but do not enable this by\n   default).\
+    \  Instead, such applications often either use a succession\n   of short TCP transfers\
+    \ or use UDP.\n   Standard TCP does not impose additional restrictions on the\
+    \ growth of\n   the congestion window when a TCP sender is unable to send at the\n\
+    \   maximum rate allowed by the cwnd.  In this case, the rate-limited\n   sender\
+    \ may grow a cwnd far beyond that corresponding to the current\n   transmit rate,\
+    \ resulting in a value that does not reflect current\n   information about the\
+    \ state of the network path the flow is using.\n   Use of such an invalid cwnd\
+    \ may result in reduced application\n   performance and/or could significantly\
+    \ contribute to network\n   congestion.\n   [RFC2861] proposed a solution to these\
+    \ issues in an experimental\n   method known as CWV.  CWV was intended to help\
+    \ reduce cases where TCP\n   accumulated an invalid (inappropriately large) cwnd.\
+    \  The use and\n   drawbacks of using the CWV algorithm described in RFC 2861\
+    \ with an\n   application are discussed in Section 2.\n   Section 3 defines relevant\
+    \ terminology.\n   Section 4 specifies an alternative to CWV that seeks to address\
+    \ the\n   same issues but does so in a way that is expected to mitigate the\n\
+    \   impact on an application that varies its sending rate.  The updated\n   method\
+    \ applies to the rate-limited conditions (including both\n   application-limited\
+    \ and idle senders).\n   The goals of this update are:\n   o  To not change the\
+    \ behaviour of a TCP sender that performs bulk\n      transfers that fully use\
+    \ the cwnd.\n   o  To provide a method that co-exists with standard TCP and other\n\
+    \      flows that use this updated method.\n   o  To reduce transfer latency for\
+    \ applications that change their rate\n      over short intervals of time.\n \
+    \  o  To avoid a TCP sender growing a large \"non-validated\" cwnd, when\n   \
+    \   it has not recently sent using this cwnd.\n   o  To remove the incentive for\
+    \ ad hoc application or network stack\n      methods (such as \"padding\") solely\
+    \ to maintain a large cwnd for\n      future transmission.\n   o  To provide an\
+    \ incentive for the use of long-lived connections\n      rather than a succession\
+    \ of short-lived flows, benefiting both the\n      long-lived flows and other\
+    \ flows sharing capacity with these flows\n      when congestion is encountered.\n\
+    \   Section 5 describes the rationale for selecting the safe period to\n   preserve\
+    \ the cwnd.\n"
+- title: 1.1.  Implementation of New CWV
+  contents:
+  - "1.1.  Implementation of New CWV\n   The method specified in Section 4 of this\
+    \ document is a sender-side-\n   only change to the TCP congestion control behaviour\
+    \ of TCP.\n   The method creates a new protocol state and requires a sender to\n\
+    \   determine when the cwnd is validated or non-validated to control the\n   entry\
+    \ and exit from this state (see Section 4.3).  It defines how a\n   TCP sender\
+    \ manages the growth of the cwnd using the set of rules\n   defined in Section\
+    \ 4.\n   Implementation of this specification requires an implementor to\n   define\
+    \ a method to measure the available capacity using a set of\n   pipeACK samples.\
+    \  The details of this measurement are implementation-\n   specific.  An example\
+    \ is provided in Section 4.5.1, but other methods\n   are permitted.  A sender\
+    \ also needs to provide a method to determine\n   when it becomes cwnd-limited.\
+    \  Implementation of this may require\n   consideration of other TCP methods (see\
+    \ Section 4.5.3).\n   A sender is also recommended to provide a method that controls\
+    \ the\n   maximum burst size (see Section 4.4.2).  However, implementors are\n\
+    \   allowed flexibility in how this method is implemented, and the choice\n  \
+    \ of an appropriate method is expected to depend on the way in which\n   the sender\
+    \ stack implements other TCP methods (such as TCP Segment\n   Offload (TSO)).\n"
+- title: 1.2.  Standards Status of This Document
+  contents:
+  - "1.2.  Standards Status of This Document\n   The document obsoletes the methods\
+    \ described in [RFC2861].  It\n   recommends a set of mechanisms, including the\
+    \ use of pacing during a\n   non-validated period.  The updated mechanisms are\
+    \ intended to have a\n   less aggressive congestion impact than would be exhibited\
+    \ by a\n   standard TCP sender.\n   The specification in this document is classified\
+    \ as \"Experimental\"\n   pending experience with deployed implementations of\
+    \ the methods.\n"
+- title: 2.  Reviewing Experience with TCP-CWV
+  contents:
+  - "2.  Reviewing Experience with TCP-CWV\n   [RFC2861] described a simple modification\
+    \ to the TCP congestion\n   control algorithm that decayed the cwnd after the\
+    \ transition to a\n   \"sufficiently-long\" idle period.  This used the slow-start\
+    \ threshold\n   (ssthresh) to save information about the previous value of the\n\
+    \   congestion window.  The approach relaxed the standard TCP behaviour\n   for\
+    \ an idle session [RFC5681], which was intended to improve\n   application performance.\
+    \  CWV also modified the behaviour when a\n   sender transmitted at a rate less\
+    \ than allowed by cwnd.\n   [RFC2861] proposed two sets of responses: one after\
+    \ an \"application-\n   limited period\" and one after an \"idle period\".  Although\
+    \ this\n   distinction was argued, in practice, differentiating the two\n   conditions\
+    \ was found problematic in actual networks (see, e.g.,\n   [Bis10]).  While this\
+    \ offered predictable performance for long on-off\n   periods (>>1 RTT) or slowly\
+    \ varying rate-based traffic, the\n   performance could be unpredictable for variable-rate\
+    \ traffic and\n   depended both upon whether an accurate RTT had been obtained\
+    \ and the\n   pattern of application traffic relative to the measured RTT.\n \
+    \  Many applications can and often do vary their transmission over a\n   wide\
+    \ range of rates.  Using [RFC2861], such applications often\n   experienced varying\
+    \ performance, which made it hard for application\n   developers to predict the\
+    \ TCP latency even when using a path with\n   stable network characteristics.\
+    \  We argue that an attempt to classify\n   application behaviour as application-limited\
+    \ or idle is problematic\n   and also inappropriate.  This document therefore\
+    \ explicitly avoids\n   trying to differentiate these two cases, instead treating\
+    \ all rate-\n   limited traffic uniformly.\n   [RFC2861] has been implemented\
+    \ in some mainstream operating systems\n   as the default behaviour [Bis08]. \
+    \ Analysis (e.g., [Bis10] and\n   [Fai12]) has shown that a TCP sender using CWV\
+    \ is able to use\n   available capacity on a shared path after an idle period.\
+    \  This can\n   benefit variable-rate applications, especially over long delay\
+    \ paths,\n   when compared to the slow-start restart specified by standard TCP.\n\
+    \   However, CWV would only benefit an application if the idle period\n   were\
+    \ less than several Retransmission Timeout (RTO) intervals\n   [RFC6298], since\
+    \ the behaviour would otherwise be the same as for\n   standard TCP, which resets\
+    \ the cwnd to the TCP Restart Window after\n   this period.\n   To enable better\
+    \ performance for variable-rate applications with TCP,\n   some operating systems\
+    \ have chosen to support non-standard methods,\n   or applications have resorted\
+    \ to \"padding\" streams by sending dummy\n   data to maintain their sending rate\
+    \ when they have no data to\n   transmit.  Although transmitting redundant data\
+    \ across a network path\n   provides good evidence that the path can sustain data\
+    \ at the offered\n   rate, padding also consumes network capacity and reduces\
+    \ the\n   opportunity for congestion-free statistical multiplexing.  For\n   variable-rate\
+    \ flows, the benefits of statistical multiplexing can be\n   significant, and\
+    \ it is therefore a goal to find a viable alternative\n   to padding streams.\n\
+    \   Experience with [RFC2861] suggests that although the CWV method\n   benefited\
+    \ the network in a rate-limited scenario (reducing the\n   probability of network\
+    \ congestion), the behaviour was too\n   conservative for many common rate-limited\
+    \ applications.  This\n   mechanism did not therefore offer the desirable increase\
+    \ in\n   application performance for rate-limited applications, and it is\n  \
+    \ unclear whether applications actually use this mechanism in the\n   general\
+    \ Internet.\n   Therefore, it was concluded that CWV, as defined in [RFC2861],\
+    \ was\n   often a poor solution for many rate-limited applications.  It had the\n\
+    \   correct motivation but the wrong approach to solving this problem.\n"
+- title: 3.  Terminology
+  contents:
+  - "3.  Terminology\n   The key words \"MUST\", \"MUST NOT\", \"REQUIRED\", \"SHALL\"\
+    , \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\", \"MAY\", and\
+    \ \"OPTIONAL\" in this\n   document are to be interpreted as described in [RFC2119].\n\
+    \   The document assumes familiarity with the terminology of TCP\n   congestion\
+    \ control [RFC5681].\n   The following additional terminology is introduced in\
+    \ this document:\n   o  cwnd-limited: A TCP flow that has sent the maximum number\
+    \ of\n      segments permitted by the cwnd, where the application utilises the\n\
+    \      allowed sending rate (see Section 4.5.3).\n   o  pipeACK sample: A measure\
+    \ of the volume of data acknowledged by\n      the network within an RTT.\n  \
+    \ o  pipeACK variable: A variable that measures the available capacity\n     \
+    \ using the set of pipeACK samples (see Section 4.2).\n   o  pipeACK Sampling\
+    \ Period: The maximum period that a measured\n      pipeACK sample may influence\
+    \ the pipeACK variable.\n   o  Non-validated phase: The phase where the cwnd reflects\
+    \ a previous\n      measurement of the available path capacity.\n   o  Non-validated\
+    \ period (NVP): The maximum period for which cwnd is\n      preserved in the non-validated\
+    \ phase.\n   o  Rate-limited: A TCP flow that does not consume more than one half\n\
+    \      of cwnd and hence operates in the non-validated phase.  This\n      includes\
+    \ periods when an application is either idle or chooses to\n      send at a rate\
+    \ less than the maximum permitted by the cwnd.\n   o  Validated phase: The phase\
+    \ where the cwnd reflects a current\n      estimate of the available path capacity.\n"
+- title: 4.  A New Congestion Window Validation Method
+  contents:
+  - "4.  A New Congestion Window Validation Method\n   This section proposes an update\
+    \ to the TCP congestion control\n   behaviour during a rate-limited interval.\
+    \  This new method\n   intentionally does not differentiate between times when\
+    \ the sender\n   has become idle or chooses to send at a rate less than the maximum\n\
+    \   allowed by the cwnd.\n   In the non-validated phase, the capacity used by\
+    \ an application can\n   be less than that allowed by the TCP cwnd.  This update\
+    \ allows an\n   application to preserve a recently used cwnd while in the non-\n\
+    \   validated phase and then to resume transmission at a previous rate\n   without\
+    \ incurring the delay of slow-start.  However, if the TCP\n   sender experiences\
+    \ congestion using the preserved cwnd, it is\n   required to immediately reset\
+    \ the cwnd to an appropriate value\n   specified by the method.  If a sender does\
+    \ not take advantage of the\n   preserved cwnd within the non-validated period\
+    \ (NVP), the value of\n   cwnd is reduced, ensuring the value better reflects\
+    \ the capacity that\n   was recently actually used.\n   It is expected that this\
+    \ update will satisfy the requirements of many\n   rate-limited applications and\
+    \ at the same time provide an appropriate\n   method for use in the Internet.\
+    \  New CWV reduces this incentive for\n   an application to send \"padding\" data\
+    \ simply to keep transport\n   congestion state.\n   The method is specified in\
+    \ the following subsections and is expected\n   to encourage applications and\
+    \ TCP stacks to use standards-based\n   congestion control methods.  It may also\
+    \ encourage the use of long-\n   lived connections where this offers benefit (such\
+    \ as persistent\n   HTTP).\n"
+- title: 4.1.  Initialisation
+  contents:
+  - "4.1.  Initialisation\n   A sender starts a TCP connection in the validated phase\
+    \ and\n   initialises the pipeACK variable to the \"undefined\" value.  This\n\
+    \   value inhibits use of the value in cwnd calculations.\n"
+- title: 4.2.  Estimating the Validated Capacity Supported by a Path
+  contents:
+  - "4.2.  Estimating the Validated Capacity Supported by a Path\n   [RFC6675] defines\
+    \ \"FlightSize\", a variable that indicates the\n   instantaneous amount of data\
+    \ that has been sent but not cumulatively\n   acknowledged.  In this method, a\
+    \ new variable \"pipeACK\" is introduced\n   to measure the acknowledged size\
+    \ of the network pipe.  This is used\n   to determine if the sender has validated\
+    \ the cwnd. pipeACK differs\n   from FlightSize in that it is evaluated over a\
+    \ window of acknowledged\n   data, rather than reflecting the amount of data outstanding.\n\
+    \   A sender determines a pipeACK sample by measuring the volume of data\n   that\
+    \ was acknowledged by the network over the period of a measured\n   Round-Trip\
+    \ Time (RTT).  Using the variables defined in [RFC6675], a\n   value could be\
+    \ measured by caching the value of HighACK and, after\n   one RTT, measuring the\
+    \ difference between the cached HighACK value\n   and the current HighACK value.\
+    \  A sender MAY count TCP DupACKs that\n   acknowledge new data when collecting\
+    \ the pipeACK sample.  Other\n   equivalent methods may be used.\n   A sender\
+    \ is not required to continuously update the pipeACK variable\n   after each received\
+    \ ACK but SHOULD perform a pipeACK sample at least\n   once per RTT when it has\
+    \ sent unacknowledged segments.\n   The pipeACK variable MAY consider multiple\
+    \ pipeACK samples over the\n   pipeACK Sampling Period.  The value of the pipeACK\
+    \ variable MUST NOT\n   exceed the maximum (highest value) within the pipeACK\
+    \ Sampling\n   Period.  This specification defines the pipeACK Sampling Period\
+    \ as\n   Max(3*RTT, 1 second).  This period enables a sender to compensate for\n\
+    \   large fluctuations in the sending rate, where there may be pauses in\n   transmission,\
+    \ and allows the pipeACK variable to reflect the largest\n   recently measured\
+    \ pipeACK sample.\n   When no measurements are available (e.g., a sender that\
+    \ has just\n   started transmission or immediately after loss recovery), the pipeACK\n\
+    \   variable is set to the \"undefined value\".  This value is used to\n   inhibit\
+    \ entering the non-validated phase until the first new\n   measurement of a pipeACK\
+    \ sample.  (Section 4.5 provides examples of\n   implementation.)\n   The pipeACK\
+    \ variable MUST NOT be updated during TCP Fast Recovery.\n   That is, the sender\
+    \ stops collecting pipeACK samples during loss\n   recovery.  The method RECOMMENDS\
+    \ enabling the TCP SACK option\n   [RFC2018] and RECOMMENDS the method defined\
+    \ in [RFC6675] to recover\n   missing segments.  This allows the sender to more\
+    \ accurately\n   determine the number of missing bytes during the loss recovery\
+    \ phase,\n   and using this method will result in a more appropriate cwnd\n  \
+    \ following loss.\n   Note: The use of pipeACK rather than FlightSize can change\
+    \ the\n   behaviour of a TCP flow when a sender does not always have data\n  \
+    \ available to send.  One example arises when there is a pause in\n   transmission\
+    \ after sending a sequence of many packets, and the sender\n   experiences loss\
+    \ at or near the end of its transmission sequence.  In\n   this case, the TCP\
+    \ flow may have used a significant amount of\n   capacity just prior to the loss\
+    \ (which would be reflected in the\n   volume of data acknowledged, recorded in\
+    \ the pipeACK variable), but\n   at the actual time of loss, the number of unacknowledged\
+    \ packets in\n   flight (at the end of the sequence) may be small, i.e., there\
+    \ is a\n   small FlightSize.  After loss recovery, the sender resets its\n   congestion\
+    \ control state.\n   [Fai12] explored the benefits of different responses to congestion\n\
+    \   for application-limited streams.  If the response is based only on\n   the\
+    \ Loss FlightSize, the sender would assign a small cwnd and\n   ssthresh, based\
+    \ only on the volume of data sent after the loss.  When\n   the sender next starts\
+    \ to transmit, it can incur many RTTs of delay\n   in slow-start before it reacquires\
+    \ its previous rate.  When the\n   pipeACK value is also used to calculate the\
+    \ cwnd and ssthresh (as\n   specified in Section 4.4.1), the sender can use a\
+    \ value that also\n   reflects the recently used capacity before the loss.  This\
+    \ prevents a\n   variable-rate application from being unduly penalised.  When\
+    \ the\n   sender resumes, it starts at one-half its previous rate, similar to\n\
+    \   the behaviour of a bulk TCP flow [Hos15].  To ensure an appropriate\n   reaction\
+    \ to ongoing congestion, this method requires that the pipeACK\n   variable is\
+    \ reset after it is used in this way.\n"
+- title: 4.3.  Preserving cwnd during a Rate-Limited Period
+  contents:
+  - "4.3.  Preserving cwnd during a Rate-Limited Period\n   The updated method creates\
+    \ a new TCP sender phase that captures\n   whether the cwnd reflects a validated\
+    \ or non-validated value.  The\n   phases are defined as:\n   o  Validated phase:\
+    \ pipeACK >=(1/2)*cwnd, or pipeACK is undefined\n      (i.e., at the start or\
+    \ directly after loss recovery).  This is the\n      normal phase, where cwnd\
+    \ is expected to be an approximate\n      indication of the capacity currently\
+    \ available along the network\n      path, and the standard methods are used to\
+    \ increase cwnd\n      (currently, the standard methods are described in [RFC5681]).\n\
+    \   o  Non-validated phase: pipeACK <(1/2)*cwnd.  This is the phase where\n  \
+    \    the cwnd has a value based on a previous measurement of the\n      available\
+    \ capacity, and the usage of this capacity has not been\n      validated in the\
+    \ pipeACK Sampling Period, that is, when it is not\n      known whether the cwnd\
+    \ reflects the currently available capacity\n      along the network path.  The\
+    \ mechanisms to be used in this phase\n      seek to determine a safe value for\
+    \ cwnd and an appropriate\n      reaction to congestion.\n   Note: A threshold\
+    \ is needed to determine whether a sender is in the\n   validated or non-validated\
+    \ phase.  A standard TCP sender in slow-\n   start is permitted to double its\
+    \ FlightSize from one RTT to the next.\n   This motivated the choice of a threshold\
+    \ value of 1/2.  This\n   threshold ensures a sender does not further increase\
+    \ the cwnd as long\n   as the FlightSize is less than (1/2*cwnd).  Furthermore,\
+    \ a sender\n   with a FlightSize less than (1/2*cwnd) may, in the next RTT, be\n\
+    \   permitted by the cwnd to send at a rate that more than doubles the\n   FlightSize;\
+    \ hence, this case needs to be regarded as non-validated,\n   and a sender therefore\
+    \ needs to employ additional mechanisms while in\n   this phase.\n"
+- title: 4.4.  TCP Congestion Control during the Non-validated Phase
+  contents:
+  - "4.4.  TCP Congestion Control during the Non-validated Phase\n   A TCP sender\
+    \ implementing this specification MUST enter the non-\n   validated phase when\
+    \ the pipeACK is less than (1/2)*cwnd.  (The note\n   at the end of Section 4.4.1\
+    \ describes why pipeACK<=(1/2)*cwnd is\n   expected to be a safe value.)\n   A\
+    \ TCP sender that enters the non-validated phase preserves the cwnd\n   (i.e.,\
+    \ the cwnd only increases after a sender fully uses the cwnd in\n   this phase;\
+    \ otherwise, the cwnd neither grows nor reduces).  The\n   phase is concluded\
+    \ when the sender transmits sufficient data so that\n   pipeACK > (1/2)*cwnd (i.e.,\
+    \ the sender is no longer rate-limited) or\n   when the sender receives an indication\
+    \ of congestion.\n   After a fixed period of time (the non-validated period (NVP)),\
+    \ the\n   sender adjusts the cwnd (Section 4.4.3).  The NVP SHOULD NOT exceed\n\
+    \   five minutes.  Section 5 discusses the rationale for choosing a safe\n   value\
+    \ for this period.\n   The behaviour in the non-validated phase is specified as:\n\
+    \   o  A sender determines whether to increase the cwnd based upon\n      whether\
+    \ it is cwnd-limited (see Section 4.5.3):\n      *  A sender that is cwnd-limited\
+    \ MAY use the standard TCP method\n         to increase cwnd (i.e., the standard\
+    \ method permits a TCP\n         sender that fully utilises the cwnd to increase\
+    \ the cwnd each\n         time it receives an ACK).\n      *  A sender that is\
+    \ not cwnd-limited MUST NOT increase the cwnd\n         when ACK packets are received\
+    \ in this phase (i.e., needs to\n         avoid growing the cwnd when it has not\
+    \ recently sent using the\n         current size of cwnd).\n   o  If the sender\
+    \ receives an indication of congestion while in the\n      non-validated phase\
+    \ (i.e., detects loss), the sender MUST exit the\n      non-validated phase (reducing\
+    \ the cwnd as defined in\n      Section 4.4.1).\n   o  If the Retransmission Timeout\
+    \ (RTO) expires while in the non-\n      validated phase, the sender MUST exit\
+    \ the non-validated phase.  It\n      then resumes using the standard TCP RTO\
+    \ mechanism [RFC5681].\n   o  A sender with a pipeACK variable greater than (1/2)*cwnd\
+    \ SHOULD\n      enter the validated phase.  (A rate-limited sender will not\n\
+    \      normally be impacted by whether it is in a validated or non-\n      validated\
+    \ phase, since it will normally not increase FlightSize to\n      use the entire\
+    \ cwnd.  However, a change to the validated phase\n      will release the sender\
+    \ from constraints on the growth of cwnd and\n      result in using the standard\
+    \ congestion response.)\n   The cwnd-limited behaviour may be triggered during\
+    \ a transient\n   condition that occurs when a sender is in the non-validated\
+    \ phase and\n   receives an ACK that acknowledges received data, the cwnd was\
+    \ fully\n   utilised, and more data is awaiting transmission than may be sent\n\
+    \   with the current cwnd.  The sender MAY then use the standard method\n   to\
+    \ increase the cwnd.  (Note that if the sender succeeds in sending\n   these new\
+    \ segments, the updated cwnd and pipeACK variables will\n   eventually result\
+    \ in a transition to the validated phase.)\n"
+- title: 4.4.1.  Response to Congestion in the Non-validated Phase
+  contents:
+  - "4.4.1.  Response to Congestion in the Non-validated Phase\n   Reception of congestion\
+    \ feedback while in the non-validated phase is\n   interpreted as an indication\
+    \ that it was inappropriate for the sender\n   to use the preserved cwnd.  The\
+    \ sender is therefore required to\n   quickly reduce the rate to avoid further\
+    \ congestion.  Since the cwnd\n   does not have a validated value, a new cwnd\
+    \ value needs to be\n   selected based on the utilised rate.\n   A sender that\
+    \ detects a packet drop MUST record the current\n   FlightSize in the variable\
+    \ LossFlightSize and MUST calculate a safe\n   cwnd for loss recovery using the\
+    \ method below:\n           cwnd = (Max(pipeACK,LossFlightSize))/2.\n   The pipeACK\
+    \ value is not updated during loss recovery (see\n   Section 4.2).  If there is\
+    \ a valid pipeACK value, the new cwnd is\n   adjusted to reflect that a non-validated\
+    \ cwnd may be larger than the\n   actual FlightSize or recently used FlightSize\
+    \ (recorded in pipeACK).\n   The updated cwnd therefore prevents overshoot by\
+    \ a sender,\n   significantly increasing its transmission rate during the recovery\n\
+    \   period.\n   At the end of the recovery phase, the TCP sender MUST reset the\
+    \ cwnd\n   using the method below:\n           cwnd = (Max(pipeACK,LossFlightSize)\
+    \ - R)/2.\n   Where R is the volume of data that was successfully retransmitted\n\
+    \   during the recovery phase.  This corresponds to segments\n   retransmitted\
+    \ and considered lost by the pipe estimation algorithm at\n   the end of recovery.\
+    \  It does not include the additional cost of\n   multiple retransmission of the\
+    \ same data.  The loss of segments\n   indicates that the path capacity was exceeded\
+    \ by at least R; hence,\n   the calculated cwnd is reduced by at least R before\
+    \ the window is\n   halved.\n   The calculated cwnd value MUST NOT be reduced\
+    \ below 1 TCP Maximum\n   Segment Size (MSS).\n   After completing the loss recovery\
+    \ phase, the sender MUST\n   re-initialise the pipeACK variable to the \"undefined\"\
+    \ value.  This\n   ensures that standard TCP methods are used immediately after\n\
+    \   completing loss recovery until a new pipeACK value can be determined.\n  \
+    \ The ssthresh is adjusted using the standard TCP method (Step 6 in\n   Section\
+    \ 3.2 of RFC 5681 assigns the ssthresh a value equal to cwnd at\n   the end of\
+    \ the loss recovery).\n   Note: The adjustment by reducing cwnd by the volume\
+    \ of data not sent\n   (R) follows the method proposed for Jump Start [Liu07].\
+    \  The\n   inclusion of the term R makes the adjustment more conservative than\n\
+    \   standard TCP.  This is required, since a sender in the non-validated\n   phase\
+    \ is allowed a rate higher than a standard TCP sender would have\n   achieved\
+    \ in the last RTT (i.e., to have more than doubled the number\n   of segments\
+    \ in flight relative to what was sent in the previous RTT).\n   The additional\
+    \ reduction after congestion is beneficial when the\n   LossFlightSize has significantly\
+    \ overshot the available path\n   capacity, incurring significant loss (e.g.,\
+    \ following a change of\n   path characteristics or when additional traffic has\
+    \ taken a larger\n   share of the network bottleneck during a period when the\
+    \ sender\n   transmits less).\n   Note: The pipeACK value is only valid during\
+    \ a non-validated phase;\n   therefore, this does not exceed cwnd/2.  If LossFlightSize\
+    \ and R were\n   small, then this can result in the final cwnd after loss recovery\n\
+    \   being at most one-quarter of the cwnd on detection of congestion.\n   This\
+    \ reduction is conservative, and pipeACK is then reset to\n   undefined; hence,\
+    \ cwnd updates after a congestion event do not depend\n   upon the pipeACK history\
+    \ before congestion was detected.\n"
+- title: 4.4.2.  Sender Burst Control during the Non-validated Phase
+  contents:
+  - "4.4.2.  Sender Burst Control during the Non-validated Phase\n   TCP congestion\
+    \ control allows a sender to accumulate a cwnd that\n   would allow it to send\
+    \ a burst of segments with a total size up to\n   the difference between the FlightSize\
+    \ and cwnd.  Such bursts can\n   impact other flows that share a network bottleneck\
+    \ and/or may induce\n   congestion when buffering is limited.\n   Various methods\
+    \ have been proposed to control the sender burstiness\n   [Hug01] [All05].  For\
+    \ example, TCP can limit the number of new\n   segments it sends per received\
+    \ ACK.  This is effective when a flow of\n   ACKs is received but cannot be used\
+    \ to control a sender that has not\n   sent appreciable data in the previous RTT\
+    \ [All05].\n   This document recommends using a method to avoid line-rate bursts\n\
+    \   after an idle or rate-limited interval when there is less reliable\n   information\
+    \ about the capacity of the network path.  A TCP sender in\n   the non-validated\
+    \ phase SHOULD control the maximum burst size, e.g.,\n   using a rate-based pacing\
+    \ algorithm in which a sender paces out the\n   cwnd over its estimate of the\
+    \ RTT, or some other method, to prevent\n   many segments being transmitted contiguously\
+    \ at line-rate.  The most\n   appropriate method(s) to implement pacing depend\
+    \ on the design of the\n   TCP/IP stack, speed of interface, and whether hardware\
+    \ support (such\n   as TSO) is used.  This document does not recommend any specific\n\
+    \   method.\n"
+- title: 4.4.3.  Adjustment at the End of the Non-validated Period (NVP)
+  contents:
+  - "4.4.3.  Adjustment at the End of the Non-validated Period (NVP)\n   An application\
+    \ that remains in the non-validated phase for a period\n   greater than the NVP\
+    \ is required to adjust its congestion control\n   state.  If the sender exits\
+    \ the non-validated phase after this\n   period, it MUST update the ssthresh:\n\
+    \         ssthresh = max(ssthresh, 3*cwnd/4).\n   (This adjustment of ssthresh\
+    \ ensures that the sender records that it\n   has safely sustained the present\
+    \ rate.  The change is beneficial to\n   rate-limited flows that encounter occasional\
+    \ congestion and could\n   otherwise suffer an unwanted additional delay in recovering\
+    \ the\n   sending rate.)\n   The sender MUST then update cwnd to be not greater\
+    \ than:\n            cwnd = max((1/2)*cwnd, IW).\n   Where IW is the appropriate\
+    \ TCP initial window used by the TCP sender\n   (see, e.g., [RFC5681]).\n   Note:\
+    \ These cwnd and ssthresh adjustments cause the sender to enter\n   slow-start\
+    \ (since ssthresh > cwnd).  This adjustment ensures that the\n   sender responds\
+    \ conservatively after remaining in the non-validated\n   phase for more than\
+    \ the non-validated period.  In this case, it\n   reduces the cwnd by a factor\
+    \ of two from the preserved value.  This\n   adjustment is helpful when flows\
+    \ accumulate but do not use a large\n   cwnd; this adjustment seeks to mitigate\
+    \ the impact when these flows\n   later resume transmission.  This could, for\
+    \ instance, mitigate the\n   impact if multiple high-rate application flows were\
+    \ to become idle\n   over an extended period of time and then were simultaneously\
+    \ awakened\n   by an external event.\n"
+- title: 4.5.  Examples of Implementation
+  contents:
+  - "4.5.  Examples of Implementation\n   This section provides informative examples\
+    \ of implementation methods.\n   Implementations may choose to use other methods\
+    \ that comply with the\n   normative requirements.\n"
+- title: 4.5.1.  Implementing the pipeACK Measurement
+  contents:
+  - "4.5.1.  Implementing the pipeACK Measurement\n   A pipeACK sample may be measured\
+    \ once each RTT.  This reduces the\n   sender processing burden for calculating\
+    \ after each acknowledgment\n   and also reduces storage requirements at the sender.\n\
+    \   Since application behaviour can be bursty using CWV, it may be\n   desirable\
+    \ to implement a maximum filter to accumulate the measured\n   values so that\
+    \ the pipeACK variable records the largest pipeACK\n   sample within the pipeACK\
+    \ Sampling Period.  One simple way to\n   implement this is to divide the pipeACK\
+    \ Sampling Period into several\n   (e.g., five) equal-length measurement periods.\
+    \  The sender then\n   records the start time for each measurement period and\
+    \ the highest\n   measured pipeACK sample.  At the end of the measurement period,\
+    \ any\n   measurement(s) that is older than the pipeACK Sampling Period is\n \
+    \  discarded.  The pipeACK variable is then assigned the largest of the\n   set\
+    \ of the highest measured values.\n   pipeACK sample (Bytes)\n   ^\n   |   +----------+----------+\
+    \           +----------+---......\n   |   | Sample A | Sample B | No        |\
+    \ Sample C | Sample D\n   |   |          |          | Sample    |          |\n\
+    \   |   | |\\ 5     |          |           |          |\n   |   | | |      | \
+    \         |           |  /\\ 4    |\n   |   | | |      |  |\\ 3    |         \
+    \  |  | \\     |\n   |   | | \\      | |  \\---  |           |  /  \\    |   /|\
+    \ 2\n   |   |/   \\------|       - |           | /    \\------/ \\...\n   +//-+----------+---------\\\
+    +----/ /----+/---------+-------------> Time\n    <------------------------------------------------|\n\
+    \                        Sampling Period          Current Time\n             \
+    \ Figure 1: Example of Measuring pipeACK Samples\n   Figure 1 shows an example\
+    \ of how measurement samples may be\n   collected.  At the time represented by\
+    \ the figure, new samples are\n   being accumulated into sample D.  Three previous\
+    \ samples also fall\n   within the pipeACK Sampling Period: A, B, and C.  There\
+    \ was also a\n   period of inactivity between samples B and C during which no\n\
+    \   measurements were taken (because no new data segments were\n   acknowledged).\
+    \  The current value of the pipeACK variable will be 5,\n   the maximum across\
+    \ all samples.  During this period, the pipeACK\n   samples may be regarded as\
+    \ zero and hence do not contribute to the\n   calculated pipeACK value.\n   After\
+    \ one further measurement period, Sample A will be discarded,\n   since it then\
+    \ is older than the pipeACK Sampling Period, and the\n   pipeACK variable will\
+    \ be recalculated.  Its value will be the larger\n   of Sample C or the final\
+    \ value accumulated in Sample D.\n"
+- title: 4.5.2.  Measurement of the NVP and pipeACK Samples
+  contents:
+  - "4.5.2.  Measurement of the NVP and pipeACK Samples\n   The mechanism requires\
+    \ a number of measurements of time.  These\n   measurements could be implemented\
+    \ using protocol timers but do not\n   necessarily require a new timer to be implemented.\
+    \  Avoiding the use\n   of dedicated timers can save operating system resources,\
+    \ especially\n   when there may be large numbers of TCP flows.\n   The NVP could\
+    \ be measured by recording a timestamp when the sender\n   enters the non-validated\
+    \ phase.  Each time a sender transmits a new\n   segment, this timestamp can be\
+    \ used to determine if the NVP has\n   expired.  If the measured period exceeds\
+    \ the NVP, the sender can then\n   take into account how many units of the NVP\
+    \ have passed and make one\n   reduction (defined in Section 4.4.3) for each NVP.\n\
+    \   Similarly, the time measurements for collecting pipeACK samples and\n   determining\
+    \ the pipeACK Sampling Period could be derived by using a\n   timestamp to record\
+    \ when each sample was measured and using this to\n   calculate how much time\
+    \ has passed when each new ACK is received.\n"
+- title: 4.5.3.  Implementing Detection of the cwnd-Limited Condition
+  contents:
+  - "4.5.3.  Implementing Detection of the cwnd-Limited Condition\n   A sender needs\
+    \ to implement a method that detects the cwnd-limited\n   condition (see Section\
+    \ 4.4).  This detects a condition where a sender\n   in the non-validated phase\
+    \ receives an ACK, but the size of cwnd\n   prevents sending more new data.\n\
+    \   In simple terms, this condition is true only when the FlightSize of a\n  \
+    \ TCP sender is equal to or larger than the current cwnd.  However, an\n   implementation\
+    \ also needs to consider constraints on the way in which\n   the cwnd variable\
+    \ can be used; for instance, implementations need to\n   support other TCP methods\
+    \ such as the Nagle Algorithm and TCP Segment\n   Offload (TSO) that also use\
+    \ cwnd to control transmission.  These\n   other methods can result in a sender\
+    \ becoming cwnd-limited when the\n   cwnd is nearly, rather than completely, equal\
+    \ to the FlightSize.\n"
+- title: 5.  Determining a Safe Period to Preserve cwnd
+  contents:
+  - "5.  Determining a Safe Period to Preserve cwnd\n   This section documents the\
+    \ rationale for selecting the maximum period\n   that cwnd may be preserved, known\
+    \ as the NVP.\n   Limiting the period that cwnd may be preserved avoids undesirable\n\
+    \   side effects that would result if the cwnd were to be kept\n   unnecessarily\
+    \ high for an arbitrarily long period, which was a part\n   of the problem that\
+    \ CWV originally attempted to address.  The period\n   a sender may safely preserve\
+    \ the cwnd is a function of the period\n   that a network path is expected to\
+    \ sustain the capacity reflected by\n   cwnd.  There is no ideal choice for this\
+    \ time.\n   A period of five minutes was chosen for this NVP.  This is a\n   compromise\
+    \ that was larger than the idle intervals of common\n   applications but not sufficiently\
+    \ larger than the period for which\n   the capacity of an Internet path may commonly\
+    \ be regarded as stable.\n   The capacity of wired networks is usually relatively\
+    \ stable for\n   periods of several minutes, and that load stability increases\
+    \ with\n   the capacity.  This suggests that cwnd may be preserved for at least\n\
+    \   a few minutes.\n   There are cases where the TCP throughput exhibits significant\n\
+    \   variability over a time less than five minutes.  Examples could\n   include\
+    \ wireless topologies, where TCP rate variations may fluctuate\n   on the order\
+    \ of a few seconds as a consequence of medium access\n   protocol instabilities.\
+    \  Mobility changes may also impact TCP\n   performance over short time scales.\
+    \  Senders that observe such rapid\n   changes in the path characteristic may\
+    \ also experience increased\n   congestion with the new method; however, such\
+    \ variation would likely\n   also impact TCP's behaviour when supporting interactive\
+    \ and bulk\n   applications.\n   Routing algorithms may change the network path\
+    \ that is used by a\n   transport.  Although a change of path can in turn disrupt\
+    \ the RTT\n   measurement and may result in a change of the capacity available\
+    \ to a\n   TCP connection, we assume these path changes do not usually occur\n\
+    \   frequently (compared to a time frame of a few minutes).\n   The value of five\
+    \ minutes is therefore expected to be sufficient for\n   most current applications.\
+    \  Simulation studies (e.g., [Bis11]) also\n   suggest that for many practical\
+    \ applications, the performance using\n   this value will not be significantly\
+    \ different from that observed\n   using a non-standard method that does not reset\
+    \ the cwnd after idle.\n   Finally, other TCP sender mechanisms have used a five-minute\
+    \ timer,\n   and there could be simplifications in some implementations by reusing\n\
+    \   the same interval.  TCP defines a default user timeout of five\n   minutes\
+    \ [RFC793], which is how long transmitted data may remain\n   unacknowledged before\
+    \ a connection is forcefully closed.\n"
+- title: 6.  Security Considerations
+  contents:
+  - "6.  Security Considerations\n   General security considerations concerning TCP\
+    \ congestion control are\n   discussed in [RFC5681].  This document describes\
+    \ an algorithm that\n   updates one aspect of the congestion control procedures,\
+    \ so the\n   considerations described in [RFC5681] also apply to this algorithm.\n"
+- title: 7.  References
+  contents:
+  - '7.  References
+
+    '
+- title: 7.1.  Normative References
+  contents:
+  - "7.1.  Normative References\n   [RFC793]   Postel, J., \"Transmission Control\
+    \ Protocol\", STD 7,\n              RFC 793, DOI 10.17487/RFC0793, September 1981,\n\
+    \              <http://www.rfc-editor.org/info/rfc793>.\n   [RFC2018]  Mathis,\
+    \ M., Mahdavi, J., Floyd, S., and A. Romanow, \"TCP\n              Selective Acknowledgment\
+    \ Options\", RFC 2018,\n              DOI 10.17487/RFC2018, October 1996,\n  \
+    \            <http://www.rfc-editor.org/info/rfc2018>.\n   [RFC2119]  Bradner,\
+    \ S., \"Key words for use in RFCs to Indicate\n              Requirement Levels\"\
+    , BCP 14, RFC 2119,\n              DOI 10.17487/RFC2119, March 1997,\n       \
+    \       <http://www.rfc-editor.org/info/rfc2119>.\n   [RFC2861]  Handley, M.,\
+    \ Padhye, J., and S. Floyd, \"TCP Congestion\n              Window Validation\"\
+    , RFC 2861, DOI 10.17487/RFC2861, June\n              2000, <http://www.rfc-editor.org/info/rfc2861>.\n\
+    \   [RFC5681]  Allman, M., Paxson, V., and E. Blanton, \"TCP Congestion\n    \
+    \          Control\", RFC 5681, DOI 10.17487/RFC5681, September 2009,\n      \
+    \        <http://www.rfc-editor.org/info/rfc5681>.\n   [RFC6298]  Paxson, V.,\
+    \ Allman, M., Chu, J., and M. Sargent,\n              \"Computing TCP's Retransmission\
+    \ Timer\", RFC 6298,\n              DOI 10.17487/RFC6298, June 2011,\n       \
+    \       <http://www.rfc-editor.org/info/rfc6298>.\n   [RFC6675]  Blanton, E.,\
+    \ Allman, M., Wang, L., Jarvinen, I., Kojo, M.,\n              and Y. Nishida,\
+    \ \"A Conservative Loss Recovery Algorithm\n              Based on Selective Acknowledgment\
+    \ (SACK) for TCP\",\n              RFC 6675, DOI 10.17487/RFC6675, August 2012,\n\
+    \              <http://www.rfc-editor.org/info/rfc6675>.\n"
+- title: 7.2.  Informative References
+  contents:
+  - "7.2.  Informative References\n   [All05]    Allman, M. and E. Blanton, \"Notes\
+    \ on Burst Mitigation for\n              Transport Protocols\", ACM SIGCOMM Computer\
+    \ Communication\n              Review, Volume 35, Issue 2, DOI 10.1145/1064413.1064419,\n\
+    \              April 2005.\n   [Bis08]    Biswas, I. and G. Fairhurst, \"A Practical\
+    \ Evaluation of\n              Congestion Window Validation Behaviour\", 9th Annual\n\
+    \              Postgraduate Symposium in the Convergence of\n              Telecommunications,\
+    \ Networking and Broadcasting\n              (PGNet), Liverpool, UK, 2008.\n \
+    \  [Bis10]    Biswas, I., Sathiaseelan, A., Secchi, R., and G.\n             \
+    \ Fairhurst, \"Analysing TCP for Bursty Traffic\", Int'l J. of\n             \
+    \ Communications, Network and System Sciences,\n              DOI 10.4236/ijcns.2010.37078,\
+    \ July 2010.\n   [Bis11]    Biswas, I., \"Internet Congestion Control for Variable-Rate\n\
+    \              TCP Traffic\", PhD Thesis, School of Engineering,\n           \
+    \   University of Aberdeen, 2011.\n   [Fai12]    Sathiaseelan, A., Secchi, R.,\
+    \ Fairhurst, G., and I.\n              Biswas, \"Enhancing TCP Performance to\
+    \ support Variable-\n              Rate Traffic\", 2nd Capacity Sharing Workshop,\
+    \ ACM\n              CoNEXT, Nice, France, December 2012.\n   [Hos15]    Hossain,\
+    \ Z., \"A Study of Mechanisms to Support Variable-\n              Rate Internet\
+    \ Applications over a Multi-service Satellite\n              Platform\", PhD Thesis,\
+    \ School of Engineering, University\n              of Aberdeen, January 2015.\n\
+    \   [Hug01]    Hughes, A., Touch, J., and J. Heidemann, \"Issues in TCP\n    \
+    \          Slow-Start Restart After Idle\", Work in Progress,\n              draft-hughes-restart-00,\
+    \ December 2001.\n   [Liu07]    Liu, D., Allman, M., Jin, S., and L. Wang, \"\
+    Congestion\n              Control without a Startup Phase\", 5th International\n\
+    \              Workshop on Protocols for Fast Long-Distance Networks\n       \
+    \       (PFLDnet), Los Angeles, California, February 2007.\n   [RFC7230]  Fielding,\
+    \ R., Ed. and J. Reschke, Ed., \"Hypertext Transfer\n              Protocol (HTTP/1.1):\
+    \ Message Syntax and Routing\",\n              RFC 7230, DOI 10.17487/RFC7230,\
+    \ June 2014,\n              <http://www.rfc-editor.org/info/rfc7230>.\n"
+- title: Acknowledgments
+  contents:
+  - "Acknowledgments\n   This document was produced by the TCP Maintenance and Minor\n\
+    \   Extensions (tcpm) working group.\n   The authors acknowledge the contributions\
+    \ of Dr. I. Biswas and Dr.\n   Ziaul Hossain in supporting the evaluation of CWV\
+    \ and for their help\n   in developing the mechanisms proposed in this document.\
+    \  We also\n   acknowledge comments received from the Internet Congestion Control\n\
+    \   Research Group, in particular Yuchung Cheng, Mirja Kuehlewind, Joe\n   Touch,\
+    \ and Mark Allman.  This work was partly funded by the European\n   Community\
+    \ under its Seventh Framework Programme through the Reducing\n   Internet Transport\
+    \ Latency (RITE) project (ICT-317700).\n"
+- title: Authors' Addresses
+  contents:
+  - "Authors' Addresses\n   Godred Fairhurst\n   University of Aberdeen\n   School\
+    \ of Engineering\n   Fraser Noble Building\n   Aberdeen, Scotland  AB24 3UE\n\
+    \   United Kingdom\n   Email: gorry@erg.abdn.ac.uk\n   URI:   http://www.erg.abdn.ac.uk\n\
+    \   Arjuna Sathiaseelan\n   University of Aberdeen\n   School of Engineering\n\
+    \   Fraser Noble Building\n   Aberdeen, Scotland  AB24 3UE\n   United Kingdom\n\
+    \   Email: arjuna@erg.abdn.ac.uk\n   URI:   http://www.erg.abdn.ac.uk\n   Raffaello\
+    \ Secchi\n   University of Aberdeen\n   School of Engineering\n   Fraser Noble\
+    \ Building\n   Aberdeen, Scotland  AB24 3UE\n   United Kingdom\n   Email: raffaello@erg.abdn.ac.uk\n\
+    \   URI:   http://www.erg.abdn.ac.uk\n"

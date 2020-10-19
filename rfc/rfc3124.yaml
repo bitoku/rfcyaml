@@ -1,0 +1,705 @@
+- title: __initial_text__
+  contents:
+  - '                         The Congestion Manager
+
+    '
+- title: Status of this Memo
+  contents:
+  - "Status of this Memo\n   This document specifies an Internet standards track protocol\
+    \ for the\n   Internet community, and requests discussion and suggestions for\n\
+    \   improvements.  Please refer to the current edition of the \"Internet\n   Official\
+    \ Protocol Standards\" (STD 1) for the standardization state\n   and status of\
+    \ this protocol.  Distribution of this memo is unlimited.\n"
+- title: Copyright Notice
+  contents:
+  - "Copyright Notice\n   Copyright (C) The Internet Society (2001).  All Rights Reserved.\n"
+- title: Abstract
+  contents:
+  - "Abstract\n   This document describes the Congestion Manager (CM), an end-system\n\
+    \   module that:\n   (i) Enables an ensemble of multiple concurrent streams from\
+    \ a sender\n   destined to the same receiver and sharing the same congestion\n\
+    \   properties to perform proper congestion avoidance and control, and\n   (ii)\
+    \ Allows applications to easily adapt to network congestion.\n"
+- title: '1. Conventions used in this document:'
+  contents:
+  - "1. Conventions used in this document:\n   The key words \"MUST\", \"MUST NOT\"\
+    , \"REQUIRED\", \"SHALL\", \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\"\
+    , \"MAY\", and \"OPTIONAL\" in this\n   document are to be interpreted as described\
+    \ in RFC-2119 [Bradner97].\n   STREAM\n      A group of packets that all share\
+    \ the same source and destination\n      IP address, IP type-of-service, transport\
+    \ protocol, and source and\n      destination transport-layer port numbers.\n\
+    \   MACROFLOW\n      A group of CM-enabled streams that all use the same congestion\n\
+    \      management and scheduling algorithms, and share congestion state\n    \
+    \  information.  Currently, streams destined to different receivers\n      belong\
+    \ to different macroflows.  Streams destined to the same\n      receiver MAY belong\
+    \ to different macroflows.  When the Congestion\n      Manager is in use, streams\
+    \ that experience identical congestion\n      behavior and use the same congestion\
+    \ control algorithm SHOULD\n      belong to the same macroflow.\n   APPLICATION\n\
+    \      Any software module that uses the CM.  This includes user-level\n     \
+    \ applications such as Web servers or audio/video servers, as well\n      as in-kernel\
+    \ protocols such as TCP [Postel81] that use the CM for\n      congestion control.\n\
+    \   WELL-BEHAVED APPLICATION\n      An application that only transmits when allowed\
+    \ by the CM and\n      accurately accounts for all data that it has sent to the\
+    \ receiver\n      by informing the CM using the CM API.\n   PATH MAXIMUM TRANSMISSION\
+    \ UNIT (PMTU)\n      The size of the largest packet that the sender can transmit\n\
+    \      without it being fragmented en route to the receiver.  It includes\n  \
+    \    the sizes of all headers and data except the IP header.\n   CONGESTION WINDOW\
+    \ (cwnd)\n      A CM state variable that modulates the amount of outstanding data\n\
+    \      between sender and receiver.\n   OUTSTANDING WINDOW (ownd)\n      The number\
+    \ of bytes that has been transmitted by the source, but\n      not known to have\
+    \ been either received by the destination or lost\n      in the network.\n   INITIAL\
+    \ WINDOW (IW)\n      The size of the sender's congestion window at the beginning\
+    \ of a\n      macroflow.\n   DATA TYPE SYNTAX\n      We use \"u64\" for unsigned\
+    \ 64-bit, \"u32\" for unsigned 32-bit, \"u16\"\n      for unsigned 16-bit, \"\
+    u8\" for unsigned 8-bit, \"i32\" for signed\n      32-bit, \"i16\" for signed\
+    \ 16-bit quantities, \"float\" for IEEE\n      floating point values.  The type\
+    \ \"void\" is used to indicate that\n      no return value is expected from a\
+    \ call.  Pointers are referred to\n      using \"*\" syntax, following C language\
+    \ convention.\n      We emphasize that all the API functions described in this\
+    \ document\n      are \"abstract\" calls and that conformant CM implementations\
+    \ may\n      differ in specific implementation details.\n"
+- title: 2. Introduction
+  contents:
+  - "2. Introduction\n   The framework described in this document integrates congestion\n\
+    \   management across all applications and transport protocols.  The CM\n   maintains\
+    \ congestion parameters (available aggregate and per-stream\n   bandwidth, per-receiver\
+    \ round-trip times, etc.) and exports an API\n   that enables applications to\
+    \ learn about network characteristics,\n   pass information to the CM, share congestion\
+    \ information with each\n   other, and schedule data transmissions.  This document\
+    \ focuses on\n   applications and transport protocols with their own independent\
+    \ per-\n   byte or per-packet sequence number information, and does not require\n\
+    \   modifications to the receiver protocol stack.  However, the receiving\n  \
+    \ application must provide feedback to the sending application about\n   received\
+    \ packets and losses, and the latter is expected to use the CM\n   API to update\
+    \ CM state.  This document does not address networks with\n   reservations or\
+    \ service differentiation.\n   The CM is an end-system module that enables an\
+    \ ensemble of multiple\n   concurrent streams to perform stable congestion avoidance\
+    \ and\n   control, and allows applications to easily adapt their transmissions\n\
+    \   to prevailing network conditions.  It integrates congestion\n   management\
+    \ across all applications and transport protocols.  It\n   maintains congestion\
+    \ parameters (available aggregate and per-stream\n   bandwidth, per-receiver round-trip\
+    \ times, etc.) and exports an API\n   that enables applications to learn about\
+    \ network characteristics,\n   pass information to the CM, share congestion information\
+    \ with each\n   other, and schedule data transmissions.  When the CM is used,\
+    \ all\n   data transmissions subject to the CM must be done with the explicit\n\
+    \   consent of the CM via this API to ensure proper congestion behavior.\n   Systems\
+    \ MAY choose to use CM, and if so they MUST follow this\n   specification.\n \
+    \  This document focuses on applications and networks where the\n   following\
+    \ conditions hold:\n   1. Applications are well-behaved with their own independent\n\
+    \      per-byte or per-packet sequence number information, and use the\n     \
+    \ CM API to update internal state in the CM.\n   2. Networks are best-effort without\
+    \ service discrimination or\n      reservations.  In particular, it does not address\
+    \ situations\n      where different streams between the same pair of hosts traverse\n\
+    \      paths with differing characteristics.\n   The Congestion Manager framework\
+    \ can be extended to support\n   applications that do not provide their own feedback\
+    \ and to\n   differentially-served networks.  These extensions will be addressed\n\
+    \   in later documents.\n   The CM is motivated by two main goals:\n   (i) Enable\
+    \ efficient multiplexing.  Increasingly, the trend on the\n   Internet is for\
+    \ unicast data senders (e.g., Web servers) to transmit\n   heterogeneous types\
+    \ of data to receivers, ranging from unreliable\n   real-time streaming content\
+    \ to reliable Web pages and applets.  As a\n   result, many logically different\
+    \ streams share the same path between\n   sender and receiver.  For the Internet\
+    \ to remain stable, each of\n   these streams must incorporate control protocols\
+    \ that safely probe\n   for spare bandwidth and react to congestion.  Unfortunately,\
+    \ these\n   concurrent streams typically compete with each other for network\n\
+    \   resources, rather than share them effectively.  Furthermore, they do\n   not\
+    \ learn from each other about the state of the network.  Even if\n   they each\
+    \ independently implement congestion control (e.g., a group\n   of TCP connections\
+    \ each implementing the algorithms in [Jacobson88,\n   Allman99]), the ensemble\
+    \ of streams tends to be more aggressive in\n   the face of congestion than a\
+    \ single TCP connection implementing\n   standard TCP congestion control and avoidance\
+    \ [Balakrishnan98].\n   (ii) Enable application adaptation to congestion.  Increasingly,\n\
+    \   popular real-time streaming applications run over UDP using their own\n  \
+    \ user-level transport protocols for good application performance, but\n   in\
+    \ most cases today do not adapt or react properly to network\n   congestion. \
+    \ By implementing a stable control algorithm and exposing\n   an adaptation API,\
+    \ the CM enables easy application adaptation to\n   congestion.  Applications\
+    \ adapt the data they transmit to the current\n   network conditions.\n   The\
+    \ CM framework builds on recent work on TCP control block sharing\n   [Touch97],\
+    \ integrated TCP congestion control (TCP-Int)\n   [Balakrishnan98] and TCP sessions\
+    \ [Padmanabhan98].  [Touch97]\n   advocates the sharing of some of the state in\
+    \ the TCP control block\n   to improve transient transport performance and describes\
+    \ sharing\n   across an ensemble of TCP connections.  [Balakrishnan98],\n   [Padmanabhan98],\
+    \ and [Eggert00] describe several experiments that\n   quantify the benefits of\
+    \ sharing congestion state, including improved\n   stability in the face of congestion\
+    \ and better loss recovery.\n   Integrating loss recovery across concurrent connections\
+    \ significantly\n   improves performance because losses on one connection can\
+    \ be detected\n   by noticing that later data sent on another connection has been\n\
+    \   received and acknowledged.  The CM framework extends these ideas in\n   two\
+    \ significant ways: (i) it extends congestion management to non-TCP\n   streams,\
+    \ which are becoming increasingly common and often do not\n   implement proper\
+    \ congestion management, and (ii) it provides an API\n   for applications to adapt\
+    \ their transmissions to current network\n   conditions.  For an extended discussion\
+    \ of the motivation for the CM,\n   its architecture, API, and algorithms, see\
+    \ [Balakrishnan99]; for a\n   description of an implementation and performance\
+    \ results, see\n   [Andersen00].\n   The resulting end-host protocol architecture\
+    \ at the sender is shown\n   in Figure 1.  The CM helps achieve network stability\
+    \ by implementing\n   stable congestion avoidance and control algorithms that\
+    \ are \"TCP-\n   friendly\" [Mahdavi98] based on algorithms described in [Allman99].\n\
+    \   However, it does not attempt to enforce proper congestion behavior\n   for\
+    \ all applications (but it does not preclude a policer on the host\n   that performs\
+    \ this task).  Note that while the policer at the end-\n   host can use CM, the\
+    \ network has to be protected against compromises\n   to the CM and the policer\
+    \ at the end hosts, a task that requires\n   router machinery [Floyd99a].  We\
+    \ do not address this issue further in\n   this document.\n   |--------| |--------|\
+    \ |--------| |--------|       |--------------|\n   |  HTTP  | |  FTP   | |  RTP\
+    \ 1 | |  RTP 2 |       |              |\n   |--------| |--------| |--------| |--------|\
+    \       |              |\n       |          |         |  ^       |  ^        \
+    \  |              |\n       |          |         |  |       |  |          |  \
+    \ Scheduler  |\n       |          |         |  |       |  |  |---|   |       \
+    \       |\n       |          |         |  |-------|--+->|   |   |            \
+    \  |\n       |          |         |          |     |   |<--|              |\n\
+    \       v          v         v          v     |   |   |--------------|\n   |--------|\
+    \ |--------|  |-------------|    |   |           ^\n   |  TCP 1 | |  TCP 2 | \
+    \ |    UDP 1    |    | A |           |\n   |--------| |--------|  |-------------|\
+    \    |   |           |\n      ^   |      ^   |              |        |   |   |--------------|\n\
+    \      |   |      |   |              |        | P |-->|              |\n     \
+    \ |   |      |   |              |        |   |   |              |\n      |---|------+---|--------------|------->|\
+    \   |   |  Congestion  |\n          |          |              |        | I | \
+    \  |              |\n          v          v              v        |   |   |  Controller\
+    \  |\n     |-----------------------------------|   |   |   |              |\n\
+    \     |               IP                  |-->|   |   |              |\n     |-----------------------------------|\
+    \   |   |   |--------------|\n                                             |---|\n\
+    \                                      Figure 1\n   The key components of the\
+    \ CM framework are (i) the API, (ii) the\n   congestion controller, and (iii)\
+    \ the scheduler.  The API is (in part)\n   motivated by the requirements of application-level\
+    \ framing (ALF)\n   [Clark90], and is described in Section 4.  The CM internals\
+    \ (Section\n   5) include a congestion controller (Section 5.1) and a scheduler\
+    \ to\n   orchestrate data transmissions between concurrent streams in a\n   macroflow\
+    \ (Section 5.2).  The congestion controller adjusts the\n   aggregate transmission\
+    \ rate between sender and receiver based on its\n   estimate of congestion in\
+    \ the network.  It obtains feedback about its\n   past transmissions from applications\
+    \ themselves via the API.  The\n   scheduler apportions available bandwidth amongst\
+    \ the different\n   streams within each macroflow and notifies applications when\
+    \ they are\n   permitted to send data.  This document focuses on well-behaved\n\
+    \   applications; a future one will describe the sender-receiver protocol\n  \
+    \ and header formats that will handle applications that do not\n   incorporate\
+    \ their own feedback to the CM.\n"
+- title: 3. CM API
+  contents:
+  - "3. CM API\n   By convention, the IETF does not treat Application Programming\n\
+    \   Interfaces as standards track.  However, it is considered important\n   to\
+    \ have the CM API and CM algorithm requirements in one coherent\n   document.\
+    \  The following section on the CM API uses the terms MUST,\n   SHOULD, etc.,\
+    \ but the terms are meant to apply within the context of\n   an implementation\
+    \ of the CM API.  The section does not apply to\n   congestion control implementations\
+    \ in general, only to those\n   implementations offering the CM API.\n   Using\
+    \ the CM API, streams can determine their share of the available\n   bandwidth,\
+    \ request and have their data transmissions scheduled,\n   inform the CM about\
+    \ successful transmissions, and be informed when\n   the CM's estimate of path\
+    \ bandwidth changes.  Thus, the CM frees\n   applications from having to maintain\
+    \ information about the state of\n   congestion and available bandwidth along\
+    \ any path.\n   The function prototypes below follow standard C language convention.\n\
+    \   We emphasize that these API functions are abstract calls and\n   conformant\
+    \ CM implementations may differ in specific details, as long\n   as equivalent\
+    \ functionality is provided.\n   When a new stream is created by an application,\
+    \ it passes some\n   information to the CM via the cm_open(stream_info) API call.\n\
+    \   Currently, stream_info consists of the following information: (i) the\n  \
+    \ source IP address, (ii) the source port, (iii) the destination IP\n   address,\
+    \ (iv) the destination port, and (v) the IP protocol number.\n"
+- title: 3.1 State maintenance
+  contents:
+  - "3.1 State maintenance\n   1. Open: All applications MUST call cm_open(stream_info)\
+    \ before\n      using the CM API.  This returns a handle, cm_streamid, for the\n\
+    \      application to use for all further CM API invocations for that\n      stream.\
+    \  If the returned cm_streamid is -1, then the cm_open()\n      failed and that\
+    \ stream cannot use the CM.\n      All other calls to the CM for a stream use\
+    \ the cm_streamid\n      returned from the cm_open() call.\n   2. Close: When\
+    \ a stream terminates, the application SHOULD invoke\n      cm_close(cm_streamid)\
+    \ to inform the CM about the termination\n      of the stream.\n   3. Packet size:\
+    \ cm_mtu(cm_streamid) returns the estimated PMTU of\n      the path between sender\
+    \ and receiver.  Internally, this\n      information SHOULD be obtained via path\
+    \ MTU discovery\n      [Mogul90].  It MAY be statically configured in the absence\
+    \ of\n      such a mechanism.\n"
+- title: 3.2 Data transmission
+  contents:
+  - "3.2 Data transmission\n   The CM accommodates two types of adaptive senders,\
+    \ enabling\n   applications to dynamically adapt their content based on prevailing\n\
+    \   network conditions, and supporting ALF-based applications.\n   1. Callback-based\
+    \ transmission.  The callback-based transmission API\n   puts the stream in firm\
+    \ control of deciding what to transmit at each\n   point in time.  To achieve\
+    \ this, the CM does not buffer any data;\n   instead, it allows streams the opportunity\
+    \ to adapt to unexpected\n   network changes at the last possible instant.  Thus,\
+    \ this enables\n   streams to \"pull out\" and repacketize data upon learning\
+    \ about any\n   rate change, which is hard to do once the data has been buffered.\n\
+    \   The CM must implement a cm_request(i32 cm_streamid) call for streams\n   wishing\
+    \ to send data in this style.  After some time, depending on\n   the rate, the\
+    \ CM MUST invoke a callback using cmapp_send(), which is\n   a grant for the stream\
+    \ to send up to PMTU bytes.  The callback-style\n   API is the recommended choice\
+    \ for ALF-based streams.  Note that\n   cm_request() does not take the number\
+    \ of bytes or MTU-sized units as\n   an argument; each call to cm_request() is\
+    \ an implicit request for\n   sending up to PMTU bytes.  The CM MAY provide an\
+    \ alternate interface,\n   cm_request(int k).  The cmapp_send callback for this\
+    \ request is\n   granted the right to send up to k PMTU sized segments.  Section\
+    \ 4.3\n   discusses the time duration for which the transmission grant is\n  \
+    \ valid, while Section 5.2 describes how these requests are scheduled\n   and\
+    \ callbacks made.\n   2. Synchronous-style.  The above callback-based API accommodates\
+    \ a\n   class of ALF streams that are \"asynchronous.\"  Asynchronous\n   transmitters\
+    \ do not transmit based on a periodic clock, but do so\n   triggered by asynchronous\
+    \ events like file reads or captured frames.\n   On the other hand, there are\
+    \ many streams that are \"synchronous\"\n   transmitters, which transmit periodically\
+    \ based on their own internal\n   timers (e.g., an audio senders that sends at\
+    \ a constant sampling\n   rate).  While CM callbacks could be configured to periodically\n\
+    \   interrupt such transmitters, the transmit loop of such applications\n   is\
+    \ less affected if they retain their original timer-based loop.  In\n   addition,\
+    \ it complicates the CM API to have a stream express the\n   periodicity and granularity\
+    \ of its callbacks.  Thus, the CM MUST\n   export an API that allows such streams\
+    \ to be informed of changes in\n   rates using the cmapp_update(u64 newrate, u32\
+    \ srtt, u32 rttdev)\n   callback function, where newrate is the new rate in bits\
+    \ per second\n   for this stream, srtt is the current smoothed round trip time\n\
+    \   estimate in microseconds, and rttdev is the smoothed linear deviation\n  \
+    \ in the round-trip time estimate calculated using the same algorithm\n   as in\
+    \ TCP [Paxson00].  The newrate value reports an instantaneous\n   rate calculated,\
+    \ for example, by taking the ratio of cwnd and srtt,\n   and dividing by the fraction\
+    \ of that ratio allocated to the stream.\n   In response, the stream MUST adapt\
+    \ its packet size or change its\n   timer interval to conform to (i.e., not exceed)\
+    \ the allowed rate.  Of\n   course, it may choose not to use all of this rate.\
+    \  Note that the CM\n   is not on the data path of the actual transmission.\n\
+    \   To avoid unnecessary cmapp_update() callbacks that the application\n   will\
+    \ only ignore, the CM MUST provide a cm_thresh(float\n   rate_downthresh, float\
+    \ rate_upthresh, float rtt_downthresh, float\n   rtt_upthresh) function that a\
+    \ stream can use at any stage in its\n   execution.  In response, the CM SHOULD\
+    \ invoke the callback only when\n   the rate decreases to less than (rate_downthresh\
+    \ * lastrate) or\n   increases to more than (rate_upthresh * lastrate), where\
+    \ lastrate is\n   the rate last notified to the stream, or when the round-trip\
+    \ time\n   changes correspondingly by the requisite thresholds.  This\n   information\
+    \ is used as a hint by the CM, in the sense the\n   cmapp_update() can be called\
+    \ even if these conditions are not met.\n   The CM MUST implement a cm_query(i32\
+    \ cm_streamid, u64* rate, u32*\n   srtt, u32* rttdev) to allow an application\
+    \ to query the current CM\n   state.  This sets the rate variable to the current\
+    \ rate estimate in\n   bits per second, the srtt variable to the current smoothed\
+    \ round-trip\n   time estimate in microseconds, and rttdev to the mean linear\n\
+    \   deviation.  If the CM does not have valid estimates for the\n   macroflow,\
+    \ it fills in negative values for the rate, srtt, and\n   rttdev.\n   Note that\
+    \ a stream can use more than one of the above transmission\n   APIs at the same\
+    \ time.  In particular, the knowledge of sustainable\n   rate is useful for asynchronous\
+    \ streams as well as synchronous ones;\n   e.g., an asynchronous Web server disseminating\
+    \ images using TCP may\n   use cmapp_send() to schedule its transmissions and\
+    \ cmapp_update() to\n   decide whether to send a low-resolution or high-resolution\
+    \ image.  A\n   TCP implementation using the CM is described in Section 6.1.1,\
+    \ where\n   the benefit of the cm_request() callback API for TCP will become\n\
+    \   apparent.\n   The reader will notice that the basic CM API does not provide\
+    \ an\n   interface for buffered congestion-controlled transmissions.  This is\n\
+    \   intentional, since this transmission mode can be implemented using\n   the\
+    \ callback-based primitive.  Section 6.1.2 describes how\n   congestion-controlled\
+    \ UDP sockets may be implemented using the CM\n   API.\n"
+- title: 3.3 Application notification
+  contents:
+  - "3.3 Application notification\n   When a stream receives feedback from receivers,\
+    \ it MUST use\n   cm_update(i32 cm_streamid, u32 nrecd, u32 nlost, u8 lossmode,\
+    \ i32\n   rtt) to inform the CM about events such as congestion losses,\n   successful\
+    \ receptions, type of loss (timeout event, Explicit\n   Congestion Notification\
+    \ [Ramakrishnan99], etc.) and round-trip time\n   samples.  The nrecd parameter\
+    \ indicates how many bytes were\n   successfully received by the receiver since\
+    \ the last cm_update call,\n   while the nrecd parameter identifies how many bytes\
+    \ were received\n   were lost during the same time period.  The rtt value indicates\
+    \ the\n   round-trip time measured during the transmission of these bytes.  The\n\
+    \   rtt value must be set to -1 if no valid round-trip sample was\n   obtained\
+    \ by the application.  The lossmode parameter provides an\n   indicator of how\
+    \ a loss was detected.  A value of CM_NO_FEEDBACK\n   indicates that the application\
+    \ has received no feedback for all its\n   outstanding data, and is reporting\
+    \ this to the CM.  For example, a\n   TCP that has experienced a timeout would\
+    \ use this parameter to inform\n   the CM of this.  A value of CM_LOSS_FEEDBACK\
+    \ indicates that the\n   application has experienced some loss, which it believes\
+    \ to be due to\n   congestion, but not all outstanding data has been lost.  For\
+    \ example,\n   a TCP segment loss detected using duplicate (selective)\n   acknowledgments\
+    \ or other data-driven techniques fits this category.\n   A value of CM_EXPLICIT_CONGESTION\
+    \ indicates that the receiver echoed\n   an explicit congestion notification message.\
+    \  Finally, a value of\n   CM_NO_CONGESTION indicates that no congestion-related\
+    \ loss has\n   occurred.  The lossmode parameter MUST be reported as a bit-vector\n\
+    \   where the bits correspond to CM_NO_FEEDBACK, CM_LOSS_FEEDBACK,\n   CM_EXPLICIT_CONGESTION,\
+    \ and CM_NO_CONGESTION.  Note that over links\n   (paths) that experience losses\
+    \ for reasons other than congestion, an\n   application SHOULD inform the CM of\
+    \ losses, with the CM_NO_CONGESTION\n   field set.\n   cm_notify(i32 cm_streamid,\
+    \ u32 nsent) MUST be called when data is\n   transmitted from the host (e.g.,\
+    \ in the IP output routine) to inform\n   the CM that nsent bytes were just transmitted\
+    \ on a given stream.\n   This allows the CM to update its estimate of the number\
+    \ of\n   outstanding bytes for the macroflow and for the stream.\n   A cmapp_send()\
+    \ grant from the CM to an application is valid only for\n   an expiration time,\
+    \ equal to the larger of the round-trip time and an\n   implementation-dependent\
+    \ threshold communicated as an argument to the\n   cmapp_send() callback function.\
+    \  The application MUST NOT send data\n   based on this callback after this time\
+    \ has expired.  Furthermore, if\n   the application decides not to send data after\
+    \ receiving this\n   callback, it SHOULD call cm_notify(stream_info, 0) to allow\
+    \ the CM to\n   permit other streams in the macroflow to transmit data.  The CM\n\
+    \   congestion controller MUST be robust to applications forgetting to\n   invoke\
+    \ cm_notify(stream_info, 0) correctly, or applications that\n   crash or disappear\
+    \ after having made a cm_request() call.\n"
+- title: 3.4 Querying
+  contents:
+  - "3.4 Querying\n   If applications wish to learn about per-stream available bandwidth\n\
+    \   and round-trip time, they can use the CM's cm_query(i32 cm_streamid,\n   i64*\
+    \ rate, i32* srtt, i32* rttdev) call, which fills in the desired\n   quantities.\
+    \  If the CM does not have valid estimates for the\n   macroflow, it fills in\
+    \ negative values for the rate, srtt, and\n   rttdev.\n"
+- title: 3.5 Sharing granularity
+  contents:
+  - "3.5 Sharing granularity\n   One of the decisions the CM needs to make is the\
+    \ granularity at which\n   a macroflow is constructed, by deciding which streams\
+    \ belong to the\n   same macroflow and share congestion information.  The API\
+    \ provides\n   two functions that allow applications to decide which of their\n\
+    \   streams ought to belong to the same macroflow.\n   cm_getmacroflow(i32 cm_streamid)\
+    \ returns a unique i32 macroflow\n   identifier.  cm_setmacroflow(i32 cm_macroflowid,\
+    \ i32 cm_streamid)\n   sets the macroflow of the stream cm_streamid to cm_macroflowid.\
+    \  If\n   the cm_macroflowid that is passed to cm_setmacroflow() is -1, then a\n\
+    \   new macroflow is constructed and this is returned to the caller.\n   Each\
+    \ call to cm_setmacroflow() overrides the previous macroflow\n   association for\
+    \ the stream, should one exist.\n   The default suggested aggregation method is\
+    \ to aggregate by\n   destination IP address; i.e., all streams to the same destination\n\
+    \   address are aggregated to a single macroflow by default.  The\n   cm_getmacroflow()\
+    \ and cm_setmacroflow() calls can then be used to\n   change this as needed. \
+    \ We do note that there are some cases where\n   this may not be optimal, even\
+    \ over best-effort networks.  For\n   example, when a group of receivers are behind\
+    \ a NAT device, the\n   sender will see them all as one address.  If the hosts\
+    \ behind the NAT\n   are in fact connected over different bottleneck links, some\
+    \ of those\n   hosts could see worse performance than before.  It is possible\
+    \ to\n   detect such hosts when using delay and loss estimates, although the\n\
+    \   specific mechanisms for doing so are beyond the scope of this\n   document.\n\
+    \   The objective of this interface is to set up sharing of groups not\n   sharing\
+    \ policy of relative weights of streams in a macroflow.  The\n   latter requires\
+    \ the scheduler to provide an interface to set sharing\n   policy.  However, because\
+    \ we want to support many different\n   schedulers (each of which may need different\
+    \ information to set\n   policy), we do not specify a complete API to the scheduler\
+    \ (but see\n   Section 5.2).  A later guideline document is expected to describe\
+    \ a\n   few simple schedulers (e.g., weighted round-robin, hierarchical\n   scheduling)\
+    \ and the API they export to provide relative\n   prioritization.\n"
+- title: 4. CM internals
+  contents:
+  - "4. CM internals\n   This section describes the internal components of the CM.\
+    \  It\n   includes a Congestion Controller and a Scheduler, with well-defined,\n\
+    \   abstract interfaces exported by them.\n"
+- title: 4.1 Congestion controller
+  contents:
+  - "4.1 Congestion controller\n   Associated with each macroflow is a congestion\
+    \ control algorithm; the\n   collection of all these algorithms comprises the\
+    \ congestion\n   controller of the CM.  The control algorithm decides when and\
+    \ how\n   much data can be transmitted by a macroflow.  It uses application\n\
+    \   notifications (Section 4.3) from concurrent streams on the same\n   macroflow\
+    \ to build up information about the congestion state of the\n   network path used\
+    \ by the macroflow.\n   The congestion controller MUST implement a \"TCP-friendly\"\
+    \ [Mahdavi98]\n   congestion control algorithm.  Several macroflows MAY (and indeed,\n\
+    \   often will) use the same congestion control algorithm but each\n   macroflow\
+    \ maintains state about the network used by its streams.\n   The congestion control\
+    \ module MUST implement the following abstract\n   interfaces.  We emphasize that\
+    \ these are not directly visible to\n   applications; they are within the context\
+    \ of a macroflow, and are\n   different from the CM API functions of Section 4.\n\
+    \   - void query(u64 *rate, u32 *srtt, u32 *rttdev): This function\n     returns\
+    \ the estimated rate (in bits per second) and smoothed\n     round trip time (in\
+    \ microseconds) for the macroflow.\n   - void notify(u32 nsent): This function\
+    \ MUST be used to notify the\n     congestion control module whenever data is\
+    \ sent by an\n     application.  The nsent parameter indicates the number of bytes\n\
+    \     just sent by the application.\n   - void update(u32 nsent, u32 nrecd, u32\
+    \ rtt, u32 lossmode): This\n     function is called whenever any of the CM streams\
+    \ associated with\n     a macroflow identifies that data has reached the receiver\
+    \ or has\n     been lost en route.  The nrecd parameter indicates the number of\n\
+    \     bytes that have just arrived at the receiver.  The nsent\n     parameter\
+    \ is the sum of the number of bytes just received and the\n     number of bytes\
+    \ identified as lost en route.  The rtt parameter is\n     the estimated round\
+    \ trip time in microseconds during the\n     transfer.  The lossmode parameter\
+    \ provides an indicator of how a\n     loss was detected (section 4.3).\n   Although\
+    \ these interfaces are not visible to applications, the\n   congestion controller\
+    \ MUST implement these abstract interfaces to\n   provide for modular inter-operability\
+    \ with different separately-\n   developed schedulers.\n   The congestion control\
+    \ module MUST also call the associated\n   scheduler's schedule function (section\
+    \ 5.2) when it believes that the\n   current congestion state allows an MTU-sized\
+    \ packet to be sent.\n"
+- title: 4.2 Scheduler
+  contents:
+  - "4.2 Scheduler\n   While it is the responsibility of the congestion control module\
+    \ to\n   determine when and how much data can be transmitted, it is the\n   responsibility\
+    \ of a macroflow's scheduler module to determine which\n   of the streams should\
+    \ get the opportunity to transmit data.\n   The Scheduler MUST implement the following\
+    \ interfaces:\n   - void schedule(u32 num_bytes): When the congestion control\
+    \ module\n     determines that data can be sent, the schedule() routine MUST be\n\
+    \     called with no more than the number of bytes that can be sent.\n     In\
+    \ turn, the scheduler MAY call the cmapp_send() function that CM\n     applications\
+    \ must provide.\n   - float query_share(i32 cm_streamid): This call returns the\n\
+    \     described stream's share of the total bandwidth available to the\n     macroflow.\
+    \  This call combined with the query call of the\n     congestion controller provides\
+    \ the information to satisfy an\n     application's cm_query() request.\n   -\
+    \ void notify(i32 cm_streamid, u32 nsent): This interface is used\n     to notify\
+    \ the scheduler module whenever data is sent by a CM\n     application.  The nsent\
+    \ parameter indicates the number of bytes\n     just sent by the application.\n\
+    \     The Scheduler MAY implement many additional interfaces.  As\n     experience\
+    \ with CM schedulers increases, future documents may\n     make additions and/or\
+    \ changes to some parts of the scheduler\n     API.\n"
+- title: 5. Examples
+  contents:
+  - '5. Examples
+
+    '
+- title: 5.1 Example applications
+  contents:
+  - "5.1 Example applications\n   This section describes three possible uses of the\
+    \ CM API by\n   applications.  We describe two asynchronous applications---an\n\
+    \   implementation of a TCP sender and an implementation of congestion-\n   controlled\
+    \ UDP sockets, and a synchronous application---a streaming\n   audio server. \
+    \ More details of these applications and CM\n   implementation optimizations for\
+    \ efficient operation are described in\n   [Andersen00].\n   All applications\
+    \ that use the CM MUST incorporate feedback from the\n   receiver.  For example,\
+    \ it must periodically (typically once or twice\n   per round trip time) determine\
+    \ how many of its packets arrived at the\n   receiver.  When the source gets this\
+    \ feedback, it MUST use\n   cm_update() to inform the CM of this new information.\
+    \  This results\n   in the CM updating ownd and may result in the CM changing\
+    \ its\n   estimates and calling cmapp_update() of the streams of the macroflow.\n\
+    \   The protocols in this section are examples and suggestions for\n   implementation,\
+    \ rather than requirements for any conformant\n   implementation.\n"
+- title: 5.1.1 TCP
+  contents:
+  - "5.1.1 TCP\n   A TCP implementation that uses CM should use the cmapp_send()\n\
+    \   callback API.  TCP only identifies which data it should send upon the\n  \
+    \ arrival of an acknowledgement or expiration of a timer.  As a result,\n   it\
+    \ requires tight control over when and if new data or\n   retransmissions are\
+    \ sent.\n   When TCP either connects to or accepts a connection from another\n\
+    \   host, it performs a cm_open() call to associate the TCP connection\n   with\
+    \ a cm_streamid.\n   Once a connection is established, the CM is used to control\
+    \ the\n   transmission of outgoing data.  The CM eliminates the need for\n   tracking\
+    \ and reacting to congestion in TCP, because the CM and its\n   transmission API\
+    \ ensure proper congestion behavior.  Loss recovery is\n   still performed by\
+    \ TCP based on fast retransmissions and recovery as\n   well as timeouts.  In\
+    \ addition, TCP is also modified to have its own\n   outstanding window (tcp_ownd)\
+    \ estimate.  Whenever data segments are\n   sent from its cmapp_send() callback,\
+    \ TCP updates its tcp_ownd value.\n   The ownd variable is also updated after\
+    \ each cm_update() call.  TCP\n   also maintains a count of the number of outstanding\
+    \ segments\n   (pkt_cnt).  At any time, TCP can calculate the average packet size\n\
+    \   (avg_pkt_size) as tcp_ownd/pkt_cnt.  The avg_pkt_size is used by TCP\n   to\
+    \ help estimate the amount of outstanding data.  Note that this is\n   not needed\
+    \ if the SACK option is used on the connection, since this\n   information is\
+    \ explicitly available.\n   The TCP output routines are modified as follows:\n\
+    \      1. All congestion window (cwnd) checks are removed.\n      2. When application\
+    \ data is available.  The TCP output routines\n      perform all non-congestion\
+    \ checks (Nagle algorithm, receiver-\n      advertised window check, etc).  If\
+    \ these checks pass, the output\n      routine queues the data and calls cm_request()\
+    \ for the stream.\n      3. If incoming data or timers result in a loss being\
+    \ detected, the\n      retransmission is also placed in a queue and cm_request()\
+    \ is\n      called for the stream.\n      4. The cmapp_send() callback for TCP\
+    \ is set to an output routine.\n      If any retransmission is enqueued, the routine\
+    \ outputs the\n      retransmission.  Otherwise, the routine outputs as much new\
+    \ data\n      as the TCP connection state allows.  However, the cmapp_send()\n\
+    \      never sends more than a single segment per call.  This routine\n      arranges\
+    \ for the other output computations to be done, such as\n      header and options\
+    \ computations.\n   The IP output routine on the host calls cm_notify() when the\
+    \ packets\n   are actually sent out.  Because it does not know which cm_streamid\
+    \ is\n   responsible for the packet, cm_notify() takes the stream_info as\n  \
+    \ argument (see Section 4 for what the stream_info should contain).\n   Because\
+    \ cm_notify() reports the IP payload size, TCP keeps track of\n   the total header\
+    \ size and incorporates these updates.\n   The TCP input routines are modified\
+    \ as follows:\n      1. RTT estimation is done as normal using either timestamps\
+    \ or\n      Karn's algorithm.  Any rtt estimate that is generated is passed to\n\
+    \      CM via the cm_update call.\n      2. All cwnd and slow start threshold\
+    \ (ssthresh) updates are\n      removed.\n      3. Upon the arrival of an ack\
+    \ for new data, TCP computes the value\n      of in_flight (the amount of data\
+    \ in flight) as snd_max-ack-1\n      (i.e., MAX Sequence Sent - Current Ack -\
+    \ 1).  TCP then calls\n      cm_update(streamid, tcp_ownd - in_flight, 0, CM_NO_CONGESTION,\n\
+    \      rtt).\n      4. Upon the arrival of a duplicate acknowledgement, TCP must\
+    \ check\n      its dupack count (dup_acks) to determine its action.  If dup_acks\n\
+    \      < 3, the TCP does nothing.  If dup_acks == 3, TCP assumes that a\n    \
+    \  packet was lost and that at least 3 packets arrived to generate\n      these\
+    \ duplicate acks.  Therefore, it calls cm_update(streamid, 4 *\n      avg_pkt_size,\
+    \ 3 * avg_pkt_size, CM_LOSS_FEEDBACK, rtt).  The\n      average packet size is\
+    \ used since the acknowledgments do not\n      indicate exactly how much data\
+    \ has reached the other end.  Most\n      TCP implementations interpret a duplicate\
+    \ ACK as an indication\n      that a full MSS has reached its destination.  Once\
+    \ a new ACK is\n      received, these TCP sender implementations may resynchronize\
+    \ with\n      TCP receiver.  The CM API does not provide a mechanism for TCP to\n\
+    \      pass information from this resynchronization.  Therefore, TCP can\n   \
+    \   only infer the arrival of an avg_pkt_size amount of data from each\n     \
+    \ duplicate ack.  TCP also enqueues a retransmission of the lost\n      segment\
+    \ and calls cm_request().  If dup_acks > 3, TCP assumes that\n      a packet has\
+    \ reached the other end and caused this ack to be sent.\n      As a result, it\
+    \ calls cm_update(streamid, avg_pkt_size,\n      avg_pkt_size, CM_NO_CONGESTION,\
+    \ rtt).\n      5. Upon the arrival of a partial acknowledgment (one that does\
+    \ not\n      exceed the highest segment transmitted at the time the loss\n   \
+    \   occurred, as defined in [Floyd99b]), TCP assumes that a packet was\n     \
+    \ lost and that the retransmitted packet has reached the recipient.\n      Therefore,\
+    \ it calls cm_update(streamid, 2 * avg_pkt_size,\n      avg_pkt_size, CM_NO_CONGESTION,\
+    \ rtt).  CM_NO_CONGESTION is used\n      since the loss period has already been\
+    \ reported.  TCP also\n      enqueues a retransmission of the lost segment and\
+    \ calls\n      cm_request().\n   When the TCP retransmission timer expires, the\
+    \ sender identifies that\n   a segment has been lost and calls cm_update(streamid,\
+    \ avg_pkt_size,\n   0, CM_NO_FEEDBACK, 0) to signify that no feedback has been\
+    \ received\n   from the receiver and that one segment is sure to have \"left the\n\
+    \   pipe.\"  TCP also enqueues a retransmission of the lost segment and\n   calls\
+    \ cm_request().\n"
+- title: 5.1.2 Congestion-controlled UDP
+  contents:
+  - "5.1.2 Congestion-controlled UDP\n   Congestion-controlled UDP is a useful CM\
+    \ application, which we\n   describe in the context of Berkeley sockets [Stevens94].\
+    \  They\n   provide the same functionality as standard Berkeley UDP sockets, but\n\
+    \   instead of immediately sending the data from the kernel packet queue\n   to\
+    \ lower layers for transmission, the buffered socket implementation\n   makes\
+    \ calls to the API exported by the CM inside the kernel and gets\n   callbacks\
+    \ from the CM.  When a CM UDP socket is created, it is bound\n   to a particular\
+    \ stream.  Later, when data is added to the packet\n   queue, cm_request() is\
+    \ called on the stream associated with the\n   socket.  When the CM schedules\
+    \ this stream for transmission, it calls\n   udp_ccappsend() in the UDP module.\
+    \  This function transmits one MTU\n   from the packet queue, and schedules the\
+    \ transmission of any\n   remaining packets.  The in-kernel implementation of\
+    \ the CM UDP API\n   should not require any additional data copies and should\
+    \ support all\n   standard UDP options.  Modifying existing applications to use\n\
+    \   congestion-controlled UDP requires the implementation of a new socket\n  \
+    \ option on the socket.  To work correctly, the sender must obtain\n   feedback\
+    \ about congestion.  This can be done in at least two ways:\n   (i) the UDP receiver\
+    \ application can provide feedback to the sender\n   application, which will inform\
+    \ the CM of network conditions using\n   cm_update(); (ii) the UDP receiver implementation\
+    \ can provide\n   feedback to the sending UDP.  Note that this latter alternative\n\
+    \   requires changes to the receiver's network stack and the sender UDP\n   cannot\
+    \ assume that all receivers support this option without explicit\n   negotiation.\n"
+- title: 5.1.3 Audio server
+  contents:
+  - "5.1.3 Audio server\n   A typical audio application often has access to the sample\
+    \ in a\n   multitude of data rates and qualities.  The objective of the\n   application\
+    \ is then to deliver the highest possible quality of audio\n   (typically the\
+    \ highest data rate) its clients.  The selection of\n   which version of audio\
+    \ to transmit should be based on the current\n   congestion state of the network.\
+    \  In addition, the source will want\n   audio delivered to its users at a consistent\
+    \ sampling rate.  As a\n   result, it must send data a regular rate, minimizing\
+    \ delaying\n   transmissions and reducing buffering before playback.  To meet\
+    \ these\n   requirements, this application can use the synchronous sender API\n\
+    \   (Section 4.2).\n   When the source first starts, it uses the cm_query() call\
+    \ to get an\n   initial estimate of network bandwidth and delay.  If some other\n\
+    \   streams on that macroflow have already been active, then it gets an\n   initial\
+    \ estimate that is valid; otherwise, it gets negative values,\n   which it ignores.\
+    \  It then chooses an encoding that does not exceed\n   these estimates (or, in\
+    \ the case of an invalid estimate, uses\n   application-specific initial values)\
+    \ and begins transmitting data.\n   The application also implements the cmapp_update()\
+    \ callback.  When\n   the CM determines that network characteristics have changed,\
+    \ it calls\n   the application's cmapp_update() function and passes it a new rate\n\
+    \   and round-trip time estimate.  The application must change its choice\n  \
+    \ of audio encoding to ensure that it does not exceed these new\n   estimates.\n"
+- title: 5.2 Example congestion control module
+  contents:
+  - "5.2 Example congestion control module\n   To illustrate the responsibilities\
+    \ of a congestion control module,\n   the following describes some of the actions\
+    \ of a simple TCP-like\n   congestion control module that implements Additive\
+    \ Increase\n   Multiplicative Decrease congestion control (AIMD_CC):\n   - query():\
+    \ AIMD_CC returns the current congestion window (cwnd)\n     divided by the smoothed\
+    \ rtt (srtt) as its bandwidth estimate.  It\n     returns the smoothed rtt estimate\
+    \ as srtt.\n   - notify(): AIMD_CC adds the number of bytes sent to its\n    \
+    \ outstanding data window (ownd).\n   - update(): AIMD_CC subtracts nsent from\
+    \ ownd.  If the value of rtt\n     is non-zero, AIMD_CC updates srtt using the\
+    \ TCP srtt calculation.\n     If the update indicates that data has been lost,\
+    \ AIMD_CC sets\n     cwnd to 1 MTU if the loss_mode is CM_NO_FEEDBACK and to cwnd/2\n\
+    \     (with a minimum of 1 MTU) if the loss_mode is CM_LOSS_FEEDBACK or\n    \
+    \ CM_EXPLICIT_CONGESTION.  AIMD_CC also sets its internal ssthresh\n     variable\
+    \ to cwnd/2.  If no loss had occurred, AIMD_CC mimics TCP\n     slow start and\
+    \ linear growth modes.  It increments cwnd by nsent\n     when cwnd < ssthresh\
+    \ (bounded by a maximum of ssthresh-cwnd) and\n     by nsent * MTU/cwnd when cwnd\
+    \ > ssthresh.\n   - When cwnd or ownd are updated and indicate that at least one\
+    \ MTU\n     may be transmitted, AIMD_CC calls the CM to schedule a\n     transmission.\n"
+- title: 5.3 Example Scheduler Module
+  contents:
+  - "5.3 Example Scheduler Module\n   To clarify the responsibilities of a scheduler\
+    \ module, the following\n   describes some of the actions of a simple round robin\
+    \ scheduler\n   module (RR_sched):\n   - schedule(): RR_sched schedules as many\
+    \ streams as possible in round\n     robin fashion.\n   - query_share(): RR_sched\
+    \ returns 1/(number of streams in macroflow).\n   - notify(): RR_sched does nothing.\
+    \  Round robin scheduling is not\n     affected by the amount of data sent.\n"
+- title: 6. Security Considerations
+  contents:
+  - "6. Security Considerations\n   The CM provides many of the same services that\
+    \ the congestion control\n   in TCP provides.  As such, it is vulnerable to many\
+    \ of the same\n   security problems.  For example, incorrect reports of losses\
+    \ and\n   transmissions will give the CM an inaccurate picture of the network's\n\
+    \   congestion state.  By giving CM a high estimate of congestion, an\n   attacker\
+    \ can degrade the performance observed by applications.  For\n   example, a stream\
+    \ on a host can arbitrarily slow down any other\n   stream on the same macroflow,\
+    \ a form of denial of service.\n   The more dangerous form of attack occurs when\
+    \ an application gives\n   the CM a low estimate of congestion.  This would cause\
+    \ CM to be\n   overly aggressive and allow data to be sent much more quickly than\n\
+    \   sound congestion control policies would allow.\n   [Touch97] describes a number\
+    \ of the security problems that arise with\n   congestion information sharing.\
+    \  An additional vulnerability (not\n   covered by [Touch97])) occurs because\
+    \ applications have access\n   through the CM API to control shared state that\
+    \ will affect other\n   applications on the same computer.  For instance, a poorly\
+    \ designed,\n   possibly a compromised, or intentionally malicious UDP application\n\
+    \   could misuse cm_update() to cause starvation and/or too-aggressive\n   behavior\
+    \ of others in the macroflow.\n"
+- title: 7. References
+  contents:
+  - "7. References\n   [Allman99]        Allman, M. and Paxson, V., \"TCP Congestion\n\
+    \                     Control\", RFC 2581, April 1999.\n   [Andersen00]      Balakrishnan,\
+    \ H., System Support for Bandwidth\n                     Management and Content\
+    \ Adaptation in Internet\n                     Applications, Proc. 4th Symp. on\
+    \ Operating Systems\n                     Design and Implementation, San Diego,\
+    \ CA, October\n                     2000.  Available from\n                  \
+    \   http://nms.lcs.mit.edu/papers/cm-osdi2000.html\n   [Balakrishnan98]  Balakrishnan,\
+    \ H., Padmanabhan, V., Seshan, S.,\n                     Stemm, M., and Katz,\
+    \ R., \"TCP Behavior of a Busy\n                     Web Server:  Analysis and\
+    \ Improvements,\" Proc. IEEE\n                     INFOCOM, San Francisco, CA,\
+    \ March 1998.\n   [Balakrishnan99]  Balakrishnan, H., Rahul, H., and Seshan, S.,\
+    \ \"An\n                     Integrated Congestion Management Architecture for\n\
+    \                     Internet Hosts,\" Proc. ACM SIGCOMM, Cambridge, MA,\n  \
+    \                   September 1999.\n   [Bradner96]       Bradner, S., \"The Internet\
+    \ Standards Process ---\n                     Revision 3\", BCP 9, RFC 2026, October\
+    \ 1996.\n   [Bradner97]       Bradner, S., \"Key words for use in RFCs to Indicate\n\
+    \                     Requirement Levels\", BCP 14, RFC 2119, March 1997.\n  \
+    \ [Clark90]         Clark, D. and Tennenhouse, D., \"Architectural\n         \
+    \            Consideration for a New Generation of Protocols\",\n            \
+    \         Proc. ACM SIGCOMM, Philadelphia, PA, September\n                   \
+    \  1990.\n   [Eggert00]        Eggert, L., Heidemann, J., and Touch, J., \"Effects\n\
+    \                     of Ensemble TCP,\" ACM Computer Comm. Review,\n        \
+    \             January 2000.\n   [Floyd99a]        Floyd, S. and Fall, K.,\" Promoting\
+    \ the Use of End-\n                     to-End Congestion Control in the Internet,\"\
+    \n                     IEEE/ACM Trans. on Networking, 7(4), August 1999,\n   \
+    \                  pp. 458-472.\n   [Floyd99b]        Floyd, S. and T. Henderson,\"\
+    The New Reno\n                     Modification to TCP's Fast Recovery Algorithm,\"\
+    \ RFC\n                     2582, April 1999.\n   [Jacobson88]      Jacobson,\
+    \ V., \"Congestion Avoidance and Control,\"\n                     Proc. ACM SIGCOMM,\
+    \ Stanford, CA, August 1988.\n   [Mahdavi98]       Mahdavi, J. and Floyd, S.,\
+    \ \"The TCP Friendly\n                     Website,\"\n                     http://www.psc.edu/networking/tcp_friendly.html\n\
+    \   [Mogul90]         Mogul, J. and S. Deering, \"Path MTU Discovery,\" RFC\n\
+    \                     1191, November 1990.\n   [Padmanabhan98]   Padmanabhan,\
+    \ V., \"Addressing the Challenges of Web\n                     Data Transport,\"\
+    \ PhD thesis, Univ. of California,\n                     Berkeley, December 1998.\n\
+    \   [Paxson00]        Paxson, V. and M. Allman, \"Computing TCP's\n          \
+    \           Retransmission Timer\", RFC 2988, November 2000.\n   [Postel81]  \
+    \      Postel, J., Editor, \"Transmission Control\n                     Protocol\"\
+    , STD 7, RFC 793, September 1981.\n   [Ramakrishnan99]  Ramakrishnan, K. and Floyd,\
+    \ S., \"A Proposal to Add\n                     Explicit Congestion Notification\
+    \ (ECN) to IP,\" RFC\n                     2481, January 1999.\n   [Stevens94]\
+    \       Stevens, W., TCP/IP Illustrated, Volume 1.\n                     Addison-Wesley,\
+    \ Reading, MA, 1994.\n   [Touch97]         Touch, J., \"TCP Control Block Interdependence\"\
+    , RFC\n                     2140, April 1997.\n"
+- title: 8. Acknowledgments
+  contents:
+  - "8. Acknowledgments\n   We thank David Andersen, Deepak Bansal, and Dorothy Curtis\
+    \ for their\n   work on the CM design and implementation.  We thank Vern Paxson\
+    \ for\n   his detailed comments, feedback, and patience, and Sally Floyd, Mark\n\
+    \   Handley, and Steven McCanne for useful feedback on the CM\n   architecture.\
+    \  Allison Mankin and Joe Touch provided several useful\n   comments on previous\
+    \ drafts of this document.\n"
+- title: 9. Authors' Addresses
+  contents:
+  - "9. Authors' Addresses\n   Hari Balakrishnan\n   Laboratory for Computer Science\n\
+    \   200 Technology Square\n   Massachusetts Institute of Technology\n   Cambridge,\
+    \ MA 02139\n   EMail: hari@lcs.mit.edu\n   Web: http://nms.lcs.mit.edu/~hari/\n\
+    \   Srinivasan Seshan\n   School of Computer Science\n   Carnegie Mellon University\n\
+    \   5000 Forbes Ave.\n   Pittsburgh, PA 15213\n   EMail: srini@cmu.edu\n   Web:\
+    \ http://www.cs.cmu.edu/~srini/\n"
+- title: Full Copyright Statement
+  contents:
+  - "Full Copyright Statement\n   Copyright (C) The Internet Society (2001).  All\
+    \ Rights Reserved.\n   This document and translations of it may be copied and\
+    \ furnished to\n   others, and derivative works that comment on or otherwise explain\
+    \ it\n   or assist in its implementation may be prepared, copied, published\n\
+    \   and distributed, in whole or in part, without restriction of any\n   kind,\
+    \ provided that the above copyright notice and this paragraph are\n   included\
+    \ on all such copies and derivative works.  However, this\n   document itself\
+    \ may not be modified in any way, such as by removing\n   the copyright notice\
+    \ or references to the Internet Society or other\n   Internet organizations, except\
+    \ as needed for the purpose of\n   developing Internet standards in which case\
+    \ the procedures for\n   copyrights defined in the Internet Standards process\
+    \ must be\n   followed, or as required to translate it into languages other than\n\
+    \   English.\n   The limited permissions granted above are perpetual and will\
+    \ not be\n   revoked by the Internet Society or its successors or assigns.\n \
+    \  This document and the information contained herein is provided on an\n   \"\
+    AS IS\" basis and THE INTERNET SOCIETY AND THE INTERNET ENGINEERING\n   TASK FORCE\
+    \ DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING\n   BUT NOT LIMITED\
+    \ TO ANY WARRANTY THAT THE USE OF THE INFORMATION\n   HEREIN WILL NOT INFRINGE\
+    \ ANY RIGHTS OR ANY IMPLIED WARRANTIES OF\n   MERCHANTABILITY OR FITNESS FOR A\
+    \ PARTICULAR PURPOSE.\n"
+- title: Acknowledgement
+  contents:
+  - "Acknowledgement\n   Funding for the RFC Editor function is currently provided\
+    \ by the\n   Internet Society.\n"

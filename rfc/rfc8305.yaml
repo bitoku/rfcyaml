@@ -1,0 +1,463 @@
+- title: __initial_text__
+  contents:
+  - '    Happy Eyeballs Version 2: Better Connectivity Using Concurrency
+
+    '
+- title: Abstract
+  contents:
+  - "Abstract\n   Many communication protocols operating over the modern Internet\
+    \ use\n   hostnames.  These often resolve to multiple IP addresses, each of\n\
+    \   which may have different performance and connectivity\n   characteristics.\
+    \  Since specific addresses or address families (IPv4\n   or IPv6) may be blocked,\
+    \ broken, or sub-optimal on a network, clients\n   that attempt multiple connections\
+    \ in parallel have a chance of\n   establishing a connection more quickly.  This\
+    \ document specifies\n   requirements for algorithms that reduce this user-visible\
+    \ delay and\n   provides an example algorithm, referred to as \"Happy Eyeballs\"\
+    .  This\n   document obsoletes the original algorithm description in RFC 6555.\n"
+- title: Status of This Memo
+  contents:
+  - "Status of This Memo\n   This is an Internet Standards Track document.\n   This\
+    \ document is a product of the Internet Engineering Task Force\n   (IETF).  It\
+    \ represents the consensus of the IETF community.  It has\n   received public\
+    \ review and has been approved for publication by the\n   Internet Engineering\
+    \ Steering Group (IESG).  Further information on\n   Internet Standards is available\
+    \ in Section 2 of RFC 7841.\n   Information about the current status of this document,\
+    \ any errata,\n   and how to provide feedback on it may be obtained at\n   https://www.rfc-editor.org/info/rfc8305.\n"
+- title: Copyright Notice
+  contents:
+  - "Copyright Notice\n   Copyright (c) 2017 IETF Trust and the persons identified\
+    \ as the\n   document authors.  All rights reserved.\n   This document is subject\
+    \ to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n\
+    \   (https://trustee.ietf.org/license-info) in effect on the date of\n   publication\
+    \ of this document.  Please review these documents\n   carefully, as they describe\
+    \ your rights and restrictions with respect\n   to this document.  Code Components\
+    \ extracted from this document must\n   include Simplified BSD License text as\
+    \ described in Section 4.e of\n   the Trust Legal Provisions and are provided\
+    \ without warranty as\n   described in the Simplified BSD License.\n"
+- title: Table of Contents
+  contents:
+  - "Table of Contents\n   1.  Introduction  . . . . . . . . . . . . . . . . . . .\
+    \ . . . . .   3\n     1.1.  Requirements Language . . . . . . . . . . . . . .\
+    \ . . . .   3\n   2.  Overview  . . . . . . . . . . . . . . . . . . . . . . .\
+    \ . . .   4\n   3.  Hostname Resolution Query Handling  . . . . . . . . . . .\
+    \ . .   4\n     3.1.  Handling Multiple DNS Server Addresses  . . . . . . . .\
+    \ .   5\n   4.  Sorting Addresses . . . . . . . . . . . . . . . . . . . . . .\
+    \   6\n   5.  Connection Attempts . . . . . . . . . . . . . . . . . . . . .  \
+    \ 7\n   6.  DNS Answer Changes during Happy Eyeballs Connection Setup . .   8\n\
+    \   7.  Supporting IPv6-Only Networks with NAT64 and DNS64  . . . . .   8\n  \
+    \   7.1.  IPv4 Address Literals . . . . . . . . . . . . . . . . . .   8\n    \
+    \ 7.2.  Hostnames with Broken AAAA Records  . . . . . . . . . . .   9\n     7.3.\
+    \  Virtual Private Networks  . . . . . . . . . . . . . . . .  10\n   8.  Summary\
+    \ of Configurable Values  . . . . . . . . . . . . . . .  10\n   9.  Limitations\
+    \ . . . . . . . . . . . . . . . . . . . . . . . . .  11\n     9.1.  Path Maximum\
+    \ Transmission Unit Discovery  . . . . . . . .  11\n     9.2.  Application Layer\
+    \ . . . . . . . . . . . . . . . . . . . .  11\n     9.3.  Hiding Operational Issues\
+    \ . . . . . . . . . . . . . . . .  11\n   10. Security Considerations . . . .\
+    \ . . . . . . . . . . . . . . .  12\n   11. IANA Considerations . . . . . . .\
+    \ . . . . . . . . . . . . . .  12\n   12. References  . . . . . . . . . . . .\
+    \ . . . . . . . . . . . . .  12\n     12.1.  Normative References . . . . . .\
+    \ . . . . . . . . . . . .  12\n     12.2.  Informative References . . . . . .\
+    \ . . . . . . . . . . .  13\n   Appendix A.  Differences from RFC 6555  . . .\
+    \ . . . . . . . . . .  14\n   Acknowledgments . . . . . . . . . . . . . . . .\
+    \ . . . . . . . . .  15\n   Authors' Addresses  . . . . . . . . . . . . . . .\
+    \ . . . . . . . .  15\n"
+- title: 1.  Introduction
+  contents:
+  - "1.  Introduction\n   Many communication protocols operating over the modern Internet\
+    \ use\n   hostnames.  These often resolve to multiple IP addresses, each of\n\
+    \   which may have different performance and connectivity\n   characteristics.\
+    \  Since specific addresses or address families (IPv4\n   or IPv6) may be blocked,\
+    \ broken, or sub-optimal on a network, clients\n   that attempt multiple connections\
+    \ in parallel have a chance of\n   establishing a connection more quickly.  This\
+    \ document specifies\n   requirements for algorithms that reduce this user-visible\
+    \ delay and\n   provides an example algorithm.\n   This document defines the algorithm\
+    \ for \"Happy Eyeballs\", a technique\n   for reducing user-visible delays on\
+    \ dual-stack hosts.  This\n   definition obsoletes the original description in\
+    \ [RFC6555].  Now that\n   this approach has been deployed at scale and measured\
+    \ for several\n   years, the algorithm specification can be refined to improve\
+    \ its\n   reliability and general applicability.\n   The Happy Eyeballs algorithm\
+    \ of racing connections to resolved\n   addresses has several stages to avoid\
+    \ delays to the user whenever\n   possible, while preferring the use of IPv6.\
+    \  This document discusses\n   how to handle DNS queries when starting a connection\
+    \ on a dual-stack\n   client, how to create an ordered list of destination addresses\
+    \ to\n   which to attempt connections, and how to race the connection\n   attempts.\n"
+- title: 1.1.  Requirements Language
+  contents:
+  - "1.1.  Requirements Language\n   The key words \"MUST\", \"MUST NOT\", \"REQUIRED\"\
+    , \"SHALL\", \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\", \"\
+    NOT RECOMMENDED\", \"MAY\", and\n   \"OPTIONAL\" in this document are to be interpreted\
+    \ as described in\n   [RFC2119] [RFC8174] when, and only when, they appear in\
+    \ all capitals,\n   as shown here.\n"
+- title: 2.  Overview
+  contents:
+  - "2.  Overview\n   This document defines a method of connection establishment,\
+    \ named the\n   \"Happy Eyeballs Connection Setup\".  This approach has several\n\
+    \   distinct phases:\n   1.  Initiation of asynchronous DNS queries [Section 3]\n\
+    \   2.  Sorting of resolved destination addresses [Section 4]\n   3.  Initiation\
+    \ of asynchronous connection attempts [Section 5]\n   4.  Establishment of one\
+    \ connection, which cancels all other attempts\n       [Section 5]\n   Note that\
+    \ this document assumes that the preference policy for the\n   host destination\
+    \ address favors IPv6 over IPv4.  IPv6 has many\n   desirable properties designed\
+    \ to be improvements over IPv4 [RFC8200].\n   If the host is configured to have\
+    \ a different preference, the\n   recommendations in this document can be easily\
+    \ adapted.\n"
+- title: 3.  Hostname Resolution Query Handling
+  contents:
+  - "3.  Hostname Resolution Query Handling\n   When a client has both IPv4 and IPv6\
+    \ connectivity and is trying to\n   establish a connection with a named host,\
+    \ it needs to send out both\n   AAAA and A DNS queries.  Both queries SHOULD be\
+    \ made as soon after\n   one another as possible, with the AAAA query made first\
+    \ and\n   immediately followed by the A query.\n   Implementations SHOULD NOT\
+    \ wait for both families of answers to\n   return before attempting connection\
+    \ establishment.  If one query\n   fails to return or takes significantly longer\
+    \ to return, waiting for\n   the second address family can significantly delay\
+    \ the connection\n   establishment of the first one.  Therefore, the client SHOULD\
+    \ treat\n   DNS resolution as asynchronous.  Note that if the platform does not\n\
+    \   offer an asynchronous DNS API, this behavior can be simulated by\n   making\
+    \ two separate synchronous queries on different threads, one per\n   address family.\n\
+    \   The algorithm proceeds as follows: if a positive AAAA response (a\n   response\
+    \ with at least one valid AAAA record) is received first, the\n   first IPv6 connection\
+    \ attempt is immediately started.  If a positive\n   A response is received first\
+    \ due to reordering, the client SHOULD\n   wait a short time for the AAAA response\
+    \ to ensure that preference is\n   given to IPv6 (it is common for the AAAA response\
+    \ to follow the A\n   response by a few milliseconds).  This delay will be referred\
+    \ to as\n   the \"Resolution Delay\".  The recommended value for the Resolution\n\
+    \   Delay is 50 milliseconds.  If a positive AAAA response is received\n   within\
+    \ the Resolution Delay period, the client immediately starts the\n   IPv6 connection\
+    \ attempt.  If a negative AAAA response (no error, no\n   data) is received within\
+    \ the Resolution Delay period or the AAAA\n   response has not been received by\
+    \ the end of the Resolution Delay\n   period, the client SHOULD proceed to sorting\
+    \ addresses (see\n   Section 4) and staggered connection attempts (see Section\
+    \ 5) using\n   any IPv4 addresses returned so far.  If the AAAA response arrives\n\
+    \   while these connection attempts are in progress but before any\n   connection\
+    \ has been established, then the newly received IPv6\n   addresses are incorporated\
+    \ into the list of available candidate\n   addresses (see Section 6) and the process\
+    \ of connection attempts will\n   continue with the IPv6 addresses added, until\
+    \ one connection is\n   established.\n"
+- title: 3.1.  Handling Multiple DNS Server Addresses
+  contents:
+  - "3.1.  Handling Multiple DNS Server Addresses\n   If multiple DNS server addresses\
+    \ are configured for the current\n   network, the client may have the option of\
+    \ sending its DNS queries\n   over IPv4 or IPv6.  In keeping with the Happy Eyeballs\
+    \ approach,\n   queries SHOULD be sent over IPv6 first (note that this is not\n\
+    \   referring to the sending of AAAA or A queries, but rather the address\n  \
+    \ of the DNS server itself and IP version used to transport DNS\n   messages).\
+    \  If DNS queries sent to the IPv6 address do not receive\n   responses, that\
+    \ address may be marked as penalized and queries can be\n   sent to other DNS\
+    \ server addresses.\n   As native IPv6 deployments become more prevalent and IPv4\
+    \ addresses\n   are exhausted, it is expected that IPv6 connectivity will have\n\
+    \   preferential treatment within networks.  If a DNS server is\n   configured\
+    \ to be accessible over IPv6, IPv6 should be assumed to be\n   the preferred address\
+    \ family.\n   Client systems SHOULD NOT have an explicit limit to the number of\
+    \ DNS\n   servers that can be configured, either manually or by the network.\n\
+    \   If such a limit is required by hardware limitations, the client\n   SHOULD\
+    \ use at least one address from each address family from the\n   available list.\n"
+- title: 4.  Sorting Addresses
+  contents:
+  - "4.  Sorting Addresses\n   Before attempting to connect to any of the resolved\
+    \ destination\n   addresses, the client should define the order in which to start\
+    \ the\n   attempts.  Once the order has been defined, the client can use a\n \
+    \  simple algorithm for racing each option after a short delay (see\n   Section\
+    \ 5).  It is important that the ordered list involve all\n   addresses from both\
+    \ families that have been received by this point,\n   as this allows the client\
+    \ to get the racing effect of Happy Eyeballs\n   for the entire list, not just\
+    \ the first IPv4 and first IPv6\n   addresses.\n   First, the client MUST sort\
+    \ the addresses received up to this point\n   using Destination Address Selection\
+    \ ([RFC6724], Section 6).\n   If the client is stateful and has a history of expected\
+    \ round-trip\n   times (RTTs) for the routes to access each address, it SHOULD\
+    \ add a\n   Destination Address Selection rule between rules 8 and 9 that prefers\n\
+    \   addresses with lower RTTs.  If the client keeps track of which\n   addresses\
+    \ it used in the past, it SHOULD add another Destination\n   Address Selection\
+    \ rule between the RTT rule and rule 9, which prefers\n   used addresses over\
+    \ unused ones.  This helps servers that use the\n   client's IP address during\
+    \ authentication, as is the case for TCP\n   Fast Open [RFC7413] and some Hypertext\
+    \ Transport Protocol (HTTP)\n   cookies.  This historical data MUST NOT be used\
+    \ across different\n   network interfaces and SHOULD be flushed whenever a device\
+    \ changes\n   the network to which it is attached.\n   Next, the client SHOULD\
+    \ modify the ordered list to interleave address\n   families.  Whichever address\
+    \ family is first in the list should be\n   followed by an address of the other\
+    \ address family; that is, if the\n   first address in the sorted list is IPv6,\
+    \ then the first IPv4 address\n   should be moved up in the list to be second\
+    \ in the list.  An\n   implementation MAY want to favor one address family more\
+    \ by allowing\n   multiple addresses of that family to be attempted before trying\
+    \ the\n   other family.  The number of contiguous addresses of the first\n   address\
+    \ family will be referred to as the \"First Address Family\n   Count\" and can\
+    \ be a configurable value.  This is performed to avoid\n   waiting through a long\
+    \ list of addresses from a given address family\n   if connectivity over that\
+    \ address family is impaired.\n   Note that the address selection described in\
+    \ this section only\n   applies to destination addresses; Source Address Selection\n\
+    \   ([RFC6724], Section 5) is performed once per destination address and\n   is\
+    \ out of scope of this document.\n"
+- title: 5.  Connection Attempts
+  contents:
+  - "5.  Connection Attempts\n   Once the list of addresses received up to this point\
+    \ has been\n   constructed, the client will attempt to make connections.  In order\n\
+    \   to avoid unreasonable network load, connection attempts SHOULD NOT be\n  \
+    \ made simultaneously.  Instead, one connection attempt to a single\n   address\
+    \ is started first, followed by the others in the list, one at\n   a time.  Starting\
+    \ a new connection attempt does not affect previous\n   attempts, as multiple\
+    \ connection attempts may occur in parallel.\n   Once one of the connection attempts\
+    \ succeeds (generally when the TCP\n   handshake completes), all other connections\
+    \ attempts that have not\n   yet succeeded SHOULD be canceled.  Any address that\
+    \ was not yet\n   attempted as a connection SHOULD be ignored.  At that time,\
+    \ the\n   asynchronous DNS query MAY be canceled as new addresses will not be\n\
+    \   used for this connection.  However, the DNS client resolver SHOULD\n   still\
+    \ process DNS replies from the network for a short period of time\n   (recommended\
+    \ to be 1 second), as they will populate the DNS cache and\n   can be used for\
+    \ subsequent connections.\n   A simple implementation can have a fixed delay for\
+    \ how long to wait\n   before starting the next connection attempt.  This delay\
+    \ is referred\n   to as the \"Connection Attempt Delay\".  One recommended value\
+    \ for a\n   default delay is 250 milliseconds.  A more nuanced implementation's\n\
+    \   delay should correspond to the time when the previous attempt is\n   sending\
+    \ its second TCP SYN, based on the TCP's retransmission timer\n   [RFC6298]. \
+    \ If the client has historical RTT data gathered from other\n   connections to\
+    \ the same host or prefix, it can use this information\n   to influence its delay.\
+    \  Note that this algorithm should only try to\n   approximate the time of the\
+    \ first SYN retransmission, and not any\n   further retransmissions that may be\
+    \ influenced by exponential timer\n   back off.\n   The Connection Attempt Delay\
+    \ MUST have a lower bound, especially if\n   it is computed using historical data.\
+    \  More specifically, a\n   subsequent connection MUST NOT be started within 10\
+    \ milliseconds of\n   the previous attempt.  The recommended minimum value is\
+    \ 100\n   milliseconds, which is referred to as the \"Minimum Connection Attempt\n\
+    \   Delay\".  This minimum value is required to avoid congestion collapse\n  \
+    \ in the presence of high packet-loss rates.  The Connection Attempt\n   Delay\
+    \ SHOULD have an upper bound, referred to as the \"Maximum\n   Connection Attempt\
+    \ Delay\".  The current recommended value is 2\n   seconds.\n"
+- title: 6.  DNS Answer Changes during Happy Eyeballs Connection Setup
+  contents:
+  - "6.  DNS Answer Changes during Happy Eyeballs Connection Setup\n   If, during\
+    \ the course of connection establishment, the DNS answers\n   change by either\
+    \ adding resolved addresses (for example due to DNS\n   push notifications [DNS-PUSH])\
+    \ or removing previously resolved\n   addresses (for example, due to expiry of\
+    \ the TTL on that DNS record),\n   the client should react based on its current\
+    \ progress.\n   If an address is removed from the list that already had a connection\n\
+    \   attempt started, the connection attempt SHOULD NOT be canceled, but\n   rather\
+    \ be allowed to continue.  If the removed address had not yet\n   had a connection\
+    \ attempt started, it SHOULD be removed from the list\n   of addresses to try.\n\
+    \   If an address is added to the list, it should be sorted into the list\n  \
+    \ of addresses not yet attempted according to the rules above (see\n   Section\
+    \ 4).\n"
+- title: 7.  Supporting IPv6-Only Networks with NAT64 and DNS64
+  contents:
+  - "7.  Supporting IPv6-Only Networks with NAT64 and DNS64\n   While many IPv6 transition\
+    \ protocols have been standardized and\n   deployed, most are transparent to client\
+    \ devices.  The combined use\n   of NAT64 [RFC6146] and DNS64 [RFC6147] is a popular\
+    \ solution that is\n   being deployed and requires changes in client devices.\
+    \  One possible\n   way to handle these networks is for the client device networking\n\
+    \   stack to implement 464XLAT [RFC6877]. 464XLAT has the advantage of\n   not\
+    \ requiring changes to user space software; however, it requires\n   per-packet\
+    \ translation if the application is using IPv4 literals and\n   does not encourage\
+    \ client application software to support native\n   IPv6.  On platforms that do\
+    \ not support 464XLAT, the Happy Eyeballs\n   engine SHOULD follow the recommendations\
+    \ in this section to properly\n   support IPv6-only networks with NAT64 and DNS64.\n\
+    \   The features described in this section SHOULD only be enabled when\n   the\
+    \ host detects one of these networks.  A simple heuristic to\n   achieve that\
+    \ is to check if the network offers routable IPv6\n   addressing, does not offer\
+    \ routable IPv4 addressing, and offers a DNS\n   resolver address.\n"
+- title: 7.1.  IPv4 Address Literals
+  contents:
+  - "7.1.  IPv4 Address Literals\n   If client applications or users wish to connect\
+    \ to IPv4 address\n   literals, the Happy Eyeballs engine will need to perform\
+    \ NAT64\n   address synthesis for them.  The solution is similar to \"Bump-in-the-\n\
+    \   Host\" [RFC6535] but is implemented inside the Happy Eyeballs library.\n \
+    \  When an IPv4 address is passed into the library instead of a\n   hostname,\
+    \ the device queries the network for the NAT64 prefix using\n   \"Discovery of\
+    \ the IPv6 Prefix Used for IPv6 Address Synthesis\"\n   [RFC7050] and then synthesizes\
+    \ an appropriate IPv6 address (or\n   several) using the encoding described in\
+    \ \"IPv6 Addressing of IPv4/\n   IPv6 Translators\" [RFC6052].  The synthesized\
+    \ addresses are then\n   inserted into the list of addresses as if they were results\
+    \ from DNS\n   queries; connection attempts follow the algorithm described above\n\
+    \   (see Section 5).\n"
+- title: 7.2.  Hostnames with Broken AAAA Records
+  contents:
+  - "7.2.  Hostnames with Broken AAAA Records\n   At the time of writing, there exist\
+    \ a small but non-negligible number\n   of hostnames that resolve to valid A records\
+    \ and broken AAAA records,\n   which we define as AAAA records that contain seemingly\
+    \ valid IPv6\n   addresses but those addresses never reply when contacted on the\
+    \ usual\n   ports.  These can be, for example, caused by:\n   o  Mistyping of\
+    \ the IPv6 address in the DNS zone configuration\n   o  Routing black holes\n\
+    \   o  Service outages\n   While an algorithm complying with the other sections\
+    \ of this document\n   would correctly handle such hostnames on a dual-stack network,\
+    \ they\n   will not necessarily function correctly on IPv6-only networks with\n\
+    \   NAT64 and DNS64.  Since DNS64 recursive resolvers rely on the\n   authoritative\
+    \ name servers sending negative (\"no error no answer\")\n   responses for AAAA\
+    \ records in order to synthesize, they will not\n   synthesize records for these\
+    \ particular hostnames and will instead\n   pass through the broken AAAA record.\n\
+    \   In order to support these scenarios, the client device needs to query\n  \
+    \ the DNS for the A record and then perform local synthesis.  Since\n   these\
+    \ types of hostnames are rare and, in order to minimize load on\n   DNS servers,\
+    \ this A query should only be performed when the client\n   has given up on the\
+    \ AAAA records it initially received.  This can be\n   achieved by using a longer\
+    \ timeout, referred to as the \"Last Resort\n   Local Synthesis Delay\"; the delay\
+    \ is recommended to be 2 seconds.\n   The timer is started when the last connection\
+    \ attempt is fired.  If\n   no connection attempt has succeeded when this timer\
+    \ fires, the device\n   queries the DNS for the IPv4 address and, on reception\
+    \ of a valid A\n   record, treats it as if it were provided by the application\
+    \ (see\n   Section 7.1).\n"
+- title: 7.3.  Virtual Private Networks
+  contents:
+  - "7.3.  Virtual Private Networks\n   Some Virtual Private Networks (VPNs) may be\
+    \ configured to handle DNS\n   queries from the device.  The configuration could\
+    \ encompass all\n   queries or a subset such as \"*.internal.example.com\".  These\
+    \ VPNs can\n   also be configured to only route part of the IPv4 address space,\
+    \ such\n   as 192.0.2.0/24.  However, if an internal hostname resolves to an\n\
+    \   external IPv4 address, these can cause issues if the underlying\n   network\
+    \ is IPv6-only.  As an example, let's assume that\n   \"www.internal.example.com\"\
+    \ has exactly one A record, 198.51.100.42,\n   and no AAAA records.  The client\
+    \ will send the DNS query to the\n   company's recursive resolver and that resolver\
+    \ will reply with these\n   records.  The device now only has an IPv4 address\
+    \ to connect to and\n   no route to that address.  Since the company's resolver\
+    \ does not know\n   the NAT64 prefix of the underlying network, it cannot synthesize\
+    \ the\n   address.  Similarly, the underlying network's DNS64 recursive\n   resolver\
+    \ does not know the company's internal addresses, so it cannot\n   resolve the\
+    \ hostname.  Because of this, the client device needs to\n   resolve the A record\
+    \ using the company's resolver and then locally\n   synthesize an IPv6 address,\
+    \ as if the resolved IPv4 address were\n   provided by the application (Section\
+    \ 7.1).\n"
+- title: 8.  Summary of Configurable Values
+  contents:
+  - "8.  Summary of Configurable Values\n   The values that may be configured as defaults\
+    \ on a client for use in\n   Happy Eyeballs are as follows:\n   o  Resolution\
+    \ Delay (Section 3): The time to wait for a AAAA response\n      after receiving\
+    \ an A response.  Recommended to be 50 milliseconds.\n   o  First Address Family\
+    \ Count (Section 4): The number of addresses\n      belonging to the first address\
+    \ family (such as IPv6) that should\n      be attempted before attempting another\
+    \ address family.\n      Recommended to be 1; 2 may be used to more aggressively\
+    \ favor a\n      particular address family.\n   o  Connection Attempt Delay (Section\
+    \ 5): The time to wait between\n      connection attempts in the absence of RTT\
+    \ data.  Recommended to be\n      250 milliseconds.\n   o  Minimum Connection\
+    \ Attempt Delay (Section 5): The minimum time to\n      wait between connection\
+    \ attempts.  Recommended to be 100\n      milliseconds.  MUST NOT be less than\
+    \ 10 milliseconds.\n   o  Maximum Connection Attempt Delay (Section 5): The maximum\
+    \ time to\n      wait between connection attempts.  Recommended to be 2 seconds.\n\
+    \   o  Last Resort Local Synthesis Delay (Section 7.2): The time to wait\n   \
+    \   after starting the last IPv6 attempt and before sending the A\n      query.\
+    \  Recommended to be 2 seconds.\n   The delay values described in this section\
+    \ were determined\n   empirically by measuring the timing of connections on a\
+    \ very wide set\n   of production devices.  They were picked to reduce wait times\
+    \ noticed\n   by users while minimizing load on the network.  As time passes,\
+    \ it is\n   expected that the properties of networks will evolve.  For that\n\
+    \   reason, it is expected that these values will change over time.\n   Implementors\
+    \ should feel welcome to use different values without\n   changing this specification.\
+    \  Since IPv6 issues are expected to be\n   less common, the delays SHOULD be\
+    \ increased with time as client\n   software is updated.\n"
+- title: 9.  Limitations
+  contents:
+  - "9.  Limitations\n   Happy Eyeballs will handle initial connection failures at\
+    \ the TCP/IP\n   layer; however, other failures or performance issues may still\
+    \ affect\n   the chosen connection.\n"
+- title: 9.1.  Path Maximum Transmission Unit Discovery
+  contents:
+  - "9.1.  Path Maximum Transmission Unit Discovery\n   Since Happy Eyeballs is only\
+    \ active during the initial handshake and\n   TCP does not pass the initial handshake,\
+    \ issues related to MTU can be\n   masked and go unnoticed during Happy Eyeballs.\
+    \  Solving this issue is\n   out of scope of this document.  One solution is to\
+    \ use \"Packetization\n   Layer Path MTU Discovery\" [RFC4821].\n"
+- title: 9.2.  Application Layer
+  contents:
+  - "9.2.  Application Layer\n   If the DNS returns multiple addresses for different\
+    \ application\n   servers, the application itself may not be operational and functional\n\
+    \   on all of them.  Common examples include Transport Layer Security\n   (TLS)\
+    \ and HTTP.\n"
+- title: 9.3.  Hiding Operational Issues
+  contents:
+  - "9.3.  Hiding Operational Issues\n   It has been observed in practice that Happy\
+    \ Eyeballs can hide issues\n   in networks.  For example, if a misconfiguration\
+    \ causes IPv6 to\n   consistently fail on a given network while IPv4 is still\
+    \ functional,\n   Happy Eyeballs may impair the operator's ability to notice the\
+    \ issue.\n   It is recommended that network operators deploy external means of\n\
+    \   monitoring to ensure functionality of all address families.\n"
+- title: 10.  Security Considerations
+  contents:
+  - "10.  Security Considerations\n   Note that applications should not rely upon\
+    \ a stable hostname-to-\n   address mapping to ensure any security properties,\
+    \ since DNS results\n   may change between queries.  Happy Eyeballs may make it\
+    \ more likely\n   that subsequent connections to a single hostname use different\
+    \ IP\n   addresses.\n"
+- title: 11.  IANA Considerations
+  contents:
+  - "11.  IANA Considerations\n   This document does not require any IANA actions.\n"
+- title: 12.  References
+  contents:
+  - '12.  References
+
+    '
+- title: 12.1.  Normative References
+  contents:
+  - "12.1.  Normative References\n   [RFC2119]  Bradner, S., \"Key words for use in\
+    \ RFCs to Indicate\n              Requirement Levels\", BCP 14, RFC 2119,\n  \
+    \            DOI 10.17487/RFC2119, March 1997,\n              <https://www.rfc-editor.org/info/rfc2119>.\n\
+    \   [RFC4821]  Mathis, M. and J. Heffner, \"Packetization Layer Path MTU\n   \
+    \           Discovery\", RFC 4821, DOI 10.17487/RFC4821, March 2007,\n       \
+    \       <https://www.rfc-editor.org/info/rfc4821>.\n   [RFC6052]  Bao, C., Huitema,\
+    \ C., Bagnulo, M., Boucadair, M., and X.\n              Li, \"IPv6 Addressing\
+    \ of IPv4/IPv6 Translators\", RFC 6052,\n              DOI 10.17487/RFC6052, October\
+    \ 2010,\n              <https://www.rfc-editor.org/info/rfc6052>.\n   [RFC6146]\
+    \  Bagnulo, M., Matthews, P., and I. van Beijnum, \"Stateful\n              NAT64:\
+    \ Network Address and Protocol Translation from IPv6\n              Clients to\
+    \ IPv4 Servers\", RFC 6146, DOI 10.17487/RFC6146,\n              April 2011, <https://www.rfc-editor.org/info/rfc6146>.\n\
+    \   [RFC6147]  Bagnulo, M., Sullivan, A., Matthews, P., and I. van\n         \
+    \     Beijnum, \"DNS64: DNS Extensions for Network Address\n              Translation\
+    \ from IPv6 Clients to IPv4 Servers\", RFC 6147,\n              DOI 10.17487/RFC6147,\
+    \ April 2011,\n              <https://www.rfc-editor.org/info/rfc6147>.\n   [RFC6298]\
+    \  Paxson, V., Allman, M., Chu, J., and M. Sargent,\n              \"Computing\
+    \ TCP's Retransmission Timer\", RFC 6298,\n              DOI 10.17487/RFC6298,\
+    \ June 2011,\n              <https://www.rfc-editor.org/info/rfc6298>.\n   [RFC6535]\
+    \  Huang, B., Deng, H., and T. Savolainen, \"Dual-Stack Hosts\n              Using\
+    \ \"Bump-in-the-Host\" (BIH)\", RFC 6535,\n              DOI 10.17487/RFC6535,\
+    \ February 2012,\n              <https://www.rfc-editor.org/info/rfc6535>.\n \
+    \  [RFC6555]  Wing, D. and A. Yourtchenko, \"Happy Eyeballs: Success with\n  \
+    \            Dual-Stack Hosts\", RFC 6555, DOI 10.17487/RFC6555, April\n     \
+    \         2012, <https://www.rfc-editor.org/info/rfc6555>.\n   [RFC6724]  Thaler,\
+    \ D., Ed., Draves, R., Matsumoto, A., and T. Chown,\n              \"Default Address\
+    \ Selection for Internet Protocol Version 6\n              (IPv6)\", RFC 6724,\
+    \ DOI 10.17487/RFC6724, September 2012,\n              <https://www.rfc-editor.org/info/rfc6724>.\n\
+    \   [RFC7050]  Savolainen, T., Korhonen, J., and D. Wing, \"Discovery of\n   \
+    \           the IPv6 Prefix Used for IPv6 Address Synthesis\",\n             \
+    \ RFC 7050, DOI 10.17487/RFC7050, November 2013,\n              <https://www.rfc-editor.org/info/rfc7050>.\n\
+    \   [RFC8174]  Leiba, B., \"Ambiguity of Uppercase vs Lowercase in RFC\n     \
+    \         2119 Key Words\", BCP 14, RFC 8174, DOI 10.17487/RFC8174,\n        \
+    \      May 2017, <https://www.rfc-editor.org/info/rfc8174>.\n"
+- title: 12.2.  Informative References
+  contents:
+  - "12.2.  Informative References\n   [DNS-PUSH] Pusateri, T. and S. Cheshire, \"\
+    DNS Push Notifications\",\n              Work in Progress, draft-ietf-dnssd-push-13,\
+    \ October 2017.\n   [RFC6877]  Mawatari, M., Kawashima, M., and C. Byrne, \"464XLAT:\n\
+    \              Combination of Stateful and Stateless Translation\",\n        \
+    \      RFC 6877, DOI 10.17487/RFC6877, April 2013,\n              <https://www.rfc-editor.org/info/rfc6877>.\n\
+    \   [RFC7413]  Cheng, Y., Chu, J., Radhakrishnan, S., and A. Jain, \"TCP\n   \
+    \           Fast Open\", RFC 7413, DOI 10.17487/RFC7413, December 2014,\n    \
+    \          <https://www.rfc-editor.org/info/rfc7413>.\n   [RFC8200]  Deering,\
+    \ S. and R. Hinden, \"Internet Protocol, Version 6\n              (IPv6) Specification\"\
+    , STD 86, RFC 8200,\n              DOI 10.17487/RFC8200, July 2017,\n        \
+    \      <https://www.rfc-editor.org/info/rfc8200>.\n"
+- title: Appendix A.  Differences from RFC 6555
+  contents:
+  - "Appendix A.  Differences from RFC 6555\n   \"Happy Eyeballs: Success with Dual-Stack\
+    \ Hosts\" [RFC6555] mostly\n   concentrates on how to stagger connections to a\
+    \ hostname that has a\n   AAAA and an A record.  This document additionally discusses:\n\
+    \   o  how to perform DNS queries to obtain these addresses\n   o  how to handle\
+    \ multiple addresses from each address family\n   o  how to handle DNS updates\
+    \ while connections are being raced\n   o  how to leverage historical information\n\
+    \   o  how to support IPv6-only networks with NAT64 and DNS64\n   Note that a\
+    \ simple implementation of the algorithm described in this\n   document is still\
+    \ compliant with the previous specification\n   [RFC6555].  Implementations should\
+    \ take the new considerations into\n   account when applicable to optimize their\
+    \ behavior.\n"
+- title: Acknowledgments
+  contents:
+  - "Acknowledgments\n   The authors thank Dan Wing, Andrew Yourtchenko, and everyone\
+    \ else who\n   worked on the original Happy Eyeballs design [RFC6555], Josh\n\
+    \   Graessley, Stuart Cheshire, and the rest of team at Apple that helped\n  \
+    \ implement and instrument this algorithm, and Jason Fesler and Paul\n   Saab\
+    \ who helped measure and refine this algorithm.  The authors would\n   also like\
+    \ to thank Fred Baker, Nick Chettle, Lorenzo Colitti, Igor\n   Gashinsky, Geoff\
+    \ Huston, Jen Linkova, Paul Hoffman, Philip Homburg,\n   Warren Kumari, Erik Nygren,\
+    \ Jordi Palet Martinez, Rui Paulo, Stephen\n   Strowes, Jinmei Tatuya, Dave Thaler,\
+    \ Joe Touch, and James Woodyatt\n   for their input and contributions.\n"
+- title: Authors' Addresses
+  contents:
+  - "Authors' Addresses\n   David Schinazi\n   Apple Inc.\n   1 Infinite Loop\n  \
+    \ Cupertino, California  95014\n   United States of America\n   Email: dschinazi@apple.com\n\
+    \   Tommy Pauly\n   Apple Inc.\n   1 Infinite Loop\n   Cupertino, California \
+    \ 95014\n   United States of America\n   Email: tpauly@apple.com\n"

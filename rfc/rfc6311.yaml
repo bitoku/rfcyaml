@@ -1,0 +1,778 @@
+- title: __initial_text__
+  contents:
+  - '         Protocol Support for High Availability of IKEv2/IPsec
+
+    '
+- title: Abstract
+  contents:
+  - "Abstract\n   The IPsec protocol suite is widely used for business-critical network\n\
+    \   traffic.  In order to make IPsec deployments highly available, more\n   scalable,\
+    \ and failure-resistant, they are often implemented as IPsec\n   High Availability\
+    \ (HA) clusters.  However, there are many issues in\n   IPsec HA clustering, and\
+    \ in particular in Internet Key Exchange\n   Protocol version 2 (IKEv2) clustering.\
+    \  An earlier document, \"IPsec\n   Cluster Problem Statement\", enumerates the\
+    \ issues encountered in the\n   IKEv2/IPsec HA cluster environment.  This document\
+    \ resolves these\n   issues with the least possible change to the protocol.\n\
+    \   This document defines an extension to the IKEv2 protocol to solve the\n  \
+    \ main issues of \"IPsec Cluster Problem Statement\" in the commonly\n   deployed\
+    \ hot standby cluster, and provides implementation advice for\n   other issues.\
+    \  The main issues solved are the synchronization of\n   IKEv2 Message ID counters,\
+    \ and of IPsec replay counters.\n"
+- title: Status of This Memo
+  contents:
+  - "Status of This Memo\n   This is an Internet Standards Track document.\n   This\
+    \ document is a product of the Internet Engineering Task Force\n   (IETF).  It\
+    \ represents the consensus of the IETF community.  It has\n   received public\
+    \ review and has been approved for publication by the\n   Internet Engineering\
+    \ Steering Group (IESG).  Further information on\n   Internet Standards is available\
+    \ in Section 2 of RFC 5741.\n   Information about the current status of this document,\
+    \ any errata,\n   and how to provide feedback on it may be obtained at\n   http://www.rfc-editor.org/info/rfc6311.\n"
+- title: Copyright Notice
+  contents:
+  - "Copyright Notice\n   Copyright (c) 2011 IETF Trust and the persons identified\
+    \ as the\n   document authors.  All rights reserved.\n   This document is subject\
+    \ to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n\
+    \   (http://trustee.ietf.org/license-info) in effect on the date of\n   publication\
+    \ of this document.  Please review these documents\n   carefully, as they describe\
+    \ your rights and restrictions with respect\n   to this document.  Code Components\
+    \ extracted from this document must\n   include Simplified BSD License text as\
+    \ described in Section 4.e of\n   the Trust Legal Provisions and are provided\
+    \ without warranty as\n   described in the Simplified BSD License.\n"
+- title: Table of Contents
+  contents:
+  - "Table of Contents\n   1. Introduction ....................................................3\n\
+    \   2. Terminology .....................................................5\n  \
+    \ 3. Issues Resolved from IPsec Cluster Problem Statement ............7\n    \
+    \  3.1. Large Amount of State ......................................8\n      3.2.\
+    \ Multiple Members Using the Same SA .........................9\n      3.3. Avoiding\
+    \ Collisions in SPI Number Allocation ...............9\n      3.4. Interaction\
+    \ with Counter Modes .............................9\n   4. The IKEv2/IPsec SA\
+    \ Counter Synchronization Problem .............10\n   5. SA Counter Synchronization\
+    \ Solution ............................11\n      5.1. Processing Rules for IKE\
+    \ Message ID Synchronization .......13\n      5.2. Processing Rules for IPsec\
+    \ Replay Counter\n           Synchronization ...........................................14\n\
+    \   6. IKEv2/IPsec Synchronization Notification Payloads ..............14\n  \
+    \    6.1. The IKEV2_MESSAGE_ID_SYNC_SUPPORTED Notification ..........15\n    \
+    \  6.2. The IPSEC_REPLAY_COUNTER_SYNC_SUPPORTED Notification ......15\n      6.3.\
+    \ The IKEV2_MESSAGE_ID_SYNC Notification ....................16\n      6.4. The\
+    \ IPSEC_REPLAY_COUNTER_SYNC Notification ................16\n   7. Implementation\
+    \ Details .........................................17\n   8. IKE SA and IPsec\
+    \ SA Message Sequencing .........................18\n      8.1. Handling of Pending\
+    \ IKE Messages ..........................18\n      8.2. Handling of Pending IPsec\
+    \ Messages ........................18\n      8.3. IKE SA Inconsistencies ....................................19\n\
+    \   9. Step-by-Step Details ...........................................19\n  \
+    \ 10. Interaction with Other Specifications .........................20\n   11.\
+    \ Security Considerations .......................................21\n   12. IANA\
+    \ Considerations ...........................................21\n   13. Acknowledgements\
+    \ ..............................................22\n   14. References ....................................................22\n\
+    \      14.1. Normative References .....................................22\n  \
+    \    14.2. Informative References ...................................22\n   Appendix\
+    \ A. IKEv2 Message ID Sync Examples ........................24\n     A.1. Normal\
+    \ Failover -- Example 1 ...............................24\n     A.2. Normal Failover\
+    \ -- Example 2 ...............................24\n     A.3. Normal Failover --\
+    \ Example 3 ...............................25\n     A.4. Simultaneous Failover\
+    \ ......................................25\n"
+- title: 1.  Introduction
+  contents:
+  - "1.  Introduction\n   The IPsec protocol suite, including the Internet Key Exchange\n\
+    \   Protocol version 2 (IKEv2), is a major building block of virtual\n   private\
+    \ networks (VPNs).  In order to make such VPNs highly\n   available, more scalable,\
+    \ and failure-resistant, these VPNs are\n   implemented as IKEv2/IPsec Highly\
+    \ Available (HA) clusters.  However,\n   there are many issues with the IKEv2/IPsec\
+    \ HA cluster.  Sections 3\n   and 4 below expand on the issues around the IKEv2/IPsec\
+    \ HA cluster\n   solution, issues which were first described in the problem\n\
+    \   statement [6].\n   In the case of a hot standby cluster implementation of\
+    \ IKEv2/\n   IPsec-based VPNs, the IKEv2/IPsec session is first established\n\
+    \   between the peer and the active member of the cluster.  Later, the\n   active\
+    \ member continuously syncs/updates the IKE/IPsec security\n   association (SA)\
+    \ state to the standby member of the cluster.  This\n   primary SA state sync-up\
+    \ takes place upon each SA bring-up and/or\n   rekey.  Performing the SA state\
+    \ synchronization/update for every\n   single IKE and IPsec message is very costly,\
+    \ so normally it is done\n   periodically.  As a result, when the failover event\
+    \ happens, this is\n   first detected by the standby member and, possibly after\
+    \ a\n   considerable amount of time, it becomes the active member.  During\n \
+    \  this failover process, the peer is unaware of the failover event, and\n   keeps\
+    \ sending IKE requests and IPsec packets to the cluster, as in\n   fact it is\
+    \ allowed to do because of the IKEv2 windowing feature.\n   After the newly active\
+    \ member starts, it detects the mismatch in IKE\n   Message ID values and IPsec\
+    \ replay counters and needs to resolve this\n   situation.  Please see Section\
+    \ 4 for more details of the problem.\n   This document defines an extension to\
+    \ the IKEv2 protocol to solve the\n   main issues of IKE Message ID synchronization\
+    \ and IPsec SA replay\n   counter synchronization, and gives implementation advice\
+    \ to address\n   other issues.  Following is a summary of the solutions provided\
+    \ in\n   this document:\n   o  IKEv2 Message ID synchronization: This is done\
+    \ by syncing up the\n      expected send and receive Message ID values with the\
+    \ peer, and\n      updating the values at the newly active cluster member.\n \
+    \  o  IPsec replay counter synchronization: This is done by incrementing\n   \
+    \   the cluster's outgoing SA replay counter values by a \"large\"\n      number;\
+    \ in addition, the newly active member requests the peer to\n      increment the\
+    \ replay counter values it is using for the peer's\n      outgoing traffic.\n\
+    \   Although this document describes the IKEv2 Message ID and IPsec\n   replay\
+    \ counter synchronization in the context of an IPsec HA cluster,\n   the solution\
+    \ provided is generic and can be used in other scenarios\n   where IKEv2 Message\
+    \ ID or IPsec SA replay counter synchronization may\n   be required.\n   Implementations\
+    \ differ on the need to synchronize the IKEv2 Message\n   ID and/or IPsec replay\
+    \ counters.  Both of these problems are handled\n   separately, using a separate\
+    \ notification for each capability.  This\n   provides the flexibility of implementing\
+    \ either or both of these\n   solutions.\n"
+- title: 2.  Terminology
+  contents:
+  - "2.  Terminology\n   The key words \"MUST\", \"MUST NOT\", \"REQUIRED\", \"SHALL\"\
+    , \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\", \"MAY\", and\
+    \ \"OPTIONAL\" in this\n   document are to be interpreted as described in [1].\n\
+    \   \"SA Counter Synchronization\" is the informational exchange defined in\n\
+    \   this document to synchronize the IKEv2/IPsec SA counter information\n   between\
+    \ one member of the cluster and the peer.\n   Some of the terms listed below are\
+    \ reused from [6] with further\n   clarification in the context of the current\
+    \ document.\n   o  \"Hot Standby Cluster\", or \"HS Cluster\", is a cluster where\
+    \ only\n      one of the members is active at any one time.  This member is also\n\
+    \      referred to as the \"active\" member, whereas the other(s) are\n      referred\
+    \ to as \"standby\" members.  The Virtual Router Redundancy\n      Protocol (VRRP)\
+    \ [7] is one method of building such a cluster.  The\n      goal of the hot standby\
+    \ cluster is to create the illusion of a\n      single virtual gateway to the\
+    \ peer(s).\n   o  \"Active Member\" is the primary member in the hot standby cluster.\n\
+    \      It is responsible for forwarding packets on behalf of the virtual\n   \
+    \   gateway.\n   o  \"Standby Member\" is the primary backup member.  This member\
+    \ takes\n      control, i.e., becomes the active member, after the failover\n\
+    \      event.\n   o  \"Peer\" is an IKEv2/IPsec endpoint that maintains an IPsec\n\
+    \      connection with the hot standby cluster.  The peer identifies the\n   \
+    \   cluster by the cluster's (single) IP address.  If a failover event\n     \
+    \ occurs, the standby member of the cluster becomes active, and the\n      peer\
+    \ normally doesn't notice that failover has taken place.\n      Although we treat\
+    \ the peer as a single entity, it may also be a\n      cluster.\n   o  \"Multiple\
+    \ failover\" is the situation where, in a cluster with\n      three or more members,\
+    \ multiple failover events happen in rapid\n      succession, e.g., from M1 to\
+    \ M2, and then to M3.  It is our goal\n      that the implementation should be\
+    \ able to handle this situation,\n      i.e., to handle the new failover event\
+    \ even if it is still\n      processing the old failover.\n   o  \"Simultaneous\
+    \ failover\" is the situation where two clusters have\n      an IPsec connection\
+    \ between them, and failover happens at both\n      ends at the same time.  It\
+    \ is our goal that implementations should\n      be able to handle simultaneous\
+    \ failover.\n   o  \"IPsec replay counter\" is the Encapsulating Security Payload\
+    \ (ESP)\n      Sequence Number or Extended Sequence Number (Section 2.2 of [2]),\n\
+    \      or the respective field in the Authentication Header (AH) protocol\n  \
+    \    (Section 2.5 of [3]).\n   The generic term \"IKEv2/IPsec SA Counters\" is\
+    \ used throughout this\n   document.  This term refers to both IKEv2 Message ID\
+    \ counters and\n   IPsec replay counters.  According to the IPsec standards, the\
+    \ IKEv2\n   Message ID counter is mandatory, and used to ensure reliable delivery\n\
+    \   as well as to protect against message replay in IKEv2; the IPsec SA\n   replay\
+    \ counters are optional, and are used to provide the IPsec anti-\n   replay feature.\n\
+    \   Some of these terms are used in the following architectural diagram.\n   \
+    \                                                +---------------+\n         \
+    \                                          |               |\n               \
+    \                                    | Hot Standby   |\n                     \
+    \                              |   Cluster     |\n                           \
+    \                        |               |\n                                 \
+    \                  |   +---------+ |\n                                       \
+    \            |   |         | |\n                                             \
+    \      |   | Active  | |\n                                                   |\
+    \   |         | |\n                                                   |   | Member\
+    \  | |\n                                                   |   |         | |\n\
+    \                                                   |   +---------+ |\n      \
+    \                                             |          ^    |\n       +---------+\
+    \                                 |  Synch   |    |\n       |         |      \
+    \                           |  Channel |    |\n       |  IPsec  |       IKE/IPsec\
+    \ Traffic         |          |    |\n       |         | <=============================>\
+    \ |          |    |\n       |   Peer  |                                 |    \
+    \      |    |\n       |         |                                 |          |\
+    \    |\n       +---------+                                 |          |    |\n\
+    \                                                   |          v    |\n      \
+    \                                             |   +---------+ |\n            \
+    \                                       |   |         | |\n                  \
+    \                                 |   | Standby | |\n                        \
+    \                           |   |         | |\n                              \
+    \                     |   | Member  | |\n                                    \
+    \               |   |         | |\n                                          \
+    \         |   +---------+ |\n                                                \
+    \   +---------------+\n                       An IPsec Hot Standby Cluster\n"
+- title: 3.  Issues Resolved from IPsec Cluster Problem Statement
+  contents:
+  - "3.  Issues Resolved from IPsec Cluster Problem Statement\n   \"IPsec Cluster\
+    \ Problem Statement\" [6] enumerates the problems raised\n   by IPsec clusters.\
+    \  The following table lists the problem statement's\n   sections that are resolved\
+    \ by this document.\n   o  3.2.  A Lot of Long-Lived State\n   o  3.3.  IKE Counters\n\
+    \   o  3.4.  Outbound SA Counters\n   o  3.5.  Inbound SA Counters\n   o  3.6.\
+    \  Missing Synch Messages\n   o  3.7.  Simultaneous Use of IKE and IPsec SAs by\
+    \ Different Members\n      *  3.7.1.  Outbound SAs Using Counter Modes\n   o \
+    \ 3.8.  Different IP Addresses for IKE and IPsec\n   o  3.9.  Allocation of SPIs\n\
+    \   The main problem areas are solved using the protocol extension\n   defined\
+    \ below, starting with Section 5; additionally, this section\n   provides implementation\
+    \ advice for other issues in the following\n   subsections.  Implementers should\
+    \ note that these subsections include\n   a number of new security-critical requirements.\n"
+- title: 3.1.  Large Amount of State
+  contents:
+  - "3.1.  Large Amount of State\n   Section 3.2 of the problem statement [6] mentions\
+    \ that a lot of state\n   needs to be synchronized for a cluster to be transparent.\
+    \  The actual\n   volume of that data is very much implementation-dependent, and\
+    \ even\n   for the same implementation, the amounts of data may vary wildly. \
+    \ An\n   IPsec gateway used for inter-domain VPN with a dozen other gateways,\n\
+    \   and having SAs that are rekeyed every 8 hours, will need a lot less\n   synchronization\
+    \ traffic than a similar gateway used for remote\n   access, and supporting 10,000\
+    \ clients.  This is because counter\n   synchronization is proportional to the\
+    \ number of SAs and requires\n   little data, and the setting up of an SA requires\
+    \ a lot of data.\n   Additionally, remote access IKE and IPsec SA setup tend to\
+    \ happen at\n   a particular time of day, so the example gateway with the 10,000\n\
+    \   clients may see 30-50 IKE SA setups per second at 9:00 AM.  This\n   would\
+    \ require very heavy synchronization traffic over that short\n   period of time.\n\
+    \   If a large volume of traffic is necessary, it may be advisable to use\n  \
+    \ a dedicated high-speed network interface for synch traffic.  When\n   packet\
+    \ loss can be made extremely low, it may be advisable to use a\n   stateless transport\
+    \ such as UDP, to minimize network overhead.\n   If these methods are insufficient,\
+    \ it may be prudent that for some\n   SAs the entire state is not synchronized.\
+    \  Instead, only an\n   indication of the SA's existence is synchronized.  This,\
+    \ in\n   combination with a sticky solution (as described in Section 3.7 of\n\
+    \   the problem statement [6]) ensures that the traffic from a particular\n  \
+    \ peer does not reach a different member before an actual failover\n   happens.\
+    \  When that happens, the method described in [8] can be used\n   to quickly force\
+    \ the peer to set up a new SA.\n"
+- title: 3.2.  Multiple Members Using the Same SA
+  contents:
+  - "3.2.  Multiple Members Using the Same SA\n   In a load-sharing cluster of the\
+    \ \"duplicate\" variety (see Section 3.7\n   of the problem statement [6]), multiple\
+    \ members may need to send\n   traffic with the same selectors.  To actually use\
+    \ the same SA, the\n   cluster would have to synchronize the replay counter after\
+    \ every\n   packet, and that would impose unreasonable requirements on the synch\n\
+    \   connection.\n   A far better solution would be to not synchronize the outbound\
+    \ SA,\n   and create multiple outbound SAs, one for each member.  The problem\n\
+    \   with this option is that the peer might view these multiple parallel\n   SAs\
+    \ as redundant, and tear down all but one of them.\n   Section 2.8 of [4] specifically\
+    \ allows multiple parallel SAs, but the\n   reason given for this is to have multiple\
+    \ SAs with different Quality\n   of Service (QoS) attributes.  So while this is\
+    \ not a new requirement\n   of IKEv2 implementations working with QoS, we re-iterate\
+    \ here that\n   IPsec peers MUST accept the long-term existence of multiple parallel\n\
+    \   SAs, even when QoS mechanisms are not in use.\n"
+- title: 3.3.  Avoiding Collisions in SPI Number Allocation
+  contents:
+  - "3.3.  Avoiding Collisions in SPI Number Allocation\n   Section 3.9 of the problem\
+    \ statement [6] describes the problem of two\n   cluster members allocating the\
+    \ same Security Parameter Index (SPI)\n   number for two different SAs.  This\
+    \ behavior would violate\n   Section 4.4.2.1 of [5].  There are several schemes\
+    \ to allow\n   implementations to avoid such collisions, such as partitioning\
+    \ the\n   SPI space, a request-response over the synch channel, and locking\n\
+    \   mechanisms.  We believe that these are sufficiently robust and\n   available\
+    \ so that we don't need to make an exception to the rules in\n   Section 4.4.2.1\
+    \ of RFC 4301 [5], and we can leave this problem for\n   the implementations to\
+    \ solve.  Cluster members must not generate\n   multiple inbound SAs with the\
+    \ same SPI.\n"
+- title: 3.4.  Interaction with Counter Modes
+  contents:
+  - "3.4.  Interaction with Counter Modes\n   For SAs involving counter mode ciphers\
+    \ such as Counter Mode (CTR) [9]\n   or Galois/Counter Mode (GCM) [10], there\
+    \ is yet another complication.\n   The initial vector for such modes MUST NOT\
+    \ be repeated, and senders\n   may use methods such as counters or linear feedback\
+    \ shift registers\n   (LFSRs) to ensure this property.  For an SA shared between\
+    \ multiple\n   active members (load-sharing cases), implementations MUST ensure\
+    \ that\n   no initial vector is ever repeated.  Similar concerns apply to an SA\n\
+    \   failing over from one member to another.  See [11] for a discussion\n   of\
+    \ this problem in another context.\n   Just as in the SPI collision problem, there\
+    \ are ways to avoid a\n   collision of initial vectors, and this is left up to\
+    \ implementations.\n   In the context of load sharing, parallel SAs are a simple\
+    \ solution to\n   this problem as well.\n"
+- title: 4.  The IKEv2/IPsec SA Counter Synchronization Problem
+  contents:
+  - "4.  The IKEv2/IPsec SA Counter Synchronization Problem\n   The IKEv2 protocol\
+    \ [4] states that \"An IKE endpoint MUST NOT exceed\n   the peer's stated window\
+    \ size for transmitted IKE requests\".\n   All IKEv2 messages are required to\
+    \ follow a request-response\n   paradigm.  The initiator of an IKEv2 request MUST\
+    \ retransmit the\n   request, until it has received a response from the peer.\
+    \  IKEv2\n   introduces a windowing mechanism that allows multiple requests to\
+    \ be\n   outstanding at a given point of time, but mandates that the sender's\n\
+    \   window should not move until the oldest message it has sent is\n   acknowledged.\
+    \  Loss of even a single message leads to repeated\n   retransmissions followed\
+    \ by an IKEv2 SA teardown if the\n   retransmissions remain unacknowledged.\n\
+    \   An IPsec hot standby cluster is required to ensure that in the case\n   of\
+    \ failover, the standby member becomes active immediately.  The\n   standby member\
+    \ is expected to have the exact value of the Message ID\n   counter as the active\
+    \ member had before failover.  Even assuming the\n   best effort to update the\
+    \ Message ID values from active to standby\n   member, the values at the standby\
+    \ member can still be stale due to\n   the following reasons:\n   o  The standby\
+    \ member is unaware of the last message that was\n      received and acknowledged\
+    \ by the previously active member, as the\n      failover event could have happened\
+    \ before the standby member could\n      be updated.\n   o  The standby member\
+    \ does not have information about on-going\n      unacknowledged requests sent\
+    \ by the previously active member.  As\n      a result, after the failover event,\
+    \ the newly active member cannot\n      retransmit those requests.\n   When a\
+    \ standby member takes over as the active member, it can only\n   initialize the\
+    \ Message ID values from the previously updated values.\n   This would make it\
+    \ reject requests from the peer when these values\n   are stale.  Conversely,\
+    \ the standby member may end up reusing a stale\n   Message ID value, which would\
+    \ cause the peer to drop the request.\n   Eventually, there is a high probability\
+    \ of the IKEv2 and\n   corresponding IPsec SAs getting torn down simply because\
+    \ of a\n   transitory Message ID mismatch and retransmission of requests,\n  \
+    \ negating the benefits of the high-availability cluster despite the\n   periodic\
+    \ update between the cluster members.\n   A similar issue is also observed with\
+    \ IPsec anti-replay counters if\n   anti-replay protection is enabled, which is\
+    \ commonly the case.\n   Regardless of how well the ESP and AH SA counters are\
+    \ synchronized\n   from the active to the standby member, there is a chance that\
+    \ the\n   standby member would end up with stale counter values.  The standby\n\
+    \   member would then use those stale counter values when sending IPsec\n   packets.\
+    \  The peer would drop such packets, since when the anti-\n   replay protection\
+    \ feature is enabled, duplicate use of counters is\n   not allowed.  Note that\
+    \ IPsec allows the sender to skip some counter\n   values and continue sending\
+    \ with higher counter values.\n   We conclude that a mechanism is required to\
+    \ ensure that the standby\n   member has correct Message ID and IPsec counter\
+    \ values when it\n   becomes active, so that sessions are not torn down as a result\
+    \ of\n   mismatched counters.\n"
+- title: 5.  SA Counter Synchronization Solution
+  contents:
+  - "5.  SA Counter Synchronization Solution\n   This document defines two separate\
+    \ approaches to resolving the issues\n   of mismatched IKE Message ID values and\
+    \ IPsec counter values.\n   o  In the case of IKE Message ID values, the newly\
+    \ active cluster\n      member and the peer negotiate a pair of new values so\
+    \ that future\n      IKE messages will not be dropped.\n   o  For IPsec counter\
+    \ values, the newly active member and the peer\n      both increment their respective\
+    \ counter values, \"skipping forward\"\n      by a large number, to ensure that\
+    \ no IPsec counters are ever\n      reused.\n   Although conceptually separate,\
+    \ the two synchronization processes\n   would typically take place simultaneously.\n\
+    \   First, the peer and the active member of the cluster negotiate their\n   ability\
+    \ to support IKEv2 Message ID synchronization and/or IPsec\n   replay counter\
+    \ synchronization.  This is done by exchanging one or\n   both of the IKEV2_MESSAGE_ID_SYNC_SUPPORTED\
+    \ and\n   IPSEC_REPLAY_COUNTER_SYNC_SUPPORTED notifications during the IKE_AUTH\n\
+    \   exchange.  When negotiating these capabilities, the responder MUST\n   NOT\
+    \ assert support of a capability unless such support was asserted\n   by the initiator.\
+    \  Only a capability whose support was asserted by\n   both parties can be used\
+    \ during the lifetime of the SA.  The peer's\n   capabilities with regard to this\
+    \ extension are part of the IKEv2 SA\n   state, and thus MUST be shared between\
+    \ the cluster members.\n   This per-IKE SA information is shared with the other\
+    \ cluster members.\n   Peer                                                  Active\
+    \ Member\n   - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -\
+    \ -\n   HDR, SK {IDi, [CERT], [CERTREQ], [IDr], AUTH,\n        [N(IKEV2_MESSAGE_ID_SYNC_SUPPORTED),]\n\
+    \        [N(IPSEC_REPLAY_COUNTER_SYNC_SUPPORTED),]\n        SAi2, TSi, TSr} ---------->\n\
+    \   <-------- HDR, SK {IDr, [CERT+], [CERTREQ+], AUTH,\n                  [N(IKEV2_MESSAGE_ID_SYNC_SUPPORTED),]\n\
+    \                  [N(IPSEC_REPLAY_COUNTER_SYNC_SUPPORTED),]\n               \
+    \   SAr2, TSi, TSr}\n   After a failover event, the standby member MAY use the\
+    \ IKE Message ID\n   and/or IPsec replay counter synchronization capability when\
+    \ it\n   becomes the active member, and provided support for the capabilities\n\
+    \   used has been negotiated.  Following that, the peer MUST respond to\n   any\
+    \ synchronization message it receives from the newly active cluster\n   member,\
+    \ subject to the rules noted below.\n   After the failover event, when the standby\
+    \ member becomes active, it\n   has to synchronize its SA counters with the peer.\
+    \  There are now four\n   possible cases:\n   1.  The cluster member wishes to\
+    \ only perform IKE Message ID value\n       synchronization.  In this case, it\
+    \ initiates an Informational\n       exchange, with Message ID zero and the sole\
+    \ notification\n       IKEV2_MESSAGE_ID_SYNC.\n   2.  If the newly active member\
+    \ wishes to perform only IPsec replay\n       counter synchronization, it generates\
+    \ a regular IKEv2\n       Informational exchange using the current Message ID\
+    \ values, and\n       containing the IPSEC_REPLAY_COUNTER_SYNC notification.\n\
+    \   3.  If synchronization of both counters is needed, the cluster member\n  \
+    \     generates a zero-Message ID message as in case #1, and includes\n      \
+    \ both notifications in this message.\n   4.  Lastly, the peer may not support\
+    \ this extension.  This is known\n       to the newly active member (because the\
+    \ cluster members must\n       share this information, as noted earlier).  This\
+    \ case is the\n       existing IKEv2 behavior, and the IKE and IPsec SAs may or\
+    \ may not\n       survive the failover, depending on the exact state on the peer\n\
+    \       and the cluster member.\n   This figure contains the IKE message exchange\
+    \ used for SA counter\n   synchronization.  The following subsections describe\
+    \ the details of\n   the sender and receiver processing of each message.\n   Standby\
+    \ [Newly Active] Member                            Peer\n   - - - - - - - - -\
+    \ - - - - - - - - - - - - - - - - - - - - - -\n   HDR, SK {N(IKEV2_MESSAGE_ID_SYNC),\n\
+    \        [N(IPSEC_REPLAY_COUNTER_SYNC)]} -------->\n                <---------\
+    \ HDR, SK {N(IKEV2_MESSAGE_ID_SYNC)}\n   Alternatively, if only IPsec replay counter\
+    \ synchronization is\n   desired, a normal Informational exchange is used, where\
+    \ the Message\n   ID is non-zero:\n   Standby [Newly Active] Member          \
+    \                  Peer\n   - - - - - - - - - - - - - - - - - - - - - - - - -\
+    \ - - - - - -\n   HDR, SK{N(IPSEC_REPLAY_COUNTER_SYNC)} -------->\n          \
+    \      <--------- HDR\n"
+- title: 5.1.  Processing Rules for IKE Message ID Synchronization
+  contents:
+  - "5.1.  Processing Rules for IKE Message ID Synchronization\n   The newly active\
+    \ member sends a request containing two counter\n   values, one for the member\
+    \ (itself) and another for the peer, as well\n   as a random nonce.  We denote\
+    \ the values M1 and P1.  The peer\n   responds with a message containing two counter\
+    \ values, M2 and P2\n   (note that the values appear in the opposite order in\
+    \ the\n   notification's payload).  The goal of the rules below is to prevent\n\
+    \   an attacker from replaying a synchronization message and thereby\n   invalidating\
+    \ IKE messages that are currently in process.\n   o  M1 is the next sender's Message\
+    \ ID to be used by the member.  M1\n      MUST be chosen so that it is larger\
+    \ than any value known to have\n      been used.  It is RECOMMENDED to increment\
+    \ the known value at\n      least by the size of the IKE sender window.\n   o\
+    \  P1 SHOULD be 1 more than the last Message ID value received from\n      the\
+    \ peer, but may be any higher value.\n   o  The member SHOULD communicate the\
+    \ sent values to the other cluster\n      members, so that if a second failover\
+    \ event takes place, the\n      synchronization message is not replayed.  Such\
+    \ a replay would\n      result in the eventual deletion of the IKE SA (see below).\n\
+    \   o  The peer MUST silently drop any received synchronization message\n    \
+    \  if M1 is lower than or equal to the highest value it has seen from\n      the\
+    \ cluster.  This includes any previous received synchronization\n      messages.\n\
+    \   o  M2 MUST be at least the higher of the received M1, and one more\n     \
+    \ than the highest sender value received from the cluster.  This\n      includes\
+    \ any previous received synchronization messages.\n   o  P2 MUST be the higher\
+    \ of the received P1 value, and one more than\n      the highest sender value\
+    \ used by the peer.\n   o  The request contains a Nonce field.  This field MUST\
+    \ be returned\n      in the response, unchanged.  A response MUST be silently\
+    \ dropped\n      if the received nonce does not match the one that was sent.\n\
+    \   o  Both the request and the response MUST NOT contain any additional\n   \
+    \   payloads, other than an optional IPSEC_REPLAY_COUNTER_SYNC\n      notification\
+    \ in the request.\n   o  The request and the response MUST both be sent with a\
+    \ Message ID\n      value of zero.\n"
+- title: 5.2.  Processing Rules for IPsec Replay Counter Synchronization
+  contents:
+  - "5.2.  Processing Rules for IPsec Replay Counter Synchronization\n   Upon failover,\
+    \ the newly active member MUST increment its own replay\n   counter (the counter\
+    \ used for outgoing traffic), so as to prevent the\n   case of its traffic being\
+    \ dropped by the peer as replay.  We note\n   that IPsec allows the replay counter\
+    \ to skip forward by any amount.\n   The estimate is based on the outgoing IPsec\
+    \ bandwidth and the\n   frequency of synchronization between cluster members.\
+    \  In those\n   implementations where it is difficult to estimate this value,\
+    \ the\n   counter can be incremented by a very large number, e.g., 2**30.  In\n\
+    \   the latter case, a rekey SHOULD follow shortly afterwards, to ensure\n   that\
+    \ the counter never wraps around.\n   Next, the cluster member estimates the number\
+    \ of incoming messages it\n   might have missed, using similar logic.  The member\
+    \ sends out an\n   IPSEC_REPLAY_COUNTER_SYNC notification, either stand-alone\
+    \ or\n   together with an IKEV2_MESSAGE_ID_SYNC notification.\n   If the IPSEC_REPLAY_COUNTER_SYNC\
+    \ is included in the same message as\n   IKEV2_MESSAGE_ID_SYNC, the peer MUST\
+    \ process the Message ID\n   notification first (which might cause the entire\
+    \ message to be\n   dropped as a replay).  Then, it MUST increment the replay\
+    \ counters\n   for all Child SAs associated with the current IKE SA by the amount\n\
+    \   requested by the cluster member.\n"
+- title: 6.  IKEv2/IPsec Synchronization Notification Payloads
+  contents:
+  - "6.  IKEv2/IPsec Synchronization Notification Payloads\n   This section lists\
+    \ the new notification payload types defined by this\n   extension.\n   All multi-octet\
+    \ fields representing integers are laid out in big\n   endian order (also known\
+    \ as \"most significant byte first\", or\n   \"network byte order\").\n"
+- title: 6.1.  The IKEV2_MESSAGE_ID_SYNC_SUPPORTED Notification
+  contents:
+  - "6.1.  The IKEV2_MESSAGE_ID_SYNC_SUPPORTED Notification\n   This notification\
+    \ payload is included in the IKE_AUTH request/\n   response to indicate support\
+    \ of the IKEv2 Message ID synchronization\n   mechanism described in this document.\n\
+    \                        1                   2                   3\n    0 1 2\
+    \ 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1\n   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \   | Next Payload  |C|  RESERVED   |         Payload Length        |\n   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \   |Protocol ID(=0)| SPI Size (=0) |      Notify Message Type      |\n   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \   The 'Next Payload', 'Payload Length', 'Protocol ID', 'SPI Size', and\n   'Notify\
+    \ Message Type' fields are the same as described in Section 3\n   of [4].  The\
+    \ 'SPI Size' field MUST be set to 0 to indicate that the\n   SPI is not present\
+    \ in this message.  The 'Protocol ID' MUST be set to\n   0, since the notification\
+    \ is not specific to a particular security\n   association.  The 'Payload Length'\
+    \ field is set to the length in\n   octets of the entire payload, including the\
+    \ generic payload header.\n   The 'Notify Message Type' field is set to indicate\n\
+    \   IKEV2_MESSAGE_ID_SYNC_SUPPORTED (16420).  There is no data associated\n  \
+    \ with this notification.\n"
+- title: 6.2.  The IPSEC_REPLAY_COUNTER_SYNC_SUPPORTED Notification
+  contents:
+  - "6.2.  The IPSEC_REPLAY_COUNTER_SYNC_SUPPORTED Notification\n   This notification\
+    \ payload is included in the IKE_AUTH request/\n   response to indicate support\
+    \ for the IPsec SA replay counter\n   synchronization mechanism described in this\
+    \ document.\n                        1                   2                   3\n\
+    \    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1\n   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \   | Next Payload  |C|  RESERVED   |         Payload Length        |\n   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \   |Protocol ID(=0)| SPI Size (=0) |      Notify Message Type      |\n   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \   The 'Next Payload', 'Payload Length', 'Protocol ID', 'SPI Size', and\n   'Notify\
+    \ Message Type' fields are the same as described in Section 3\n   of [4] .  The\
+    \ 'SPI Size' field MUST be set to 0 to indicate that the\n   SPI is not present\
+    \ in this message.  The 'Protocol ID' MUST be set to\n   0, since the notification\
+    \ is not specific to a particular security\n   association.  The 'Payload Length'\
+    \ field is set to the length in\n   octets of the entire payload, including the\
+    \ generic payload header.\n   The 'Notify Message Type' field is set to indicate\n\
+    \   IPSEC_REPLAY_COUNTER_SYNC_SUPPORTED (16421).  There is no data\n   associated\
+    \ with this notification.\n"
+- title: 6.3.  The IKEV2_MESSAGE_ID_SYNC Notification
+  contents:
+  - "6.3.  The IKEV2_MESSAGE_ID_SYNC Notification\n   This notification payload type\
+    \ (16422) is defined to synchronize the\n   IKEv2 Message ID values between the\
+    \ newly active (formerly standby)\n   cluster member and the peer.\n         \
+    \               1                   2                   3\n    0 1 2 3 4 5 6 7\
+    \ 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1\n   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \   | Next Payload  |C|  RESERVED   |         Payload Length        |\n   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \   |Protocol ID(=0)| SPI Size (=0) |      Notify Message Type      |\n   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \   |             Nonce Data                                        |\n   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \   |             EXPECTED_SEND_REQ_MESSAGE_ID                      |\n   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \   |             EXPECTED_RECV_REQ_MESSAGE_ID                      |\n   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \   It contains the following data.\n   o  Nonce Data (4 octets): The random nonce\
+    \ data.  The data should be\n      identical in the synchronization request and\
+    \ response.\n   o  EXPECTED_SEND_REQ_MESSAGE_ID (4 octets): This field is used\
+    \ by the\n      sender of this notification payload to indicate the Message ID\
+    \ it\n      will use in the next request that it will send to the other\n    \
+    \  protocol peer.\n   o  EXPECTED_RECV_REQ_MESSAGE_ID (4 octets): This field is\
+    \ used by the\n      sender of this notification payload to indicate the Message\
+    \ ID it\n      is expecting in the next request to be received from the other\n\
+    \      protocol peer.\n"
+- title: 6.4.  The IPSEC_REPLAY_COUNTER_SYNC Notification
+  contents:
+  - "6.4.  The IPSEC_REPLAY_COUNTER_SYNC Notification\n   This notification payload\
+    \ type (16423) is defined to synchronize the\n   IPsec SA replay counters between\
+    \ the newly active (formerly standby)\n   cluster member and the peer.  Since\
+    \ there may be numerous IPsec SAs\n   established under a single IKE SA, we do\
+    \ not directly synchronize the\n   value of each one.  Instead, a delta value\
+    \ is sent, and all replay\n   counters for Child SAs of this IKE SA are incremented\
+    \ by the same\n   value.  Note that this solution requires that either all Child\
+    \ SAs\n   use Extended Sequence Numbers (ESNs) or else that no Child SA uses\n\
+    \   ESNs.  This notification is only sent by the cluster.\n                  \
+    \      1                   2                   3\n    0 1 2 3 4 5 6 7 8 9 0 1\
+    \ 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1\n   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \   | Next Payload  |C|  RESERVED   |         Payload Length        |\n   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \   |Protocol ID(=0)| SPI Size (=0) |      Notify Message Type      |\n   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \   |                 Incoming IPsec SA delta value                 |\n   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \   The notification payload contains the following data.\n   o  Incoming IPsec\
+    \ SA delta value (4 or 8 octets): The sender requests\n      that the peer should\
+    \ increment all the Child SA replay counters\n      for the sender's incoming\
+    \ (the peer's outgoing) traffic by this\n      value.  The size of this field\
+    \ depends on the ESN bit associated\n      with the Child SAs: if the ESN bit\
+    \ is 1, the field's size is 8\n      octets; otherwise, it is 4 octets.  We note\
+    \ that this constrains\n      the Child SAs of each IKE SA to either all have\
+    \ the ESN bit on\n      or off.\n"
+- title: 7.  Implementation Details
+  contents:
+  - "7.  Implementation Details\n   This protocol does not change any of the existing\
+    \ IKEv2 rules\n   regarding Message ID values.\n   The standby member can initiate\
+    \ the synchronization of IKEv2 Message\n   IDs under different circumstances.\n\
+    \   o  When it receives a problematic IKEv2/IPsec packet, i.e., a packet\n   \
+    \   outside its expected receive window.\n   o  When it has to send the first\
+    \ IKEv2/IPsec packet after a failover\n      event.\n   o  When it has just received\
+    \ control from the active member and\n      wishes to update the values proactively,\
+    \ so that it need not start\n      this exchange later, when sending or receiving\
+    \ the request.\n   To clarify the first alternative: the normal IKE behavior of\n\
+    \   rejecting out-of-window messages is not changed, but such messages\n   can\
+    \ still be a valid trigger for the exchange defined in this\n   document.  To\
+    \ avoid denial-of-service (DoS) attacks resulting from\n   replayed messages,\
+    \ the peer MUST NOT initiate counter synchronization\n   for any particular IKE\
+    \ SA more than once per failover event.\n   The standby member can initiate the\
+    \ synchronization of IPsec SA\n   replay counters:\n   o  If there has been traffic\
+    \ using the IPsec SA in the recent past\n      and the standby member suspects\
+    \ that its replay counter may be\n      stale.\n   Since there can be a large\
+    \ number of sessions at the standby member,\n   and sending synchronization exchanges\
+    \ for all of them may result in\n   overload, the standby member can choose to\
+    \ initiate the exchange in a\n   \"lazy\" fashion: only when it has to send or\
+    \ expects to receive\n   traffic from each peer.  In general, the standby member\
+    \ is free to\n   initiate this exchange at its discretion.  Implementation\n \
+    \  considerations include the ability to survive a certain amount of\n   traffic\
+    \ loss, and the capacity of a cluster member to initiate\n   counter synchronization\
+    \ simultaneously with a large number of peers.\n"
+- title: 8.  IKE SA and IPsec SA Message Sequencing
+  contents:
+  - "8.  IKE SA and IPsec SA Message Sequencing\n   The straightforward definitions\
+    \ of message sequence numbers,\n   retransmissions, and replay protection in IPsec\
+    \ and IKEv2 are\n   strained by the failover scenarios described in this document.\
+    \  This\n   section describes some policy choices that need to be made by\n  \
+    \ implementations in this setting.\n"
+- title: 8.1.  Handling of Pending IKE Messages
+  contents:
+  - "8.1.  Handling of Pending IKE Messages\n   After sending its \"receive\" counter,\
+    \ the cluster member MUST reject\n   (silently drop) any incoming IKE messages\
+    \ that are outside its\n   declared window.  A similar rule applies to the peer.\
+    \  Local policies\n   vary, and strict implementations will reject any incoming\
+    \ IKE message\n   arriving before Message ID synchronization is complete.\n"
+- title: 8.2.  Handling of Pending IPsec Messages
+  contents:
+  - "8.2.  Handling of Pending IPsec Messages\n   For IPsec, there is often a trade-off\
+    \ between security and\n   reliability of the protected protocols.  Here again,\
+    \ there is some\n   leeway for local policy.  Some implementations might accept\
+    \ incoming\n   traffic that is outside the replay window for some time after the\n\
+    \   failover event, and until the counters had been synchronized.  Strict\n  \
+    \ implementations will only accept traffic that's inside the \"safe\"\n   window.\n"
+- title: 8.3.  IKE SA Inconsistencies
+  contents:
+  - "8.3.  IKE SA Inconsistencies\n   IKEv2 is normally a reliable protocol.  As long\
+    \ as an IKE SA is\n   valid, both peers share a single, consistent view of the\
+    \ IKE SA and\n   all associated Child SAs.  Failover situations as described in\
+    \ this\n   document may involve forced deletion of IKE messages, resulting in\n\
+    \   inconsistencies, such as Child SAs that exist on only one of the\n   peers.\
+    \  Such SAs might cause an INVALID_SPI to be returned when used\n   by that peer.\
+    \  Note that Section 1.5 of [4] allows but does not\n   mandate sending an INVALID_SPI\
+    \ notification in this case.\n   The IPsecME Working Group discussed at some point\
+    \ a proposed set of\n   rules for dealing with such situations.  However, we believe\
+    \ that\n   these situations should be rare in practice; as a result, the\n   \"\
+    default\" behavior of tearing down the entire IKE SA is to be\n   preferred over\
+    \ the complexity of dealing with a multitude of edge\n   cases.\n"
+- title: 9.  Step-by-Step Details
+  contents:
+  - "9.  Step-by-Step Details\n   This section goes through the sequence of steps\
+    \ of a typical failover\n   event, looking at a case where the IKEv2 Message ID\
+    \ values are\n   synchronized.\n   o  The active cluster member and the peer device\
+    \ establish the\n      session.  They both announce the capability to synchronize\
+    \ counter\n      information by sending the IKEV2_MESSAGE_ID_SYNC_SUPPORTED\n\
+    \      notification in the IKE_AUTH exchange.\n   o  Some time later, the active\
+    \ member dies, and a standby member\n      takes over.  The standby member sends\
+    \ its own idea of the IKE\n      Message IDs (both incoming and outgoing) to the\
+    \ peer in an\n      Informational message exchange with Message ID zero.\n   o\
+    \  The peer first authenticates the message.  The peer compares the\n      received\
+    \ values with the values available locally and picks the\n      higher value.\
+    \  It then updates its Message IDs with the higher\n      values and also proposes\
+    \ the same values in its response.\n   o  The peer should not wait for any pending\
+    \ responses while\n      responding with the new Message ID values.  For example,\
+    \ if the\n      window size is 5 and the peer's window is 3-7, and if the peer\
+    \ has\n      sent requests 3, 4, 5, 6, and 7 and received responses only for 4,\n\
+    \      5, 6, and 7 but not for 3, then it should include the value 8 in\n    \
+    \  its EXPECTED_SEND_REQ_MESSAGE_ID payload and should not wait for a\n      response\
+    \ to message 3 any more.\n   o  Similarly, the peer should also not wait for pending\
+    \ (incoming)\n      requests.  For example, if the window size is 5 and the peer's\n\
+    \      window is 3-7, and if the peer has received requests 4, 5, 6, and\n   \
+    \   7 but not 3, then it should send the value 8 in the\n      EXPECTED_RECV_REQ_MESSAGE_ID\
+    \ payload, and should not expect to\n      receive message 3 any more.\n"
+- title: 10.  Interaction with Other Specifications
+  contents:
+  - "10.  Interaction with Other Specifications\n   The usage scenario of this IKEv2/IPsec\
+    \ SA counter synchronization\n   solution is that an IKEv2 SA has been established\
+    \ between the active\n   member of a hot standby cluster and a peer, followed\
+    \ by a failover\n   event occurring and the standby member becoming active.  The\
+    \ solution\n   further assumes that the IKEv2 SA state was continuously synchronized\n\
+    \   between the active and standby members of the cluster before the\n   failover\
+    \ event.\n   o  Session resumption [12] assumes that a peer (client or initiator)\n\
+    \      detects the need to re-establish the session.  In IKEv2/IPsec SA\n    \
+    \  counter synchronization, it is the newly active member (a gateway\n      or\
+    \ responder) that detects the need to synchronize the SA counter\n      after\
+    \ the failover event.  Also, in a hot standby cluster, the\n      peer establishes\
+    \ the IKEv2/IPsec session with a single IP address\n      that represents the\
+    \ whole cluster, so the peer normally does not\n      detect the event of failover\
+    \ in the cluster unless the standby\n      member takes too long to become active\
+    \ and the IKEv2 SA times out\n      by use of the IKEv2 liveness check mechanism.\
+    \  To conclude,\n      session resumption and SA counter synchronization after\
+    \ failover\n      are mutually exclusive: they are not expected to be used together,\n\
+    \      and both features can coexist within the same implementation\n      without\
+    \ affecting each other.\n   o  The IKEv2 Redirect mechanism for load balancing\
+    \ [13] can be used\n      either during the initial stages of SA setup (the IKE_SA_INIT\
+    \ and\n      IKE_AUTH exchanges) or after session establishment.  SA counter\n\
+    \      synchronization is only useful after the IKE SA has been\n      established\
+    \ and a failover event has occurred.  So, unlike\n      Redirect, it is irrelevant\
+    \ during the first two exchanges.\n      Redirect after the session has been established\
+    \ is mostly useful\n      for timed or planned shutdown/maintenance.  A real failover\
+    \ event\n      cannot be detected by the active member ahead of time, and so\n\
+    \      using Redirect after session establishment is not possible in the\n   \
+    \   case of failover.  So, Redirect and SA counter synchronization\n      after\
+    \ failover are mutually exclusive, in the sense described\n      above.\n   o\
+    \  IKEv2 Failure Detection [8] solves a similar problem where the\n      peer\
+    \ can rapidly detect that a cluster member has crashed based on\n      a token.\
+    \  It is unrelated to the current scenario, because the\n      goal in failover\
+    \ is for the peer not to notice that a failure has\n      occurred.\n"
+- title: 11.  Security Considerations
+  contents:
+  - "11.  Security Considerations\n   Since Message ID synchronization messages need\
+    \ to be sent with\n   Message ID zero, they are potentially vulnerable to replay\
+    \ attacks.\n   Because of the semantics of this protocol, these can only be denial-\n\
+    \   of-service (DoS) attacks, and we are aware of two variants.\n   o  Replay\
+    \ of Message ID synchronization request: This is countered by\n      the requirement\
+    \ that the Send counter sent by the cluster member\n      should always be monotonically\
+    \ increasing, a rule that the peer\n      enforces by silently dropping messages\
+    \ that contradict it.\n   o  Replay of the Message ID synchronization response:\
+    \ This is\n      countered by sending the nonce data along with the synchronization\n\
+    \      payload.  The same nonce data has to be returned in the response.\n   \
+    \   Thus, the standby member will accept a reply only for the current\n      request.\
+    \  After it receives a valid response, it MUST NOT process\n      the same response\
+    \ again and MUST discard any additional responses.\n   As mentioned in Section\
+    \ 7, triggering counter synchronization by out-\n   of-window, potentially replayed\
+    \ messages could open a DoS\n   vulnerability.  This risk is mitigated by the\
+    \ solution described in\n   that section.\n"
+- title: 12.  IANA Considerations
+  contents:
+  - "12.  IANA Considerations\n   This document introduces four new IKEv2 Notification\
+    \ Message types as\n   described in Section 6.  The new Notify Message Types have\
+    \ been\n   assigned values as follows.\n              +-------------------------------------+-------+\n\
+    \              | Name                                | Value |\n             \
+    \ +-------------------------------------+-------+\n              | IKEV2_MESSAGE_ID_SYNC_SUPPORTED\
+    \     | 16420 |\n              | IPSEC_REPLAY_COUNTER_SYNC_SUPPORTED | 16421 |\n\
+    \              | IKEV2_MESSAGE_ID_SYNC               | 16422 |\n             \
+    \ | IPSEC_REPLAY_COUNTER_SYNC           | 16423 |\n              +-------------------------------------+-------+\n"
+- title: 13.  Acknowledgements
+  contents:
+  - "13.  Acknowledgements\n   We would like to thank Pratima Sethi and Frederic Detienne\
+    \ for their\n   review comments and valuable suggestions for the initial version\
+    \ of\n   the document.\n   We would also like to thank the following people (in\
+    \ alphabetical\n   order) for their review comments and valuable suggestions:\
+    \ Dan\n   Harkins, Paul Hoffman, Steve Kent, Tero Kivinen, David McGrew, and\n\
+    \   Pekka Riikonen.\n"
+- title: 14.  References
+  contents:
+  - '14.  References
+
+    '
+- title: 14.1.  Normative References
+  contents:
+  - "14.1.  Normative References\n   [1]   Bradner, S., \"Key words for use in RFCs\
+    \ to Indicate Requirement\n         Levels\", BCP 14, RFC 2119, March 1997.\n\
+    \   [2]   Kent, S., \"IP Encapsulating Security Payload (ESP)\", RFC 4303,\n \
+    \        December 2005.\n   [3]   Kent, S., \"IP Authentication Header\", RFC\
+    \ 4302, December 2005.\n   [4]   Kaufman, C., Hoffman, P., Nir, Y., and P. Eronen,\
+    \ \"Internet Key\n         Exchange Protocol Version 2 (IKEv2)\", RFC 5996, September\
+    \ 2010.\n   [5]   Kent, S. and K. Seo, \"Security Architecture for the Internet\n\
+    \         Protocol\", RFC 4301, December 2005.\n"
+- title: 14.2.  Informative References
+  contents:
+  - "14.2.  Informative References\n   [6]   Nir, Y., \"IPsec Cluster Problem Statement\"\
+    , RFC 6027,\n         October 2010.\n   [7]   Nadas, S., Ed., \"Virtual Router\
+    \ Redundancy Protocol (VRRP)\n         Version 3 for IPv4 and IPv6\", RFC 5798,\
+    \ March 2010.\n   [8]   Nir, Y., Ed., Wierbowski, D., Detienne, F., and P. Sethi,\
+    \ \"A\n         Quick Crash Detection Method for the Internet Key Exchange\n \
+    \        Protocol (IKE)\", RFC 6290, June 2011.\n   [9]   Housley, R., \"Using\
+    \ Advanced Encryption Standard (AES) Counter\n         Mode With IPsec Encapsulating\
+    \ Security Payload (ESP)\",\n         RFC 3686, January 2004.\n   [10]  Viega,\
+    \ J. and D. McGrew, \"The Use of Galois/Counter Mode (GCM)\n         in IPsec\
+    \ Encapsulating Security Payload (ESP)\", RFC 4106,\n         June 2005.\n   [11]\
+    \  McGrew, D. and B. Weis, \"Using Counter Modes with Encapsulating\n        \
+    \ Security Payload (ESP) and Authentication Header (AH) to\n         Protect Group\
+    \ Traffic\", RFC 6054, November 2010.\n   [12]  Sheffer, Y. and H. Tschofenig,\
+    \ \"Internet Key Exchange Protocol\n         Version 2 (IKEv2) Session Resumption\"\
+    , RFC 5723, January 2010.\n   [13]  Devarapalli, V. and K. Weniger, \"Redirect\
+    \ Mechanism for the\n         Internet Key Exchange Protocol Version 2 (IKEv2)\"\
+    , RFC 5685,\n         November 2009.\n"
+- title: Appendix A.  IKEv2 Message ID Sync Examples
+  contents:
+  - "Appendix A.  IKEv2 Message ID Sync Examples\n   This (non-normative) section\
+    \ presents some examples that illustrate\n   how the IKEv2 Message ID values are\
+    \ synchronized.  We use a tuple\n   notation, denoting the two counters EXPECTED_SEND_REQ_MESSAGE_ID\
+    \ and\n   EXPECTED_RECV_REQ_MESSAGE_ID on each protocol party as\n   (EXPECTED_SEND_REQ_MESSAGE_ID,\
+    \ EXPECTED_RECV_REQ_MESSAGE_ID).\n   Note that if the IKE message counters are\
+    \ already synchronized (as in\n   the first example), we expect the numbers to\
+    \ be reversed between the\n   two sides.  If one protocol party intends to send\
+    \ the next request as\n   4, then the other expects the next received request\
+    \ to be 4.\n"
+- title: A.1.  Normal Failover -- Example 1
+  contents:
+  - "A.1.  Normal Failover -- Example 1\n   Standby (Newly Active) Member        \
+    \                    Peer\n   - - - - - - - - - - - - - - - - - - - - - - - -\
+    \ - - - - - - -\n   Sync Request (0, 5) -------->\n                          \
+    \   Peer has the values (5, 0), so it sends\n                <------------- (5,\
+    \ 0) as the Sync Response\n   In this example, the peer has most recently sent\
+    \ an IKE request with\n   Message ID 4, and has never received a request.  So\
+    \ the peer's\n   expected values for the next pair of messages are (5, 0).  These\
+    \ are\n   the same values as received from the member, and therefore they are\n\
+    \   sent as-is.\n"
+- title: A.2.  Normal Failover -- Example 2
+  contents:
+  - "A.2.  Normal Failover -- Example 2\n   Standby (Newly Active) Member        \
+    \                    Peer\n   - - - - - - - - - - - - - - - - - - - - - - - -\
+    \ - - - - - - -\n   Sync Request (2, 3) -------->\n                          \
+    \   Peer has the values (4, 5), so it sends\n                <------------- (4,\
+    \ 5) as the Sync Response\n   In this example, the peer has most recently sent\
+    \ an IKE message with\n   the Message ID 3, and received one with ID 4.  So the\
+    \ peer's expected\n   values for the next pair of messages are (4, 5).  These\
+    \ are both\n   higher than the corresponding values just received from the member\n\
+    \   (the order of tuple members is reversed when doing this comparison!),\n  \
+    \ and therefore they are sent as-is.\n"
+- title: A.3.  Normal Failover -- Example 3
+  contents:
+  - "A.3.  Normal Failover -- Example 3\n   Standby (Newly Active) Member        \
+    \                    Peer\n   - - - - - - - - - - - - - - - - - - - - - - - -\
+    \ - - - - - - -\n   Sync Request (2, 5) -------->\n                          \
+    \   Peer has the values (2, 4), so it sends\n                <-------------(5,\
+    \ 4) as the Sync Response\n   In this example, the newly active member expects\
+    \ to send the next IKE\n   message with ID 2.  It sends an expected receive value\
+    \ of 5, which is\n   higher than the last ID value it has seen from the peer,\
+    \ because it\n   believes some incoming messages may have been lost.  The peer\
+    \ has\n   last sent a message with ID 1, and received one with ID 3, indicating\n\
+    \   that a couple of messages sent by the previously active member had\n   not\
+    \ been synchronized into the other member.  So the peer's next\n   expected (send,\
+    \ receive) values are (2, 4).  The peer replies with\n   the maximum of the received\
+    \ and the expected value for both send and\n   receive counters: (max(2, 5), max(4,\
+    \ 2)) = (5, 4).\n"
+- title: A.4.  Simultaneous Failover
+  contents:
+  - "A.4.  Simultaneous Failover\n   In the case of simultaneous failover, both sides\
+    \ send their\n   synchronization requests simultaneously.  The eventual outcome\
+    \ of\n   synchronization consists of the higher counter values.  This is\n   demonstrated\
+    \ in the following figure.\n   Standby (Newly Active) Member                 \
+    \           Peer\n   - - - - - - - - - - - - - - - - - - - - - - - - - - - - -\
+    \ - -\n   Sync Request (4,4)     ----->\n                    <-------------- Sync\
+    \ Request (5,5)\n   Sync Response (5,5)    ---->\n                        <--------\
+    \  Sync Response (5,5)\n"
+- title: Authors' Addresses
+  contents:
+  - "Authors' Addresses\n   Raj Singh (editor)\n   Cisco Systems, Inc.\n   Divyashree\
+    \ Chambers, B Wing, O'Shaugnessy Road\n   Bangalore, Karnataka  560025\n   India\n\
+    \   Phone: +91 80 4301 3320\n   EMail: rsj@cisco.com\n   Kalyani Garigipati\n\
+    \   Cisco Systems, Inc.\n   Divyashree Chambers, B Wing, O'Shaugnessy Road\n \
+    \  Bangalore, Karnataka  560025\n   India\n   Phone: +91 80 4426 4831\n   EMail:\
+    \ kagarigi@cisco.com\n   Yoav Nir\n   Check Point Software Technologies Ltd.\n\
+    \   5 Hasolelim St.\n   Tel Aviv  67897\n   Israel\n   EMail: ynir@checkpoint.com\n\
+    \   Yaron Sheffer\n   Porticor Cloud Security\n   EMail: yaronf.ietf@gmail.com\n\
+    \   Dacheng Zhang\n   Huawei Technologies Ltd.\n   EMail: zhangdacheng@huawei.com\n"

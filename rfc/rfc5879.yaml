@@ -1,0 +1,941 @@
+- title: __initial_text__
+  contents:
+  - '               Heuristics for Detecting ESP-NULL Packets
+
+    '
+- title: Abstract
+  contents:
+  - "Abstract\n   This document describes a set of heuristics for distinguishing IPsec\n\
+    \   ESP-NULL (Encapsulating Security Payload without encryption) packets\n   from\
+    \ encrypted ESP packets.  These heuristics can be used on\n   intermediate devices,\
+    \ like traffic analyzers, and deep-inspection\n   engines, to quickly decide whether\
+    \ or not a given packet flow is\n   encrypted, i.e., whether or not it can be\
+    \ inspected.  Use of these\n   heuristics does not require any changes made on\
+    \ existing IPsec hosts\n   that are compliant with RFC 4303.\n"
+- title: Status of This Memo
+  contents:
+  - "Status of This Memo\n   This document is not an Internet Standards Track specification;\
+    \ it is\n   published for informational purposes.\n   This document is a product\
+    \ of the Internet Engineering Task Force\n   (IETF).  It represents the consensus\
+    \ of the IETF community.  It has\n   received public review and has been approved\
+    \ for publication by the\n   Internet Engineering Steering Group (IESG).  Not\
+    \ all documents\n   approved by the IESG are a candidate for any level of Internet\n\
+    \   Standard; see Section 2 of RFC 5741.\n   Information about the current status\
+    \ of this document, any errata,\n   and how to provide feedback on it may be obtained\
+    \ at\n   http://www.rfc-editor.org/info/rfc5879.\n"
+- title: Copyright Notice
+  contents:
+  - "Copyright Notice\n   Copyright (c) 2010 IETF Trust and the persons identified\
+    \ as the\n   document authors.  All rights reserved.\n   This document is subject\
+    \ to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n\
+    \   (http://trustee.ietf.org/license-info) in effect on the date of\n   publication\
+    \ of this document.  Please review these documents\n   carefully, as they describe\
+    \ your rights and restrictions with respect\n   to this document.  Code Components\
+    \ extracted from this document must\n   include Simplified BSD License text as\
+    \ described in Section 4.e of\n   the Trust Legal Provisions and are provided\
+    \ without warranty as\n   described in the Simplified BSD License.\n"
+- title: Table of Contents
+  contents:
+  - "Table of Contents\n   1. Introduction ....................................................3\n\
+    \      1.1. Applicability: Heuristic Traffic Inspection and\n           Wrapped\
+    \ ESP ................................................4\n      1.2. Terminology\
+    \ ................................................4\n   2. Other Options ...................................................5\n\
+    \      2.1. AH .........................................................5\n  \
+    \    2.2. Mandating by Policy ........................................6\n    \
+    \  2.3. Modifying ESP ..............................................6\n   3. Description\
+    \ of Heuristics .......................................6\n   4. IPsec Flows .....................................................7\n\
+    \   5. Deep-Inspection Engine ..........................................9\n  \
+    \ 6. Special and Error Cases .........................................9\n   7.\
+    \ UDP Encapsulation ..............................................10\n   8. Heuristic\
+    \ Checks ...............................................10\n      8.1. ESP-NULL\
+    \ Format ...........................................11\n      8.2. Self Describing\
+    \ Padding Check .............................12\n      8.3. Protocol Checks ...........................................14\n\
+    \           8.3.1. TCP Checks .........................................15\n  \
+    \         8.3.2. UDP Checks .........................................16\n    \
+    \       8.3.3. ICMP Checks ........................................16\n      \
+    \     8.3.4. SCTP Checks ........................................17\n        \
+    \   8.3.5. IPv4 and IPv6 Tunnel Checks ........................17\n   9. Security\
+    \ Considerations ........................................17\n   10. References\
+    \ ....................................................18\n      10.1. Normative\
+    \ References .....................................18\n      10.2. Informative\
+    \ References ...................................18\n   Appendix A.  Example Pseudocode\
+    \ ...................................20\n     A.1.  Fastpath ..................................................20\n\
+    \     A.2.  Slowpath ..................................................23\n"
+- title: 1.  Introduction
+  contents:
+  - "1.  Introduction\n   The ESP (Encapsulating Security Payload [RFC4303]) protocol\
+    \ can be\n   used with NULL encryption [RFC2410] to provide authentication,\n\
+    \   integrity protection, and optionally replay detection, but without\n   confidentiality.\
+    \  ESP without encryption (referred to as ESP-NULL)\n   offers similar properties\
+    \ to IPsec's AH (Authentication Header\n   [RFC4302]).  One reason to use ESP-NULL\
+    \ instead of AH is that AH\n   cannot be used if there are NAT (Network Address\
+    \ Translation) devices\n   on the path.  With AH, it would be easy to detect packets\
+    \ that have\n   only authentication and integrity protection, as AH has its own\n\
+    \   protocol number and deterministic packet length.  With ESP-NULL, such\n  \
+    \ detection is nondeterministic, in spite of the base ESP packet format\n   being\
+    \ fixed.\n   In some cases, intermediate devices would like to detect ESP-NULL\n\
+    \   packets so they could perform deep inspection or enforce access\n   control.\
+    \  This kind of deep inspection includes virus detection, spam\n   filtering,\
+    \ and intrusion detection.  As end nodes might be able to\n   bypass those checks\
+    \ by using encrypted ESP instead of ESP-NULL, these\n   kinds of scenarios also\
+    \ require very specific policies to forbid such\n   circumvention.\n   These sorts\
+    \ of policy requirements usually mean that the whole\n   network needs to be controlled,\
+    \ i.e., under the same administrative\n   domain.  Such setups are usually limited\
+    \ to inside the network of one\n   enterprise or organization, and encryption\
+    \ is not used as the network\n   is considered safe enough from eavesdroppers.\n\
+    \   Because the traffic inspected is usually host-to-host traffic inside\n   one\
+    \ organization, that usually means transport mode IPsec is used.\n   Note, that\
+    \ most of the current uses of IPsec are not host-to-host\n   traffic inside one\
+    \ organization, but for the intended use cases for\n   the heuristics, this will\
+    \ most likely be the case.  Also, the tunnel\n   mode case is much easier to solve\
+    \ than transport mode as it is much\n   easier to detect the IP header inside\
+    \ the ESP-NULL packet.\n   It should also be noted that even if new protocol modifications\
+    \ for\n   ESP support easier detection of ESP-NULL in the future, this document\n\
+    \   will aid in the transition of older end-systems.  That way, a\n   solution\
+    \ can be implemented immediately, and not after 5-10 years of\n   upgrade and\
+    \ deployment.  Even with protocol modification for end\n   nodes, the intermediate\
+    \ devices will need heuristics until they can\n   assume that those protocol modifications\
+    \ can be found from all the\n   end devices.  To make sure that any solution does\
+    \ not break in the\n   future, it would be best if such heuristics are documented\
+    \ -- i.e.,\n   publishing an RFC for what to do now, even though there might be\
+    \ a\n   new protocol coming in the future that will solve the same problem in\n\
+    \   a better way.\n"
+- title: '1.1.  Applicability: Heuristic Traffic Inspection and Wrapped ESP'
+  contents:
+  - "1.1.  Applicability: Heuristic Traffic Inspection and Wrapped ESP\n   There are\
+    \ two ways to enable intermediate security devices to\n   distinguish between\
+    \ encrypted and unencrypted ESP traffic:\n   o  The heuristics approach has the\
+    \ intermediate node inspect the\n      unchanged ESP traffic, to determine with\
+    \ extremely high\n      probability whether or not the traffic stream is encrypted.\n\
+    \   o  The Wrapped ESP (WESP) approach [RFC5840], in contrast, requires\n    \
+    \  the ESP endpoints to be modified to support the new protocol.\n      WESP allows\
+    \ the intermediate node to distinguish encrypted and\n      unencrypted traffic\
+    \ deterministically, using a simpler\n      implementation for the intermediate\
+    \ node.\n   Both approaches are being documented simultaneously by the IPsecME\n\
+    \   Working Group, with WESP being put on Standards Track while the\n   heuristics\
+    \ approach is being published as an Informational RFC.\n   While endpoints are\
+    \ being modified to adopt WESP, both approaches\n   will likely coexist for years,\
+    \ because the heuristic approach is\n   needed to inspect traffic where at least\
+    \ one of the endpoints has not\n   been modified.  In other words, intermediate\
+    \ nodes are expected to\n   support both approaches in order to achieve good security\
+    \ and\n   performance during the transition period.\n"
+- title: 1.2.  Terminology
+  contents:
+  - "1.2.  Terminology\n   This document uses following terminology:\n   Flow\n  \
+    \    A TCP/UDP or IPsec flow is a stream of packets that are part of\n      the\
+    \ same TCP/UDP or IPsec stream, i.e., TCP or UDP flow is a\n      stream of packets\
+    \ having same 5 tuple (source and destination IP\n      and port, and TCP/UDP\
+    \ protocol).  Note, that this kind of flow is\n      also called microflow in\
+    \ some documents.\n   Flow Cache\n      deep-inspection engines and similar devices\
+    \ use a cache of flows\n      going through the device, and that cache keeps state\
+    \ of all flows\n      going through the device.\n   IPsec Flow\n      An IPsec\
+    \ flow is a stream of packets sharing the same source IP,\n      destination IP,\
+    \ protocol (ESP/AH), and Security Parameter Index\n      (SPI).  Strictly speaking,\
+    \ the source IP does not need to be a\n      part of the flow identification,\
+    \ but it can be.  For this reason,\n      it is safer to assume that the source\
+    \ IP is always part of the\n      flow identification.\n"
+- title: 2.  Other Options
+  contents:
+  - "2.  Other Options\n   This document will discuss the heuristic approach of detecting\
+    \ ESP-\n   NULL packets.  There are some other options that can be used, and\n\
+    \   this section will briefly discuss them.\n"
+- title: 2.1.  AH
+  contents:
+  - "2.1.  AH\n   The most logical approach would use the already defined protocol\
+    \ that\n   offers authentication and integrity protection, but not\n   confidentiality,\
+    \ namely AH.  AH traffic is clearly marked as not\n   encrypted, and can always\
+    \ be inspected by intermediate devices.\n   Using AH has two problems.  First,\
+    \ as it also protects the IP\n   headers, it will also protect against NATs on\
+    \ the path; thus, it will\n   not work if there is a NAT on the path between end\
+    \ nodes.  In some\n   environments this might not be a problem, but some environments,\n\
+    \   include heavy use of NATs even inside the internal network of the\n   enterprise\
+    \ or organization.  NAT-Traversal (NAT-T, [RFC3948]) could\n   be extended to\
+    \ support AH also, and the early versions of the NAT-T\n   proposals did include\
+    \ that, but it was left out as it was not seen as\n   necessary.\n   Another problem\
+    \ is that in the new IPsec Architecture [RFC4301] the\n   support for AH is now\
+    \ optional, meaning not all implementations\n   support it.  ESP-NULL has been\
+    \ defined to be mandatory to implement\n   by \"Cryptographic Algorithm Implementation\
+    \ Requirements for\n   Encapsulating Security Payload (ESP) and Authentication\
+    \ Header (AH)\"\n   [RFC4835].\n   AH also has quite complex processing rules\
+    \ compared to ESP when\n   calculating the Integrity Check Value (ICV), including\
+    \ things like\n   zeroing out mutable fields.  Also, as AH is not as widely used\
+    \ as\n   ESP, the AH support is not as well tested in the interoperability\n \
+    \  events.\n"
+- title: 2.2.  Mandating by Policy
+  contents:
+  - "2.2.  Mandating by Policy\n   Another easy way to solve this problem is to mandate\
+    \ the use of ESP-\n   NULL with common parameters within an entire organization.\
+    \  This\n   either removes the need for heuristics (if no ESP-encrypted traffic\n\
+    \   is allowed at all) or simplifies them considerably (only one set of\n   parameters\
+    \ needs to be inspected, e.g., everybody in the organization\n   who is using\
+    \ ESP-NULL must use HMAC-SHA-1-96 as their integrity\n   algorithm).  This does\
+    \ work unless one of a pair of communicating\n   machines is not under the same\
+    \ administrative domain as the deep-\n   inspection engine.  (IPsec Security Associations\
+    \ (SAs) must be\n   satisfactory to all communicating parties, so only one communicating\n\
+    \   peer needs to have a sufficiently narrow policy.)  Also, such a\n   solution\
+    \ might require some kind of centralized policy management to\n   make sure everybody\
+    \ in an administrative domain uses the same policy,\n   and that changes to that\
+    \ single policy can be coordinated throughout\n   the administrative domain.\n"
+- title: 2.3.  Modifying ESP
+  contents:
+  - "2.3.  Modifying ESP\n   Several documents discuss ways of modifying ESP to offer\
+    \ intermediate\n   devices information about an ESP packet's use of NULL encryption.\n\
+    \   The following methods have been discussed: adding an IP-option,\n   adding\
+    \ a new IP-protocol number plus an extra header [RFC5840],\n   adding new IP-protocol\
+    \ numbers that tell the ESP-NULL parameters\n   [AUTH-ONLY-ESP], reserving an\
+    \ SPI range for ESP-NULL [ESP-NULL], and\n   using UDP encapsulation with a different\
+    \ format and ports.\n   All of the aforementioned documents require modification\
+    \ to ESP,\n   which requires that all end nodes be modified before intermediate\n\
+    \   devices can assume that this new ESP format is in use.  Updating end\n   nodes\
+    \ will require a lot of time.  An example of slow end-node\n   deployment is Internet\
+    \ Key Exchange Protocol version 2 (IKEv2).\n   Considering an implementation that\
+    \ requires both IKEv2 and a new ESP\n   format, it would take several years, possibly\
+    \ as long as a decade,\n   before widespread deployment.\n"
+- title: 3.  Description of Heuristics
+  contents:
+  - "3.  Description of Heuristics\n   The heuristics to detect ESP-NULL packets will\
+    \ only require changes\n   to those intermediate devices that do deep inspection\
+    \ or other\n   operations that require the detection of ESP-NULL.  As those nodes\n\
+    \   require changes regardless of any ESP-NULL method, updating\n   intermediate\
+    \ nodes is unavoidable.  Heuristics do not require updates\n   or modifications\
+    \ to any other devices on the rest of the network,\n   including (especially)\
+    \ end nodes.\n   In this document, it is assumed that an affected intermediate\
+    \ node\n   will act as a stateful interception device, meaning it will keep\n\
+    \   state of the IPsec flows -- where flows are defined by the ESP SPI\n   and\
+    \ IP addresses forming an IPsec SA -- going through it.  The\n   heuristics can\
+    \ also be used without storing any state, but\n   performance will be worse in\
+    \ that case, as heuristic checks will need\n   to be done for each packet, not\
+    \ only once per flow.  This will also\n   affect the reliability of the heuristics.\n\
+    \   Generally, an intermediate node runs heuristics only for the first\n   few\
+    \ packets of the new flow (i.e., the new IPsec SA).  After those\n   few packets,\
+    \ the node detects parameters of the IPsec flow, it skips\n   detection heuristics,\
+    \ and it can perform direct packet-inspecting\n   action based on its own policy.\
+    \  Once detected, ESP-NULL packets will\n   never be detected as encrypted ESP\
+    \ packets, meaning that valid ESP-\n   NULL packets will never bypass the deep\
+    \ inspection.\n   The only failure mode of these heuristics is to assume encrypted\
+    \ ESP\n   packets are ESP-NULL packets, thus causing completely random packet\n\
+    \   data to be deeply inspected.  An attacker can easily send random-\n   looking\
+    \ ESP-NULL packets that will cause heuristics to detect packets\n   as encrypted\
+    \ ESP, but that is no worse than sending non-ESP fuzz\n   through an intermediate\
+    \ node.  The only way an ESP-NULL flow can be\n   mistaken for an encrypted ESP\
+    \ flow is if the ESP-NULL flow uses an\n   authentication algorithm of which the\
+    \ packet inspector has no\n   knowledge.\n   For hardware implementations, all\
+    \ the flow lookup based on the ESP\n   next header number (50), source address,\
+    \ destination address, and SPI\n   can be done by the hardware (there is usually\
+    \ already similar\n   functionality there, for TCP/UDP flows).  The heuristics\
+    \ can be\n   implemented by the hardware, but using software will allow faster\n\
+    \   updates when new protocol modifications come out or new protocols\n   need\
+    \ support.\n   As described in Section 7, UDP-encapsulated ESP traffic may also\
+    \ have\n   Network Address Port Translation (NAPT) applied to it, and so there\n\
+    \   is already a 5-tuple state in the stateful inspection gateway.\n"
+- title: 4.  IPsec Flows
+  contents:
+  - "4.  IPsec Flows\n   ESP is a stateful protocol, meaning there is state stored\
+    \ in both end\n   nodes of the ESP IPsec SA, and the state is identified by the\
+    \ pair of\n   destination IP and SPI.  Also, end nodes often fix the source IP\n\
+    \   address in an SA unless the destination is a multicast group.\n   Typically,\
+    \ most (if not all) flows of interest to an intermediate\n   device are unicast,\
+    \ so it is safer to assume the receiving node also\n   uses a source address,\
+    \ and the intermediate device should therefore\n   do the same.  In some cases,\
+    \ this might cause extraneous cached ESP\n   IPsec SA flows, but by using the\
+    \ source address, two distinct flows\n   will never be mixed.  For sites that\
+    \ heavily use multicast, such\n   traffic is deterministically identifiable (224.0.0.0/4\
+    \ for IPv4 and\n   ff00::0/8 for IPv6), and an implementation can save the space\
+    \ of\n   multiple cache entries for a multicast flow by checking the\n   destination\
+    \ address first.\n   When the intermediate device sees a new ESP IPsec flow, i.e.,\
+    \ a new\n   flow of ESP packets where the source address, destination address,\n\
+    \   and SPI number form a triplet that has not been cached, it will start\n  \
+    \ the heuristics to detect whether or not this flow is ESP-NULL.  These\n   heuristics\
+    \ appear in Section 8.\n   When the heuristics finish, they will label the flow\
+    \ as either\n   encrypted (which tells that packets in this flow are encrypted,\
+    \ and\n   cannot be ESP-NULL packets) or as ESP-NULL.  This information, along\n\
+    \   with the ESP-NULL parameters detected by the heuristics, is stored to\n  \
+    \ a flow cache, which will be used in the future when processing\n   packets of\
+    \ the same flow.\n   Both encrypted ESP and ESP-NULL flows are processed based\
+    \ on the\n   local policy.  In normal operation, encrypted ESP flows are passed\n\
+    \   through or dropped per local policy, and ESP-NULL flows are passed to\n  \
+    \ the deep-inspection engine.  Local policy will also be used to\n   determine\
+    \ other packet-processing parameters.  Local policy issues\n   will be clearly\
+    \ marked in this document to ease implementation.\n   In some cases, the heuristics\
+    \ cannot determine the type of flow from\n   a single packet; and in that case,\
+    \ it might need multiple packets\n   before it can finish the process.  In those\
+    \ cases, the heuristics\n   return \"unsure\" status.  In that case, the packet\
+    \ processed based on\n   the local policy and flow cache is updated with \"unsure\"\
+    \ status.\n   Local policy for \"unsure\" packets could range from dropping (which\n\
+    \   encourages end-node retransmission) to queuing (which may preserve\n   delivery,\
+    \ at the cost of artificially inflating round-trip times if\n   they are measured).\
+    \  When the next packet to the flow arrives, it is\n   heuristically processed\
+    \ again, and the cached flow may continue to be\n   \"unsure\", marked as ESP,\
+    \ or marked as an ESP-NULL flow.\n   There are several reasons why a single packet\
+    \ might not be enough to\n   detect the type of flow.  One of them is that the\
+    \ next header number\n   was unknown, i.e., if heuristics do not know about the\
+    \ protocol for\n   the packet, they cannot verify it has properly detected ESP-NULL\n\
+    \   parameters, even when the packet otherwise looks like ESP-NULL.  If\n   the\
+    \ packet does not look like ESP-NULL at all, then the encrypted ESP\n   status\
+    \ can be returned quickly.  As ESP-NULL heuristics need to know\n   the same protocols\
+    \ as a deep-inspection device, an ESP-NULL instance\n   of an unknown protocol\
+    \ can be handled the same way as a cleartext\n   instance of the same unknown\
+    \ protocol.\n"
+- title: 5.  Deep-Inspection Engine
+  contents:
+  - "5.  Deep-Inspection Engine\n   A deep-inspection engine running on an intermediate\
+    \ node usually\n   checks deeply into the packet and performs policy decisions\
+    \ based on\n   the contents of the packet.  The deep-inspection engine should\
+    \ be\n   able to tell the difference between success, failure, and garbage.\n\
+    \   Success means that a packet was successfully checked with the deep-\n   inspection\
+    \ engine, and it passed the checks and is allowed to be\n   forwarded.  Failure\
+    \ means that a packet was successfully checked, but\n   the actual checks done\
+    \ indicated that packets should be dropped,\n   i.e., the packet contained a virus,\
+    \ was a known attack, or something\n   similar.\n   Garbage means that the packet's\
+    \ protocol headers or other portions\n   were unparseable.  For the heuristics,\
+    \ it would be useful if the\n   deep-inspection engine could differentiate the\
+    \ garbage and failure\n   cases, as garbage cases can be used to detect certain\
+    \ error cases\n   (e.g., where the ESP-NULL parameters are incorrect, or the flow\
+    \ is\n   really an encrypted ESP flow, not an ESP-NULL flow).\n   If the deep-inspection\
+    \ engine only returns failure for all garbage\n   packets in addition to real\
+    \ failure cases, then a system implementing\n   the ESP-NULL heuristics cannot\
+    \ recover from error situations quickly.\n"
+- title: 6.  Special and Error Cases
+  contents:
+  - "6.  Special and Error Cases\n   There is a small probability that an encrypted\
+    \ ESP packet (which\n   looks like it contains completely random bytes) will have\
+    \ plausible\n   bytes in expected locations, such that heuristics will detect\
+    \ the\n   packet as an ESP-NULL packet instead of detecting that it is\n   encrypted\
+    \ ESP packet.  The actual probabilities will be computed\n   later in this document.\
+    \  Such a packet will not cause problems, as\n   the deep-inspection engine will\
+    \ most likely reject the packet and\n   return that it is garbage.  If the deep-inspection\
+    \ engine is\n   rejecting a high number of packets as garbage, it might indicate\
+    \ an\n   original ESP-NULL detection for the flow was wrong (i.e., an\n   encrypted\
+    \ ESP flow was improperly detected as ESP-NULL).  In that\n   case, the cached\
+    \ flow should be invalidated and discovery should\n   happen again.\n   Each ESP-NULL\
+    \ flow should also keep statistics about how many packets\n   have been detected\
+    \ as garbage by deep inspection, how many have\n   passed checks, or how many\
+    \ have failed checks with policy violations\n   (i.e., failed because of actual\
+    \ inspection policy failures, not\n   because the packet looked like garbage).\
+    \  If the number of garbage\n   packets suddenly increases (e.g., most of the\
+    \ packets start to look\n   like garbage according to the deep-inspection engine),\
+    \ it is possible\n   the old ESP-NULL SA was replaced by an encrypted ESP SA with\
+    \ an\n   identical SPI.  If both ends use random SPI generation, this is a\n \
+    \  very unlikely situation (1 in 2^32), but it is possible that some\n   nodes\
+    \ reuse SPI numbers (e.g., a 32-bit memory address of the SA\n   descriptor);\
+    \ thus, this situation needs to be handled.\n   Actual limits for cache invalidation\
+    \ are local policy decisions.\n   Sample invalidation policies include: 50% of\
+    \ packets marked as\n   garbage within a second, or if a deep-inspection engine\
+    \ cannot\n   differentiate between garbage and failure, failing more than 95%\
+    \ of\n   packets in last 10 seconds.  For implementations that do not\n   distinguish\
+    \ between garbage and failure, failures should not be\n   treated too quickly\
+    \ as an indication of SA reuse.  Often, single\n   packets cause state-related\
+    \ errors that block otherwise normal\n   packets from passing.\n"
+- title: 7.  UDP Encapsulation
+  contents:
+  - "7.  UDP Encapsulation\n   The flow lookup code needs to detect UDP packets to\
+    \ or from port 4500\n   in addition to the ESP packets, and perform similar processing\
+    \ to\n   them after skipping the UDP header.  Port-translation by NAT often\n\
+    \   rewrites what was originally 4500 into a different value, which means\n  \
+    \ each unique port pair constitutes a separate IPsec flow.  That is,\n   UDP-encapsulated\
+    \ IPsec flows are identified by the source and\n   destination IP, source and\
+    \ destination port number, and SPI number.\n   As devices might be using IKEv2\
+    \ Mobility and Multihoming (MOBIKE)\n   ([RFC4555]), that also means that the\
+    \ flow cache should be shared\n   between the UDP encapsulated IPsec flows and\
+    \ non-encapsulated IPsec\n   flows.  As previously mentioned, differentiating\
+    \ between garbage and\n   actual policy failures will help in proper detection\
+    \ immensely.\n   Because the checks are run for packets having just source port\
+    \ 4500\n   or packets having just destination port 4500, this might cause checks\n\
+    \   to be run for non-ESP traffic too.  Some traffic may randomly use\n   port\
+    \ 4500 for other reasons, especially if a port-translating NAT is\n   involved.\
+    \  The UDP encapsulation processing should also be aware of\n   that possibility.\n"
+- title: 8.  Heuristic Checks
+  contents:
+  - "8.  Heuristic Checks\n   Normally, HMAC-SHA1-96 or HMAC-MD5-96 gives 1 out of\
+    \ 2^96 probability\n   that a random packet will pass the Hashed Message Authentication\
+    \ Code\n   (HMAC) test.  This yields a 99.999999999999999999999999998%\n   probability\
+    \ that an end node will correctly detect a random packet as\n   being invalid.\
+    \  This means that it should be enough for an\n   intermediate device to check\
+    \ around 96 bits from the input packet.\n   By comparing them against known values\
+    \ for the packet, a deep-\n   inspection engine gains more or less the same probability\
+    \ as that\n   which an end node is using.  This gives an upper limit of how many\n\
+    \   bits heuristics need to check -- there is no point of checking much\n   more\
+    \ than that many bits (since that same probability is acceptable\n   for the end\
+    \ node).  In most of the cases, the intermediate device\n   does not need probability\
+    \ that is that high, perhaps something around\n   32-64 bits is enough.\n   IPsec's\
+    \ ESP has a well-understood packet layout, but its variable-\n   length fields\
+    \ reduce the ability of pure algorithmic matching to one\n   requiring heuristics\
+    \ and assigning probabilities.\n"
+- title: 8.1.  ESP-NULL Format
+  contents:
+  - "8.1.  ESP-NULL Format\n   The ESP-NULL format is as follows:\n        0     \
+    \              1                   2                   3\n        0 1 2 3 4 5\
+    \ 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1\n       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \       |                Security Parameter Index (SPI)                 |\n  \
+    \     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n    \
+    \   |                      Sequence Number                          |\n      \
+    \ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n       |\
+    \                    IV (optional)                              |\n       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \       |                    Payload Data (variable)                    |\n  \
+    \     ~                                                               ~\n    \
+    \   |                                                               |\n      \
+    \ +               +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n       |\
+    \               |     Padding (0-255 bytes)                     |\n       +-+-+-+-+-+-+-+-+\
+    \               +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n       |                  \
+    \             |  Pad Length   | Next Header   |\n       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \       |             Integrity Check Value (variable)                  |\n  \
+    \     ~                                                               ~\n    \
+    \   |                                                               |\n      \
+    \ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n        \
+    \                         Figure 1\n   The output of the heuristics should provide\
+    \ information about whether\n   the packet is encrypted ESP or ESP-NULL.  In case\
+    \ it is ESP-NULL, the\n   heuristics should also provide the Integrity Check Value\
+    \ (ICV) field\n   length and the Initialization Vector (IV) length.\n   The currently\
+    \ defined ESP authentication algorithms have 4 different\n   lengths for the ICV\
+    \ field.\n   Different ICV lengths for different algorithm:\n       Algorithm\
+    \                           ICV Length\n       -------------------------------\
+    \     ----------\n       AUTH_HMAC_MD5_96                    96\n       AUTH_HMAC_SHA1_96\
+    \                   96\n       AUTH_AES_XCBC_96                    96\n      \
+    \ AUTH_AES_CMAC_96                    96\n       AUTH_HMAC_SHA2_256_128      \
+    \        128\n       AUTH_HMAC_SHA2_384_192              192\n       AUTH_HMAC_SHA2_512_256\
+    \              256\n                                 Figure 2\n   In addition\
+    \ to the ESP authentication algorithms listed above, there\n   is also the encryption\
+    \ algorithm ENCR_NULL_AUTH_AES_GMAC, which does\n   not provide confidentiality\
+    \ but provides authentication, just like\n   ESP-NULL.  This algorithm has an\
+    \ ICV Length of 128 bits, and it also\n   requires 8 bytes of IV.\n   In addition\
+    \ to the ICV length, there are also two possible values for\n   IV lengths: 0\
+    \ bytes (default) and 8 bytes (for\n   ENCR_NULL_AUTH_AES_GMAC).  Detecting the\
+    \ IV length requires\n   understanding the payload, i.e., the actual protocol\
+    \ data (meaning\n   TCP, UDP, etc.).  This is required to distinguish the optional\
+    \ IV\n   from the actual protocol data.  How well the IV can be distinguished\n\
+    \   from the actual protocol data depends on how the IV is generated.  If\n  \
+    \ the IV is generated using a method that generates random-looking data\n   (i.e.,\
+    \ encrypted counter, etc.) then distinguishing protocol data\n   from the IV is\
+    \ quite easy.  If an IV is a counter or similar non-\n   random value, then there\
+    \ are more possibilities for error.  If the\n   protocol (also known as the, \"\
+    next header\") of the packet is one that\n   is not supported by the heuristics,\
+    \ then detecting the IV length is\n   impossible; thus, the heuristics cannot\
+    \ finish.  In that case, the\n   heuristics return \"unsure\" and require further\
+    \ packets.\n   This document does not cover RSA authentication in ESP ([RFC4359]),\n\
+    \   as it is considered beyond the scope of this document.\n"
+- title: 8.2.  Self Describing Padding Check
+  contents:
+  - "8.2.  Self Describing Padding Check\n   Before obtaining the next header field,\
+    \ the ICV length must be\n   measured.  Four different ICV lengths lead to four\
+    \ possible places\n   for the pad length and padding.  Implementations must be\
+    \ careful when\n   trying larger sizes of the ICV such that the inspected bytes\
+    \ do not\n   belong to data that is not payload data.  For example, a 10-byte\
+    \ ICMP\n   echo request will have zero-length padding, but any checks for\n  \
+    \ 256-bit ICVs will inspect sequence number or SPI data if the packet\n   actually\
+    \ contains a 96-bit or 128-bit ICV.\n   ICV lengths should always be checked from\
+    \ shortest to longest.  It is\n   much more likely to obtain valid-looking padding\
+    \ bytes in the\n   cleartext part of the payload than from the ICV field of a\
+    \ longer ICV\n   than what is currently inspected.  For example, if a packet has\
+    \ a\n   96-bit ICV and the implementation starts checking for a 256-bit ICV\n\
+    \   first, it is possible that the cleartext part of the payload contains\n  \
+    \ valid-looking bytes.  If done in the other order, i.e., a packet\n   having\
+    \ a 256-bit ICV and the implementation checks for a 96-bit ICV\n   first, the\
+    \ inspected bytes are part of the longer ICV field, and\n   should be indistinguishable\
+    \ from random noise.\n   Each ESP packet always has between 0-255 bytes of padding,\
+    \ and\n   payload, pad length, and next header are always right aligned within\n\
+    \   a 4-byte boundary.  Normally, implementations use a minimal amount of\n  \
+    \ padding, but the heuristics method would be even more reliable if\n   some extra\
+    \ padding is added.  The actual padding data has bytes\n   starting from 01 and\
+    \ ending at the pad length, i.e., exact padding\n   and pad length bytes for 4\
+    \ bytes of padding would be 01 02 03 04 04.\n   Two cases of ESP-NULL padding\
+    \ are matched bytes (like the 04 04 shown\n   above), or the 0-byte padding case.\
+    \  In cases where there is one or\n   more bytes of padding, a node can perform\
+    \ a very simple and fast test\n   -- a sequence of N N in any of those four locations.\
+    \  Given four\n   2-byte locations (assuming the packet size allows all four possible\n\
+    \   ICV lengths), the upper-bound probability of finding a random\n   encrypted\
+    \ packet that exhibits non-zero length ESP-NULL properties\n   is:\n   1 - (1\
+    \ - 255 / 65536) ^ 4 == 0.015 == 1.5%\n   In the cases where there are 0 bytes\
+    \ of padding, a random encrypted\n   ESP packet has:\n   1 - (1 - 1 / 256) ^ 4\
+    \ == 0.016 == 1.6%.\n   Together, both cases yield a 3.1% upper-bound chance of\n\
+    \   misclassifying an encrypted packet as an ESP-NULL packet.\n   In the matched\
+    \ bytes case, further inspection (counting the pad bytes\n   backward and downward\
+    \ from the pad-length match) can reduce the\n   number of misclassified packets\
+    \ further.  A padding length of 255\n   means a specific 256^254 sequence of bytes\
+    \ must occur.  This\n   virtually eliminates pairs of 'FF FF' as viable ESP-NULL\
+    \ padding.\n   Every one of the 255 pairs for padding length N has only a 1 /\
+    \ 256^N\n   probability of being correct ESP-NULL padding.  This shrinks the\n\
+    \   aforementioned 1.5% of matched pairs to virtually nothing.\n   At this point,\
+    \ a maximum of 1.6% of possible byte values remain, so\n   the next header number\
+    \ is inspected.  If the next header number is\n   known (and supported), then\
+    \ the packet can be inspected based on the\n   next header number.  If the next\
+    \ header number is unknown (i.e., not\n   any of those with protocol checking\
+    \ support) the packet is marked\n   \"unsure\", because there is no way to detect\
+    \ the IV length without\n   inspecting the inner protocol payload.\n   There are\
+    \ six different next header fields that are in common use\n   (TCP (6), UDP (17),\
+    \ ICMP (1), Stream Control Transmission Protocol\n   (SCTP) (132), IPv4 (4), and\
+    \ IPv6 (41)), and if IPv6 is in heavy use,\n   that number increases to nine (Fragment\
+    \ (44), ICMPv6 (58), and IPv6\n   options (60)).  To ensure that no packet is\
+    \ misinterpreted as an\n   encrypted ESP packet even when it is an ESP-NULL packet,\
+    \ a packet\n   cannot be marked as a failure even when the next header number\
+    \ is one\n   of those that is not known and supported.  In those cases, the\n\
+    \   packets are marked as \"unsure\".\n   An intermediate node's policy, however,\
+    \ can aid in detecting an ESP-\n   NULL flow even when the protocol is not a common-case\
+    \ one.  By\n   counting how many \"unsure\" returns obtained via heuristics, and\
+    \ after\n   the receipt of a consistent, but unknown, next header number in same\n\
+    \   location (i.e., likely with the same ICV length), the node can\n   conclude\
+    \ that the flow has high probability of being ESP-NULL (since\n   it is unlikely\
+    \ that so many packets would pass the integrity check at\n   the destination unless\
+    \ they are legitimate).  The flow can be\n   classified as ESP-NULL with a known\
+    \ ICV length but an unknown IV\n   length.\n   Fortunately, in unknown protocol\
+    \ cases, the IV length does not\n   matter.  If the protocol is unknown to the\
+    \ heuristics, it will most\n   likely be unknown by the deep-inspection engine\
+    \ also.  It is\n   therefore important that heuristics should support at least\
+    \ those\n   same protocols as the deep-inspection engine.  Upon receipt of any\n\
+    \   inner next header number that is known by the heuristics (and deep-\n   inspection\
+    \ engine), the heuristics can detect the IV length properly.\n"
+- title: 8.3.  Protocol Checks
+  contents:
+  - "8.3.  Protocol Checks\n   Generic protocol checking is much easier with preexisting\
+    \ state.  For\n   example, when many TCP/UDP flows are established over one IPsec\
+    \ SA, a\n   rekey produces a new SA that needs heuristics to detect its\n   parameters,\
+    \ and those heuristics benefit from the existing TCP/UDP\n   flows that were present\
+    \ in the previous IPsec SA.  In that case, it\n   is just enough to check that\
+    \ if a new IPsec SA has packets belonging\n   to the flows of some other IPsec\
+    \ SA (previous IPsec SA before rekey),\n   and if those flows are already known\
+    \ by the deep-inspection engine,\n   it will give a strong indication that the\
+    \ new SA is really ESP-NULL.\n   The worst case scenario is when an end node starts\
+    \ up communication,\n   i.e., it does not have any previous flows through the\
+    \ device.\n   Heuristics will run on the first few packets received from the end\n\
+    \   node.  The later subsections mainly cover these start-up cases, as\n   they\
+    \ are the most difficult.\n   In the protocol checks, there are two different\
+    \ types of checks.  The\n   first check is for packet validity, i.e., certain\
+    \ locations must\n   contain specific values.  For example, an inner IPv4 header\
+    \ of an\n   IPv4 tunnel packet must have its 4-bit version number set to 4.  If\n\
+    \   it does not, the packet is not valid, and can be marked as a failure.\n  \
+    \ Other positions depending on ICV and IV lengths must also be checked,\n   and\
+    \ if all of them are failures, then the packet is a failure.  If\n   any of the\
+    \ checks are \"unsure\", the packet is marked as such.\n   The second type of\
+    \ check is for variable, but easy-to-parse values.\n   For example, the 4-bit\
+    \ header length field of an inner IPv4 packet.\n   It has a fixed value (5) as\
+    \ long as there are no inner IPv4 options.\n   If the header-length has that specific\
+    \ value, the number of known\n   \"good\" bits increases.  If it has some other\
+    \ value, the known \"good\"\n   bit count stays the same.  A local policy might\
+    \ include reaching a\n   bit count that is over a threshold (for example, 96 bits),\
+    \ causing a\n   packet to be marked as valid.\n"
+- title: 8.3.1.  TCP Checks
+  contents:
+  - "8.3.1.  TCP Checks\n   When the first TCP packet is fed to the heuristics, it\
+    \ is most likely\n   going to be the SYN packet of the new connection; thus, it\
+    \ will have\n   less useful information than other later packets might have. \
+    \ The\n   best valid packet checks include checking that header length and\n \
+    \  flags have valid values and checking source and destination port\n   numbers,\
+    \ which in some cases can be used for heuristics (but in\n   general they cannot\
+    \ be reliably distinguished from random numbers\n   apart from some well-known\
+    \ ports like 25/80/110/143).\n   The most obvious field, TCP checksum, might not\
+    \ be usable, as it is\n   possible that the packet has already transited a NAT\
+    \ box that changed\n   the IP addresses but assumed any ESP payload was encrypted\
+    \ and did\n   not fix the transport checksums with the new IP addresses.  Thus,\
+    \ the\n   IP numbers used in the checksum are wrong; thus, the checksum is\n \
+    \  wrong.  If the checksum is correct, it can again be used to increase\n   the\
+    \ valid bit count, but verifying checksums is a costly operation,\n   thus skipping\
+    \ that check might be best unless there is hardware to\n   help the calculation.\
+    \  Window size, urgent pointer, sequence number,\n   and acknowledgment numbers\
+    \ can be used, but there is not one specific\n   known value for them.\n   One\
+    \ good method of detection is that if a packet is dropped, then the\n   next packet\
+    \ will most likely be a retransmission of the previous\n   packet.  Thus, if two\
+    \ packets are received with the same source and\n   destination port numbers,\
+    \ and where sequence numbers are either the\n   same or right after each other,\
+    \ then it's likely a TCP packet has\n   been correctly detected.  This heuristic\
+    \ is most helpful when only\n   one packet is outstanding.  For example, if a\
+    \ TCP SYN packet is lost\n   (or dropped because of policy), the next packet would\
+    \ always be a\n   retransmission of the same TCP SYN packet.\n   Existing deep-inspection\
+    \ engines usually do very good TCP flow\n   checking already, including flow tracking,\
+    \ verification of sequence\n   numbers, and reconstruction of the whole TCP flow.\
+    \  Similar methods\n   can be used here, but they are implementation dependent\
+    \ and not\n   described here.\n"
+- title: 8.3.2.  UDP Checks
+  contents:
+  - "8.3.2.  UDP Checks\n   UDP header has even more problems than the TCP header,\
+    \ as UDP has\n   even less known data.  The checksum has the same problem as the\
+    \ TCP\n   checksum, due to NATs.  The UDP length field might not match the\n \
+    \  overall packet length, as the sender is allowed to include TFC\n   (traffic\
+    \ flow confidentiality; see Section 2.7 of \"IP Encapsulating\n   Security Payload\"\
+    \ [RFC4303]) padding.\n   With UDP packets similar multiple packet methods can\
+    \ be used as with\n   TCP, as UDP protocols usually include several packets using\
+    \ same port\n   numbers going from one end node to another, thus receiving multiple\n\
+    \   packets having a known pair of UDP port numbers is good indication\n   that\
+    \ the heuristics have passed.\n   Some UDP protocols also use identical source\
+    \ and destination port\n   numbers; thus, that is also a good check.\n"
+- title: 8.3.3.  ICMP Checks
+  contents:
+  - "8.3.3.  ICMP Checks\n   As ICMP messages are usually sent as return packets for\
+    \ other\n   packets, they are not very common packets to get as first packets\
+    \ for\n   the SA, the ICMP ECHO_REQUEST message being a noteworthy exception.\n\
+    \   ICMP ECHO_REQUEST has a known type, code, identifier, and sequence\n   number.\
+    \  The checksum, however, might be incorrect again because of\n   NATs.\n   For\
+    \ ICMP error messages, the ICMP message contains part of the\n   original IP packet\
+    \ inside.  Then, the same rules that are used to\n   detect IPv4/IPv6 tunnel checks\
+    \ can be used.\n"
+- title: 8.3.4.  SCTP Checks
+  contents:
+  - "8.3.4.  SCTP Checks\n   SCTP [RFC4960] has a self-contained checksum, which is\
+    \ computed over\n   the SCTP payload and is not affected by NATs unless the NAT\
+    \ is SCTP-\n   aware.  Even more than the TCP and UDP checksums, the SCTP checksum\n\
+    \   is expensive, and may be prohibitive even for deep packet\n   inspections.\n\
+    \   SCTP chunks can be inspected to see if their lengths are consistent\n   across\
+    \ the total length of the IP datagram, so long as TFC padding is\n   not present.\n"
+- title: 8.3.5.  IPv4 and IPv6 Tunnel Checks
+  contents:
+  - "8.3.5.  IPv4 and IPv6 Tunnel Checks\n   In cases of tunneled traffic, the packet\
+    \ inside contains a full IPv4\n   or IPv6 packet.  Many fields are usable.  For\
+    \ IPv4, those fields\n   include version, header length, total length (again TFC\
+    \ padding might\n   confuse things there), protocol number, and 16-bit header\
+    \ checksum.\n   In those cases, the intermediate device should give the decapsulated\n\
+    \   IP packet to the deep-inspection engine.  IPv6 has fewer usable\n   fields,\
+    \ but the version number, packet length (modulo TFC confusion),\n   and next header\
+    \ all can be used by deep packet inspection.\n   If all traffic going through\
+    \ the intermediate device is either from\n   or to certain address blocks (for\
+    \ example, either to or from the\n   company intranet prefix), this can also be\
+    \ checked by the heuristics.\n"
+- title: 9.  Security Considerations
+  contents:
+  - "9.  Security Considerations\n   Attackers can always bypass ESP-NULL deep packet\
+    \ inspection by using\n   encrypted ESP (or some other encryption or tunneling\
+    \ method) instead,\n   unless the intermediate node's policy requires dropping\
+    \ of packets\n   that it cannot inspect.  Ultimately, the responsibility for\n\
+    \   performing deep inspection, or allowing intermediate nodes to perform\n  \
+    \ deep inspection, must rest on the end nodes.  That is, if a server\n   allows\
+    \ encrypted connections also, then an attacker who wants to\n   attack the server\
+    \ and wants to bypass a deep-inspection device in the\n   middle, will use encrypted\
+    \ traffic.  This means that the protection\n   of the whole network is only as\
+    \ good as the policy enforcement and\n   protection of the end node.  One way\
+    \ to enforce deep inspection for\n   all traffic, is to forbid encrypted ESP completely,\
+    \ in which case\n   ESP-NULL detection is easier, as all packets must be ESP-NULL\
+    \ based\n   on the policy (heuristics may still be needed to find out the IV and\n\
+    \   ICV lengths, unless further policy restrictions eliminate the\n   ambiguities).\n\
+    \   Section 3 discusses failure modes of the heuristics.  An attacker can\n  \
+    \ poison flows, tricking inspectors into ignoring legitimate ESP-NULL\n   flows,\
+    \ but that is no worse than injecting fuzz.\n   Forcing the use of ESP-NULL everywhere\
+    \ inside the enterprise, so that\n   accounting, logging, network monitoring,\
+    \ and intrusion detection all\n   work, increases the risk of sending confidential\
+    \ information where\n   eavesdroppers can see it.\n"
+- title: 10.  References
+  contents:
+  - '10.  References
+
+    '
+- title: 10.1.  Normative References
+  contents:
+  - "10.1.  Normative References\n   [RFC2410]    Glenn, R. and S. Kent, \"The NULL\
+    \ Encryption Algorithm\n                and Its Use With IPsec\", RFC 2410, November\
+    \ 1998.\n   [RFC4301]    Kent, S. and K. Seo, \"Security Architecture for the\n\
+    \                Internet Protocol\", RFC 4301, December 2005.\n   [RFC4302] \
+    \   Kent, S., \"IP Authentication Header\", RFC 4302,\n                December\
+    \ 2005.\n   [RFC4303]    Kent, S., \"IP Encapsulating Security Payload (ESP)\"\
+    ,\n                RFC 4303, December 2005.\n"
+- title: 10.2.  Informative References
+  contents:
+  - "10.2.  Informative References\n   [AUTH-ONLY-ESP]\n                Hoffman, P.\
+    \ and D. McGrew, \"An Authentication-only\n                Profile for ESP with\
+    \ an IP Protocol Identifier\", Work\n                in Progress, August 2007.\n\
+    \   [ESP-NULL] Bhatia, M., \"Identifying ESP-NULL Packets\", Work\n          \
+    \      in Progress, December 2008.\n   [RFC3948]    Huttunen, A., Swander, B.,\
+    \ Volpe, V., DiBurro, L., and\n                M. Stenberg, \"UDP Encapsulation\
+    \ of IPsec ESP Packets\",\n                RFC 3948, January 2005.\n   [RFC4359]\
+    \    Weis, B., \"The Use of RSA/SHA-1 Signatures within\n                Encapsulating\
+    \ Security Payload (ESP) and Authentication\n                Header (AH)\", RFC\
+    \ 4359, January 2006.\n   [RFC4555]    Eronen, P., \"IKEv2 Mobility and Multihoming\
+    \ Protocol\n                (MOBIKE)\", RFC 4555, June 2006.\n   [RFC4835]   \
+    \ Manral, V., \"Cryptographic Algorithm Implementation\n                Requirements\
+    \ for Encapsulating Security Payload (ESP)\n                and Authentication\
+    \ Header (AH)\", RFC 4835, April 2007.\n   [RFC4960]    Stewart, R., \"Stream\
+    \ Control Transmission Protocol\",\n                RFC 4960, September 2007.\n\
+    \   [RFC5840]    Grewal, K., Montenegro, G., and M. Bhatia, \"Wrapped\n      \
+    \          Encapsulating Security Payload (ESP) for Traffic\n                Visibility\"\
+    , RFC 5840, April 2010.\n"
+- title: Appendix A.  Example Pseudocode
+  contents:
+  - "Appendix A.  Example Pseudocode\n   This appendix is meant for the implementors.\
+    \  It does not include all\n   the required checks, and this is just example pseudocode,\
+    \ so final\n   implementation can be very different.  It mostly lists things that\n\
+    \   need to be done, but implementations can optimize steps depending on\n   their\
+    \ other parts.  For example, implementation might combine\n   heuristics and deep\
+    \ inspection tightly together.\n"
+- title: A.1.  Fastpath
+  contents:
+  - "A.1.  Fastpath\n   The following example pseudocode show the fastpath part of\
+    \ the packet\n   processing engine.  This part is usually implemented in hardware.\n\
+    \   ////////////////////////////////////////////////////////////\n   // This pseudocode\
+    \ uses following variables:\n   //\n   // SPI_offset:    Number of bytes between\
+    \ start of protocol\n   //                data and SPI.  This is 0 for ESP and\n\
+    \   //                8 for UDP-encapsulated ESP (i.e, skipping\n   //       \
+    \         UDP header).\n   //\n   // IV_len:        Length of the IV of the ESP-NULL\
+    \ packet.\n   //\n   // ICV_len:       Length of the ICV of the ESP-NULL packet.\n\
+    \   //\n   // State:         State of the packet, i.e., ESP-NULL, ESP, or\n  \
+    \ //                unsure.\n   //\n   // Also following data is taken from the\
+    \ packet:\n   //\n   // IP_total_len:  Total IP packet length.\n   // IP_hdr_len:\
+    \    Header length of IP packet in bytes.\n   // IP_Src_IP:     Source address\
+    \ of IP packet.\n   // IP_Dst_IP:     Destination address of IP packet.\n   //\n\
+    \   // UDP_len:       Length of the UDP packet taken from UDP header.\n   // UDP_src_port:\
+    \  Source port of UDP packet.\n   // UDP_dst_port:  Destination port of UDP packet.\n\
+    \   //\n   // SPI:           SPI number from ESP packet.\n   //\n   // Protocol:\
+    \      Actual protocol number of the protocol inside\n   //                ESP-NULL\
+    \ packet.\n   // Protocol_off:  Calculated offset to the protocol payload data\n\
+    \   //                inside ESP-NULL packet.\n   ////////////////////////////////////////////////////////////\n\
+    \   // This is the main processing code for the packet\n   // This will check\
+    \ if the packet requires ESP processing,\n   //\n   Process packet:\n     * If\
+    \ IP protocol is ESP\n          * Set SPI_offset to 0 bytes\n          * Goto\
+    \ Process ESP\n     * If IP protocol is UDP\n          * Goto Process UDP\n  \
+    \   * If IP protocol is WESP\n          // For information about WESP processing,\
+    \ see WESP\n          // specification.\n          * Continue WESP processing\n\
+    \     * Continue Non-ESP processing\n   ////////////////////////////////////////////////////////////\n\
+    \   // This code is run for UDP packets, and it checks if the\n   // packet is\
+    \ UDP encapsulated UDP packet, or UDP\n   // encapsulated IKE packet, or keepalive\
+    \ packet.\n   //\n   Process UDP:\n     // Reassembly is not mandatory here, we\
+    \ could\n     // do reassembly also only after detecting the\n     // packet being\
+    \ UDP encapsulated ESP packet, but\n     // that would complicate the pseudocode\
+    \ here\n     // a lot, as then we would need to add code\n     // for checking\
+    \ whether or not the UDP header is in this\n     // packet.\n     // Reassembly\
+    \ is to simplify things\n     * If packet is fragment\n          * Do full reassembly\
+    \ before processing\n     * If UDP_src_port != 4500 and UDP_dst_port != 4500\n\
+    \          * Continue Non-ESP processing\n     * Set SPI_offset to 8 bytes\n \
+    \    * If UDP_len > 4 and first 4 bytes of UDP packet are 0x000000\n         \
+    \ * Continue Non-ESP processing (pass IKE-packet)\n     * If UDP_len > 4 and first\
+    \ 4 bytes of UDP packet are 0x000002\n          * Continue WESP processing\n \
+    \    * If UDP_len == 1 and first byte is 0xff\n          * Continue Non-ESP processing\
+    \ (pass NAT-Keepalive Packet)\n     * Goto Process ESP\n   ////////////////////////////////////////////////////////////\n\
+    \   // This code is run for ESP packets (or UDP-encapsulated ESP\n   // packets).\
+    \  This checks if IPsec flow is known, and\n   // if not calls heuristics.  If\
+    \ the IPsec flow is known\n   // then it continues processing based on the policy.\n\
+    \   //\n   Process ESP:\n     * If packet is fragment\n          * Do full reassembly\
+    \ before processing\n     * If IP_total_len < IP_hdr_len + SPI_offset + 4\n  \
+    \        // If this packet was UDP encapsulated ESP packet then\n          //\
+    \ this might be valid UDP packet that might\n          // be passed or dropped\
+    \ depending on policy.\n          * Continue normal packet processing\n     *\
+    \ Load SPI from IP_hdr_len + SPI_offset\n     * Initialize State to ESP\n    \
+    \ // In case this was UDP encapsulated ESP, use UDP_src_port and\n     // UDP_dst_port\
+    \ also when finding data from SPI cache.\n     * Find IP_Src_IP + IP_Dst_IP +\
+    \ SPI from SPI cache\n     * If SPI found\n          * Load State, IV_len, ICV_len\
+    \ from cache\n     * If SPI not found or State is unsure\n          * Call Autodetect\
+    \ ESP parameters (drop to slowpath)\n     * If State is ESP\n          * Continue\
+    \ Non-ESP-NULL processing\n     * Goto Check ESP-NULL packet\n   ////////////////////////////////////////////////////////////\n\
+    \   // This code is run for ESP-NULL packets, and this\n   // finds out the data\
+    \ required for deep-inspection\n   // engine (protocol number, and offset to data)\n\
+    \   // and calls the deep-inspection engine.\n   //\n   Check ESP-NULL packet:\n\
+    \     * If IP_total_len < IP_hdr_len + SPI_offset + IV_len + ICV_len\n       \
+    \             + 4 (spi) + 4 (seq no) + 4 (protocol + padding)\n          // This\
+    \ packet was detected earlier as being part of\n          // ESP-NULL flow, so\
+    \ this means that either ESP-NULL\n          // was replaced with other flow or\
+    \ this is an invalid packet.\n          // Either drop or pass the packet, or\
+    \ restart\n          // heuristics based on the policy\n          * Continue packet\
+    \ processing\n     * Load Protocol from IP_total_len - ICV_len - 1\n     * Set\
+    \ Protocol_off to\n           IP_hdr_len + SPI_offset + IV_len + 4 (spi) + 4 (seq\
+    \ no)\n     * Do normal deep inspection on packet.\n                         \
+    \        Figure 3\n"
+- title: A.2.  Slowpath
+  contents:
+  - "A.2.  Slowpath\n   The following example pseudocode shows the actual heuristics\
+    \ part of\n   the packet processing engine.  This part is usually implemented\
+    \ in\n   software.\n  ////////////////////////////////////////////////////////////\n\
+    \  // This pseudocode uses following variables:\n  //\n  // SPI_offset, IV_len,\
+    \ ICV_len, State, SPI,\n  // IP_total_len, IP_hdr_len, IP_Src_IP, IP_Dst_IP\n\
+    \  // as defined in fastpath pseudocode.\n  //\n  // Stored_Check_Bits:Number\
+    \ of bits we have successfully\n  //                   checked to contain acceptable\
+    \ values\n  //                   in the actual payload data.  This value\n  //\
+    \                   is stored/retrieved from SPI cache.\n  //\n  // Check_Bits:\
+    \       Number of bits we have successfully\n  //                   checked to\
+    \ contain acceptable values\n  //                   in the actual payload data.\
+    \  This value\n  //                   is updated during the packet\n  //     \
+    \              verification.\n  //\n  // Last_Packet_Data: Contains selected pieces\
+    \ from the\n  //                   last packet.  This is used to compare\n  //\
+    \                   certain fields of this packet to\n  //                   same\
+    \ fields in previous packet.\n  //\n  // Packet_Data:      Selected pieces of\
+    \ this packet, same\n  //                   fields as Last_Packet_Data, and this\n\
+    \  //                   is stored as new Last_Packet_Data to\n  //           \
+    \        SPI cache after this packet is processed.\n  //\n  // Test_ICV_len: \
+    \    Temporary ICV length used during tests.\n  //                   This is stored\
+    \ to ICV_len when\n  //                   padding checks for the packet succeed\n\
+    \  //                   and the packet didn't yet have unsure\n  //          \
+    \         status.\n  //\n  // Test_IV_len:      Temporary IV length used during\
+    \ tests.\n  //\n  // Pad_len:          Padding length from the ESP packet.\n \
+    \ //\n  // Protocol:         Protocol number of the packet inside ESP\n  //  \
+    \                 packet.\n  //\n  // TCP.*:            Fields from TCP header\
+    \ (from inside ESP)\n  // UDP.*:            Fields from UDP header (from inside\
+    \ ESP)\n  ////////////////////////////////////////////////////////////\n  // This\
+    \ code starts the actual heuristics.\n  // During this the fastpath has already\
+    \ loaded\n  // State, ICV_len, and IV_len in case they were\n  // found from the\
+    \ SPI cache (i.e., in case the flow\n  // had unsure status).\n  //\n  Autodetect\
+    \ ESP parameters:\n    // First, we check if this is unsure flow, and\n    //\
+    \ if so, we check next packet against the\n    // already set IV/ICV_len combination.\n\
+    \    * If State is unsure\n         * Call Verify next packet\n         * If State\
+    \ is ESP-NULL\n              * Goto Store ESP-NULL SPI cache info\n         *\
+    \ If State is unsure\n              * Goto Verify unsure\n         // If we failed\
+    \ the test, i.e., State\n         // was changed to ESP, we check other\n    \
+    \     // ICV/IV_len values, i.e., fall through\n    // ICV lengths are tested\
+    \ in order of ICV lengths,\n    // from shortest to longest.\n    * Call Try standard\
+    \ algorithms\n    * If State is ESP-NULL\n         * Goto Store ESP-NULL SPI cache\
+    \ info\n    * Call Try 128bit algorithms\n    * If State is ESP-NULL\n       \
+    \  * Goto Store ESP-NULL SPI cache info\n    * Call Try 192bit algorithms\n  \
+    \  * If State is ESP-NULL\n         * Goto Store ESP-NULL SPI cache info\n   \
+    \ * Call Try 256bit algorithms\n    * If State is ESP-NULL\n         * Goto Store\
+    \ ESP-NULL SPI cache info\n    // AUTH_DES_MAC and AUTH_KPDK_MD5 are left out\
+    \ from\n    // this document.\n    // If any of those test above set state to\
+    \ unsure\n    // we mark IPsec flow as unsure.\n    * If State is unsure\n   \
+    \      * Goto Store unsure SPI cache info\n    // All of the test failed, meaning\
+    \ the packet cannot\n    // be ESP-NULL packet, thus we mark IPsec flow as ESP\n\
+    \    * Goto Store ESP SPI cache info\n  ////////////////////////////////////////////////////////////\n\
+    \  // Store ESP-NULL status to the IPsec flow cache.\n  //\n  Store ESP-NULL SPI\
+    \ cache info:\n    * Store State, IV_len, ICV_len to SPI cache\n            using\
+    \ IP_Src_IP + IP_Dst_IP + SPI as key\n    * Continue Check ESP-NULL packet\n \
+    \ ////////////////////////////////////////////////////////////\n  // Store encrypted\
+    \ ESP status to the IPsec flow cache.\n  //\n  Store ESP SPI cache info:\n   \
+    \ * Store State, IV_len, ICV_len to SPI cache\n            using IP_Src_IP + IP_Dst_IP\
+    \ + SPI as key\n    * Continue Check non-ESP-NULL packet\n  ////////////////////////////////////////////////////////////\n\
+    \  // Store unsure flow status to IPsec flow cache.\n  // Here we also store the\
+    \ Check_Bits.\n  //\n  Store unsure SPI cache info:\n    * Store State, IV_len,\
+    \ ICV_len,\n            Stored_Check_Bits to SPI cache\n            using IP_Src_IP\
+    \ + IP_Dst_IP + SPI as key\n    * Continue Check unknown packet\n  ////////////////////////////////////////////////////////////\n\
+    \  // Verify this packet against the previously selected\n  // ICV_len and IV_len\
+    \ values.  This will either\n  // fail (and set state to ESP to mark we do not\
+    \ yet\n  // know what type of flow this is) or will\n  // increment Check_Bits.\n\
+    \  //\n  Verify next packet:\n    // We already have IV_len, ICV_len, and State\
+    \ loaded\n    * Load Stored_Check_Bits, Last_Packet_Data from SPI Cache\n    *\
+    \ Set Test_ICV_len to ICV_len, Test_IV_len to IV_len\n    * Initialize Check_Bits\
+    \ to 0\n    * Call Verify padding\n    * If verify padding returned Failure\n\
+    \         // Initial guess was wrong, restart\n         * Set State to ESP\n \
+    \        * Clear IV_len, ICV_len, State,\n                 Stored_Check_Bits,\
+    \ Last_Packet_Data\n                 from SPI Cache\n         * Return\n    //\
+    \ Ok, padding check succeeded again\n    * Call Verify packet\n    * If verify\
+    \ packet returned Failure\n         // Guess was wrong, restart\n         * Set\
+    \ State to ESP\n         * Clear IV_len, ICV_len, State,\n                 Stored_Check_Bits,\
+    \ Last_Packet_Data\n                 from SPI Cache\n         * Return\n    //\
+    \ It succeeded and updated Check_Bits and Last_Packet_Data store\n    // them\
+    \ to SPI cache.\n    * Increment Stored_Check_Bits by Check_Bits\n    * Store\
+    \ Stored_Check_Bits to SPI Cache\n    * Store Packet_Data as Last_Packet_Data\
+    \ to SPI cache\n    * Return\n  ////////////////////////////////////////////////////////////\n\
+    \  // This will check if we have already seen enough bits\n  // acceptable from\
+    \ the payload data, so we can decide\n  // that this IPsec flow is ESP-NULL flow.\n\
+    \  //\n  Verify unsure:\n    // Check if we have enough check bits.\n    * If\
+    \ Stored_Check_Bits > configured limit\n         // We have checked enough bits,\
+    \ return ESP-NULL\n         * Set State ESP-NULL\n         * Goto Store ESP-NULL\
+    \ SPI cache info\n    // Not yet enough bits, continue\n    * Continue Check unknown\
+    \ packet\n  ////////////////////////////////////////////////////////////\n  //\
+    \ Check for standard 96-bit algorithms.\n  //\n  Try standard algorithms:\n  \
+    \  // AUTH_HMAC_MD5_96, AUTH_HMAC_SHA1_96, AUTH_AES_XCBC_96,\n    // AUTH_AES_CMAC_96\n\
+    \    * Set Test_ICV_len to 12, Test_IV_len to 0\n    * Goto Check packet\n  ////////////////////////////////////////////////////////////\n\
+    \  // Check for 128-bit algorithms, this is only one that\n  // can have IV, so\
+    \ we need to check different IV_len values\n  // here too.\n  //\n  Try 128bit\
+    \ algorithms:\n    // AUTH_HMAC_SHA2_256_128, ENCR_NULL_AUTH_AES_GMAC\n    * Set\
+    \ Test_ICV_len to 16, Test_IV_len to 0\n    * If IP_total_len < IP_hdr_len + SPI_offset\n\
+    \         + Test_IV_len + Test_ICV_len\n         + 4 (spi) + 4 (seq no) + 4 (protocol\
+    \ + padding)\n         * Return\n    * Call Verify padding\n    * If verify padding\
+    \ returned Failure\n         * Return\n    * Initialize Check_Bits to 0\n    *\
+    \ Call Verify packet\n    * If verify packet returned Failure\n         * Goto\
+    \ Try GMAC\n    // Ok, packet seemed ok, but go now and check if we have enough\n\
+    \    // data bits so we can assume it is ESP-NULL\n    * Goto Check if done for\
+    \ unsure\n  ////////////////////////////////////////////////////////////\n  //\
+    \ Check for GMAC MACs, i.e., MACs that have an 8-byte IV.\n  //\n  Try GMAC:\n\
+    \    // ENCR_NULL_AUTH_AES_GMAC\n    * Set Test_IV_len to 8\n    * If IP_total_len\
+    \ < IP_hdr_len + SPI_offset\n         + Test_IV_len + Test_ICV_len\n         +\
+    \ 4 (spi) + 4 (seq no) + 4 (protocol + padding)\n         * Return\n    * Initialize\
+    \ Check_Bits to 0\n    * Call Verify packet\n    * If verify packet returned Failure\n\
+    \         // Guess was wrong, continue\n         * Return\n    // Ok, packet seemed\
+    \ ok, but go now and check if we have enough\n    // data bits so we can assume\
+    \ it is ESP-NULL\n    * Goto Check if done for unsure\n  ////////////////////////////////////////////////////////////\n\
+    \  // Check for 192-bit algorithms.\n  //\n  Try 192bit algorithms:\n    // AUTH_HMAC_SHA2_384_192\n\
+    \    * Set Test_ICV_len to 24, Test_IV_len to 0\n    * Goto Check packet\n  ////////////////////////////////////////////////////////////\n\
+    \  // Check for 256-bit algorithms.\n  //\n  Try 256bit algorithms:\n    // AUTH_HMAC_SHA2_512_256\n\
+    \    * Set Test_ICV_len to 32, Test_IV_len to 0\n    * Goto Check packet\n  ////////////////////////////////////////////////////////////\n\
+    \  // This actually does the checking for the packet, by\n  // first verifying\
+    \ the length, and then self describing\n  // padding, and if that succeeds, then\
+    \ checks the actual\n  // payload content.\n  //\n  Check packet:\n    * If IP_total_len\
+    \ < IP_hdr_len + SPI_offset\n         + Test_IV_len + Test_ICV_len\n         +\
+    \ 4 (spi) + 4 (seq no) + 4 (protocol + padding)\n         * Return\n    * Call\
+    \ Verify padding\n    * If verify padding returned Failure\n         * Return\n\
+    \    * Initialize Check_Bits to 0\n    * Call Verify packet\n    * If verify packet\
+    \ returned Failure\n         // Guess was wrong, continue\n         * Return\n\
+    \    // Ok, packet seemed ok, but go now and check if we have enough\n    // data\
+    \ bits so we can assume it is ESP-NULL\n    * Goto Check if done for unsure\n\
+    \  ////////////////////////////////////////////////////////////\n  // This code\
+    \ checks if we have seen enough acceptable\n  // values in the payload data, so\
+    \ we can decide that this\n  // IPsec flow is ESP-NULL flow.\n  //\n  Check if\
+    \ done for unsure:\n    * If Stored_Check_Bits > configured limit\n         //\
+    \ We have checked enough bits, return ESP-NULL\n         * Set State ESP-NULL\n\
+    \         * Set IV_len to Test_IV_len, ICV_len to Test_ICV_len\n         * Clear\
+    \ Stored_Check_Bits, Last_Packet_Data from SPI Cache\n         * Return\n    //\
+    \ Not yet enough bits, check if this is first unsure, if so\n    // store information.\
+    \  In case there are multiple\n    // tests succeeding, we always assume the first\
+    \ one\n    // (the one using shortest MAC) is the one we want to\n    // check\
+    \ in the future.\n    * If State is not unsure\n         * Set State unsure\n\
+    \         // These values will be stored to SPI cache if\n         // the final\
+    \ state will be unsure\n         * Set IV_len to Test_IV_len, ICV_len to Test_ICV_len\n\
+    \         * Set Stored_Check_Bits as Check_Bits\n    * Return\n  ////////////////////////////////////////////////////////////\n\
+    \  // Verify self describing padding\n  //\n  Verify padding:\n    * Load Pad_len\
+    \ from IP_total_len - Test_ICV_len - 2\n    * Verify padding bytes at\n      \
+    \           IP_total_len - Test_ICV_len - 1 - Pad_len ..\n                 IP_total_len\
+    \ - Test_ICV_len - 2 are\n                 1, 2, ..., Pad_len\n    * If Verify\
+    \ of padding bytes succeeded\n         * Return Success\n    * Return Failure\n\
+    \  ////////////////////////////////////////////////////////////\n  // This will\
+    \ verify the actual protocol content inside ESP\n  // packet.\n  //\n  Verify\
+    \ packet:\n    // We need to first check things that cannot be set, i.e., if any\
+    \ of\n    // those are incorrect, then we return Failure.  For any\n    / fields\
+    \ that might be correct, we increment the Check_Bits\n    // for a suitable amount\
+    \ of bits.  If all checks pass, then\n    // we just return Success, and the upper\
+    \ layer will then\n    // later check if we have enough bits checked already.\n\
+    \    * Load Protocol From IP_total_len - Test_ICV_len - 1\n    * If Protocol TCP\n\
+    \         * Goto Verify TCP\n    * If Protocol UDP\n         * Goto Verify UDP\n\
+    \    // Other protocols can be added here as needed, most likely same\n    //\
+    \ protocols as deep inspection does.\n    // Tunnel mode checks (protocol 4 for\
+    \ IPv4 and protocol 41 for\n    // IPv6) is also left out from here to make the\
+    \ document shorter.\n    * Return Failure\n  ////////////////////////////////////////////////////////////\n\
+    \  // Verify TCP protocol headers\n  //\n  Verify TCP:\n    // First we check\
+    \ things that must be set correctly.\n    * If TCP.Data_Offset field < 5\n   \
+    \     // TCP head length too small\n        * Return Failure\n    // After that,\
+    \ we start to check things that do not\n    // have one definitive value, but\
+    \ can have multiple possible\n    // valid values.\n    * If TCP.ACK bit is not\
+    \ set, then check\n         that TCP.Acknowledgment_number field contains 0\n\
+    \         // If the ACK bit is not set, then the acknowledgment\n         // field\
+    \ usually contains 0, but I do not think\n         // RFCs mandate it being zero,\
+    \ so we cannot make\n         // this a failure if it is not so.\n         * Increment\
+    \ Check_Bits by 32\n    * If TCP.URG bit is not set, then check\n         that\
+    \ TCP.Urgent_Pointer field contains 0\n         // If the URG bit is not set,\
+    \ then urgent pointer\n         // field usually contains 0, but I do not think\n\
+    \         // RFCs mandate it being zero, so we cannot make\n         // this failure\
+    \ if it is not so.\n         * Increment Check_Bits by 16\n    * If TCP.Data_Offset\
+    \ field == 5\n        * Increment Check_Bits by 4\n    * If TCP.Data_Offset field\
+    \ > 5\n        * If TCP options format is valid and it is padded correctly\n \
+    \            * Increment Check_Bits accordingly\n        * If TCP options format\
+    \ was garbage\n             * Return Failure\n    * If TCP.checksum is correct\n\
+    \        // This might be wrong because packet passed NAT, so\n        // we cannot\
+    \ make this failure case.\n        * Increment Check_Bits by 16\n    // We can\
+    \ also do normal deeper TCP inspection here, i.e.,\n    // check that the SYN/ACK/FIN/RST\
+    \ bits are correct and state\n    // matches the state of existing flow if this\
+    \ is packet\n    // to existing flow, etc.\n    // If there is anything clearly\
+    \ wrong in the packet (i.e.,\n    // some data is set to something that it cannot\
+    \ be), then\n    // this can return Failure; otherwise, it should just\n    //\
+    \ increment Check_Bits matching the number of bits checked.\n    //\n    // We\
+    \ can also check things here compared to the last packet\n    * If Last_Packet_Data.TCP.source\
+    \ port =\n         Packet_Data.TCP.source_port and\n         Last_Packet_Data.TCP.destination\
+    \ port =\n         Packet_Data.TCP.destination port\n         * Increment Check_Bits\
+    \ by 32\n    * If Last_Packet_Data.TCP.Acknowledgement_number =\n         Packet_Data.TCP.Acknowledgement_number\n\
+    \         * Increment Check_Bits by 32\n    * If Last_Packet_Data.TCP.sequence_number\
+    \ =\n         Packet_Data.TCP.sequence_number\n         * Increment Check_Bits\
+    \ by 32\n    // We can do other similar checks here\n    * Return Success\n  ////////////////////////////////////////////////////////////\n\
+    \  // Verify UDP protocol headers\n  //\n  Verify UDP:\n    // First we check\
+    \ things that must be set correctly.\n    * If UDP.UDP_length > IP_total_len -\
+    \ IP_hdr_len - SPI_offset\n        - Test_IV_len - Test_ICV_len - 4 (spi)\n  \
+    \      - 4 (seq no) - 1 (protocol)\n        - Pad_len - 1 (Pad_len)\n        *\
+    \ Return Failure\n    * If UDP.UDP_length < 8\n        * Return Failure\n    //\
+    \ After that, we start to check things that do not\n    // have one definitive\
+    \ value, but can have multiple possible\n    // valid values.\n    * If UDP.UDP_checksum\
+    \ is correct\n        // This might be wrong because packet passed NAT, so\n \
+    \       // we cannot make this failure case.\n        * Increment Check_Bits by\
+    \ 16\n    * If UDP.UDP_length = IP_total_len - IP_hdr_len - SPI_offset\n     \
+    \    - Test_IV_len - Test_ICV_len - 4 (spi)\n         - 4 (seq no) - 1 (protocol)\n\
+    \         - Pad_len - 1 (Pad_len)\n         // If there is no TFC padding then\
+    \ UDP_length\n         // will be matching the full packet length\n         *\
+    \ Increment Check_Bits by 16\n    // We can also do normal deeper UDP inspection\
+    \ here.\n    // If there is anything clearly wrong in the packet (i.e.,\n    //\
+    \ some data is set to something that it cannot be), then\n    // this can return\
+    \ Failure; otherwise, it should just\n    // increment Check_Bits matching the\
+    \ number of bits checked.\n    //\n    // We can also check things here compared\
+    \ to the last packet\n    * If Last_Packet_Data.UDP.source_port =\n         Packet_Data.UDP.source_port\
+    \ and\n         Last_Packet_Data.destination_port =\n         Packet_Data.UDP.destination_port\n\
+    \         * Increment Check_Bits by 32\n    * Return Success\n               \
+    \                  Figure 4\n"
+- title: Authors' Addresses
+  contents:
+  - "Authors' Addresses\n   Tero Kivinen\n   AuthenTec, Inc.\n   Fredrikinkatu 47\n\
+    \   Helsinki  FIN-00100\n   FI\n   EMail: kivinen@iki.fi\n   Daniel L. McDonald\n\
+    \   Oracle Corporation\n   35 Network Drive\n   MS UBUR02-212\n   Burlington,\
+    \ MA  01803\n   USA\n   EMail: danmcd@opensolaris.org\n"

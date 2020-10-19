@@ -1,0 +1,629 @@
+- title: __initial_text__
+  contents:
+  - '                  Protecting the Router Control Plane
+
+    '
+- title: Abstract
+  contents:
+  - "Abstract\n   This memo provides a method for protecting a router's control plane\n\
+    \   from undesired or malicious traffic.  In this approach, all\n   legitimate\
+    \ router control plane traffic is identified.  Once\n   legitimate traffic has\
+    \ been identified, a filter is deployed in the\n   router's forwarding plane.\
+    \  That filter prevents traffic not\n   specifically identified as legitimate\
+    \ from reaching the router's\n   control plane, or rate-limits such traffic to\
+    \ an acceptable level.\n   Note that the filters described in this memo are applied\
+    \ only to\n   traffic that is destined for the router, and not to all traffic\
+    \ that\n   is passing through the router.\n"
+- title: Status of This Memo
+  contents:
+  - "Status of This Memo\n   This document is not an Internet Standards Track specification;\
+    \ it is\n   published for informational purposes.\n   This document is a product\
+    \ of the Internet Engineering Task Force\n   (IETF).  It represents the consensus\
+    \ of the IETF community.  It has\n   received public review and has been approved\
+    \ for publication by the\n   Internet Engineering Steering Group (IESG).  Not\
+    \ all documents\n   approved by the IESG are a candidate for any level of Internet\n\
+    \   Standard; see Section 2 of RFC 5741.\n   Information about the current status\
+    \ of this document, any errata,\n   and how to provide feedback on it may be obtained\
+    \ at\n   http://www.rfc-editor.org/info/rfc6192.\n"
+- title: Copyright Notice
+  contents:
+  - "Copyright Notice\n   Copyright (c) 2011 IETF Trust and the persons identified\
+    \ as the\n   document authors.  All rights reserved.\n   This document is subject\
+    \ to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n\
+    \   (http://trustee.ietf.org/license-info) in effect on the date of\n   publication\
+    \ of this document.  Please review these documents\n   carefully, as they describe\
+    \ your rights and restrictions with respect\n   to this document.  Code Components\
+    \ extracted from this document must\n   include Simplified BSD License text as\
+    \ described in Section 4.e of\n   the Trust Legal Provisions and are provided\
+    \ without warranty as\n   described in the Simplified BSD License.\n"
+- title: Table of Contents
+  contents:
+  - "Table of Contents\n   1. Introduction ....................................................2\n\
+    \   2. Applicability Statement .........................................4\n  \
+    \ 3. Method ..........................................................4\n    \
+    \  3.1. Legitimate Traffic .........................................5\n      3.2.\
+    \ Filter Design ..............................................6\n      3.3. Design\
+    \ Trade-Offs ..........................................7\n      3.4. Additional\
+    \ Protection Considerations ......................10\n   4. Security Considerations\
+    \ ........................................10\n   5. Acknowledgements ...............................................11\n\
+    \   6. Informative References .........................................12\n  \
+    \ Appendix A. Configuration Examples ................................13\n    \
+    \  A.1. Cisco Configuration .......................................13\n      A.2.\
+    \ Juniper Configuration .....................................17\n"
+- title: 1.  Introduction
+  contents:
+  - "1.  Introduction\n   Modern router architecture design maintains a strict separation\
+    \ of\n   forwarding and router control plane hardware and software.  The\n   router\
+    \ control plane supports routing and management functions.  It\n   is generally\
+    \ described as the router architecture hardware and\n   software components for\
+    \ handling packets destined to the device\n   itself as well as building and sending\
+    \ packets originated locally on\n   the device.  The forwarding plane is typically\
+    \ described as the\n   router architecture hardware and software components responsible\
+    \ for\n   receiving a packet on an incoming interface, performing a lookup to\n\
+    \   identify the packet's IP next hop and determine the best outgoing\n   interface\
+    \ towards the destination, and forwarding the packet out\n   through the appropriate\
+    \ outgoing interface.\n   Visually, this architecture can be represented as the\
+    \ router's\n   control plane hardware sitting on top of, and interfacing with,\
+    \ the\n   forwarding plane hardware with interfaces connecting to other network\n\
+    \   devices.  See Figure 1.\n                             +----------------+\n\
+    \                             | Router Control |\n                           \
+    \  |     Plane      |\n                             +------+ +-------+\n     \
+    \                               | |\n                               Router Control\n\
+    \                              Plane Protection\n                            \
+    \        | |\n                             +------+ +-------+\n              \
+    \               |   Forwarding   |\n               Interface X ==[     Plane \
+    \     ]== Interface Y\n                             +----------------+\n     \
+    \            Figure 1: Router Control Plane Protection\n   Typically, forwarding\
+    \ plane functionality is realized in high-\n   performance Application Specific\
+    \ Integrated Circuits (ASICs) that are\n   capable of handling very high packet\
+    \ rates.  By contrast, the router\n   control plane is generally realized in software\
+    \ on general-purpose\n   processors.  While software instructions run on both\
+    \ planes, the\n   router control plane hardware is usually not optimized for high-speed\n\
+    \   packet handling.  Given their differences in packet-handling\n   capabilities,\
+    \ the router's control plane hardware is more susceptible\n   to being overwhelmed\
+    \ by a Denial-of-Service (DoS) attack than the\n   forwarding plane's ASICs. \
+    \ It is imperative that the router control\n   plane remain stable regardless\
+    \ of traffic load to and from the device\n   because the router control plane\
+    \ is what drives the programming of\n   the forwarding plane.\n   The router control\
+    \ plane also processes traffic destined to the\n   router, and because of the\
+    \ wider range of functionality is more\n   susceptible to security vulnerabilities\
+    \ and a more likely target for\n   a DoS attack than the forwarding plane.\n \
+    \  It is advisable to protect the router control plane by implementing\n   mechanisms\
+    \ to filter completely or rate-limit traffic not required at\n   the control plane\
+    \ level (i.e., unwanted traffic).  \"Router control\n   plane protection\" is\
+    \ the concept of filtering or rate-limiting\n   unwanted traffic that would be\
+    \ diverted from the forwarding plane up\n   to the router control plane.  The\
+    \ closer the filters and rate\n   limiters are to the forwarding plane and line-rate\
+    \ hardware, the more\n   effective the protection is and the more resistant the\
+    \ system is to\n   DoS attacks.  This memo demonstrates one example of how to\
+    \ deploy a\n   policy filter that satisfies a set of sample traffic-matching,\n\
+    \   filtering, and rate-limiting criteria.\n   Note that the filters described\
+    \ in this memo are applied only to\n   traffic that is destined for the router,\
+    \ and not to all traffic that\n   is passing through the router.\n"
+- title: 2.  Applicability Statement
+  contents:
+  - "2.  Applicability Statement\n   The method described in Section 3 and depicted\
+    \ in Figure 1\n   illustrates how to protect the router control plane from unwanted\n\
+    \   traffic.  Recognizing that deployment scenarios will vary, the exact\n   implementation\
+    \ is not generally applicable in all situations.  The\n   categorization of legitimate\
+    \ router control plane traffic is\n   critically important in a successful implementation.\n\
+    \   The examples given in this memo are simplified and minimalistic,\n   designed\
+    \ to illustrate the concept of protecting the router's control\n   plane.  From\
+    \ them, operators can extrapolate specifics based on their\n   unique configuration\
+    \ and environment.  This document is about\n   semantics, and Appendix A exemplifies\
+    \ syntax.  For additional router\n   vendor implementations, or other converged\
+    \ devices, the syntax should\n   be translated to the respective language in a\
+    \ manner that preserves\n   the semantics.\n   Additionally, the need to provide\
+    \ the router control plane with\n   isolation, stability, and protection against\
+    \ rogue packets has been\n   incorporated into router designs for some time. \
+    \ Consequently, there\n   may be other vendor or implementation specific router\
+    \ control plane\n   protection mechanisms that are active by default or always\
+    \ active.\n   Those approaches may apply in conjunction with, or in addition to,\n\
+    \   the method described in Section 3 and illustrated in Appendices A.1\n   and\
+    \ A.2.  Those implementations should be considered as part of an\n   overall traffic\
+    \ management plan but are outside the scope of this\n   document.\n   This method\
+    \ is applicable for IPv4 as well as IPv6 address families,\n   and the legitimate\
+    \ traffic example in Section 3.1 provides examples\n   for both.\n"
+- title: 3.  Method
+  contents:
+  - "3.  Method\n   In this memo, the authors demonstrate how a filter protecting\
+    \ the\n   router control plane can be deployed.  In Section 3.1, a sample\n  \
+    \ router is introduced, and all traffic that its control plane must\n   process\
+    \ is identified.  In Section 3.2, filter design concepts are\n   discussed.  Cisco\
+    \ (Cisco IOS software) and Juniper (JUNOS)\n   implementations are provided in\
+    \ Appendices A.1 and A.2, respectively.\n"
+- title: 3.1.  Legitimate Traffic
+  contents:
+  - "3.1.  Legitimate Traffic\n   In this example, the router control plane must process\
+    \ traffic (i.e.,\n   traffic destined to the router and not through the router)\
+    \ per the\n   following criteria:\n   o  Drop all IP packets that are fragments\
+    \ (see Section 3.3)\n   o  Permit ICMP and ICMPv6 traffic from any source, rate-limited\
+    \ to\n      500 kbps for each category\n   o  Permit OSPF traffic from routers\
+    \ within subnet 192.0.2.0/24 and\n      OSPFv3 traffic from IPv6 Link-Local unicast\
+    \ addresses (fe80::/10)\n   o  Permit internal BGP (iBGP) traffic from routers\
+    \ within subnets\n      192.0.2.0/24 and 2001:db8:1::/48\n   o  Permit external\
+    \ BGP (eBGP) traffic from eBGP peers 198.51.100.25,\n      198.51.100.27, 198.51.100.29,\
+    \ and 198.51.100.31; and IPv6 peers\n      2001:db8:100::25, 2001:db8:100::27,\
+    \ 2001:db8:100::29, and\n      2001:db8:100::31\n   o  Permit DNS traffic from\
+    \ DNS servers within subnet 198.51.100.0/30\n      and 2001:db8:100:1::/64\n \
+    \  o  Permit NTP traffic from NTP servers within subnet 198.51.100.4/30\n    \
+    \  and 2001:db8:100:2::/64\n   o  Permit Secure SHell (SSH) traffic from network\
+    \ management stations\n      within subnet 198.51.100.128/25 and 2001:db8:100:3::/64\n\
+    \   o  Permit Simple Network Management Protocol (SNMP) traffic from\n      network\
+    \ management stations within subnet 198.51.100.128/25 and\n      2001:db8:100:3::/64\n\
+    \   o  Permit RADIUS authentication and accounting replies from RADIUS\n     \
+    \ servers 198.51.100.9, 198.51.100.10, 2001:db8:100::9, and\n      2001:db8:100::10\
+    \ that are listening on UDP ports 1812 and 1813\n      (Internet Assigned Numbers\
+    \ Authority (IANA) RADIUS ports).  Note\n      that this does not accommodate\
+    \ a server using the original UDP\n      ports of 1645 and 1646\n   o  Permit\
+    \ all other IPv4 and IPv6 traffic that was not explicitly\n      matched in a\
+    \ class above, rate-limited to 500 kbps, and drop above\n      that rate for each\
+    \ category\n   o  Permit non-IP traffic (e.g., Connectionless Network Service\n\
+    \      (CLNS), Internetwork Packet Exchange (IPX), PPP Link Control\n      Protocol\
+    \ (LCP), etc.), rate-limited to 250 kbps, and drop all\n      remaining traffic\
+    \ above that rate\n   The characteristics of legitimate traffic will vary from\
+    \ network to\n   network.  To illustrate this, a router implementing the DHCP\
+    \ relay\n   function can rate-limit inbound DHCP traffic from clients and\n  \
+    \ restrict traffic from servers to a list of known DHCP servers.  The\n   list\
+    \ of criteria above is provided for example only.\n"
+- title: 3.2.  Filter Design
+  contents:
+  - "3.2.  Filter Design\n   A filter is installed on the forwarding plane.  This\
+    \ filter counts\n   and applies the actions to the categories of traffic described\
+    \ in\n   Section 3.1.  Because the filter is enforced in the forwarding plane,\n\
+    \   it prevents traffic from consuming bandwidth on the interface that\n   connects\
+    \ the forwarding plane to the router control plane.  The\n   counters serve as\
+    \ an important forensic tool for the analysis of\n   potential attacks, and as\
+    \ an invaluable debugging and troubleshooting\n   aid.  By adjusting the granularity\
+    \ and order of the filters, more\n   granular forensics can be performed (i.e.,\
+    \ create a filter that\n   matches only traffic allowed from a group of IP addresses\
+    \ for a given\n   protocol followed by a filter that denies all traffic for that\n\
+    \   protocol).  This would allow for counters to be monitored for the\n   allowed\
+    \ protocol filter, as well as any traffic matching the specific\n   protocol that\
+    \ didn't originate from the explicitly allowed hosts.\n   In addition to the filters,\
+    \ rate limiters for certain classes of\n   traffic are also installed in the forwarding\
+    \ plane as defined in\n   Section 3.1.  These rate limiters help further control\
+    \ the traffic\n   that will reach the router control plane for each filtered class\
+    \ as\n   well as all traffic not matching an explicit class.  The actual rates\n\
+    \   selected for various classes are network deployment specific;\n   analysis\
+    \ of the rates required for stability should be done\n   periodically.  It is\
+    \ important to note that the most significant\n   factor to consider regarding\
+    \ the traffic profile going to the router\n   control plane is the packets per\
+    \ second (pps) rate.  Therefore,\n   careful consideration must be given to determine\
+    \ the maximum pps rate\n   that could be generated from a given set of packet\
+    \ size and bandwidth\n   usage scenarios.\n   Syntactically, these filters explicitly\
+    \ define \"allowed\" traffic\n   (including IP addresses, protocols, and ports),\
+    \ define acceptable\n   actions for these acceptable traffic profiles (e.g., rate-limit\
+    \ or\n   simply permit the traffic), and then discard all traffic destined to\n\
+    \   the router control plane that is not within the specifications of the\n  \
+    \ policy definition.\n   In an actual production environment, predicting a complete\
+    \ and\n   exhaustive list of traffic necessary to reach the router's control\n\
+    \   plane for day-to-day operation may not be as obvious as the example\n   described\
+    \ herein.  One recommended method to gauge this set of\n   traffic is to allow\
+    \ all traffic initially, and audit the traffic that\n   reaches the router control\
+    \ plane before applying any explicit filters\n   or rate limits.  See Section\
+    \ 3.3 below for more discussion of this\n   topic.\n   The filter design provided\
+    \ in this document is intentionally limited\n   to attachment at the local router\
+    \ in question (e.g., a \"service-\n   policy\" attached to the \"control-plane\"\
+    \ in Cisco IOS, or a firewall\n   filter attached to the \"lo0\" interface in\
+    \ JUNOS).  While virtually\n   all production environments utilize and rely heavily\
+    \ upon edge\n   protection or interface filtering, these methods of router protection\n\
+    \   are beyond the intended scope of this document.  Additionally, the\n   protocols\
+    \ themselves that are allowed to reach the router control\n   plane (e.g., OSPF,\
+    \ RSVP, TCP, SNMP, DNS, NTP, and inherently, SSH,\n   TLS, ESP, etc.) may have\
+    \ cryptographic security methods applied to\n   them, and the method of router\
+    \ control plane protection provided\n   herein is not a replacement for those\
+    \ cryptographic methods.\n"
+- title: 3.3.  Design Trade-Offs
+  contents:
+  - "3.3.  Design Trade-Offs\n   In designing the protection method, there are two\
+    \ independent parts\n   to consider: the classification of traffic (i.e., which\
+    \ traffic is\n   matched by the filters), and the policy actions taken on the\n\
+    \   classified traffic (i.e., drop, permit, rate-limit, etc.).\n   There are different\
+    \ levels of granularity utilized for traffic\n   classification.  For example,\
+    \ allowing all traffic from specific\n   source IP addresses versus allowing only\
+    \ a specific set of protocols\n   from those specific source IP addresses will\
+    \ each affect a different\n   subset of traffic.\n   Similarly, the policy actions\
+    \ taken on the classified traffic have\n   degrees of impact that may not become\
+    \ immediately obvious.  For\n   example, discarding all ICMP traffic will have\
+    \ a negative impact on\n   the operational use of ICMP tools such as ping or traceroute\
+    \ to debug\n   network issues or to test deployment of a new circuit.  Expanding\
+    \ on\n   this, in a real production network, an astute operator could define\n\
+    \   varying rate limits for ICMP such that internal traffic is granted\n   uninhibited\
+    \ access to the router control plane, while traffic from\n   external addresses\
+    \ is rate-limited.  Operators should pay special\n   attention to the new functionality\
+    \ and roles that ICMPv6 has in the\n   overall operation of IPv6 when designing\
+    \ the rate-limit policies.\n   Example functions include Neighbor Discovery (ND)\
+    \ and Multicast\n   Listener Discovery version 2 (MLDv2).\n   It is important\
+    \ to note that both classification and policy action\n   decisions are accompanied\
+    \ by respective trade-offs.  Two examples of\n   these trade-off decisions are\
+    \ operational complexity at the expense\n   of policy and statistics-gathering\
+    \ detail, and tighter protection at\n   the expense of network supportability\
+    \ and troubleshooting ability.\n   Two types of traffic that need special consideration\
+    \ are IP fragments\n   and IP optioned packets:\n   o  For network deployments\
+    \ where IP fragmentation is necessary, a\n      blanket policy of dropping all\
+    \ fragments destined to the router\n      control plane may not be feasible. \
+    \ However, many deployments\n      allow network configurations such that the\
+    \ router control plane\n      should never see a fragmented datagram.  Since many\
+    \ attacks rely\n      on IP fragmentation, the example policy included herein\
+    \ drops all\n      fragments destined to the router control plane.\n   o  Similarly,\
+    \ some deployments may choose to drop all IP optioned\n      packets.  Others\
+    \ may need to loosen the constraint to allow for\n      protocols that require\
+    \ IP optioned packets such as the Resource\n      Reservation Protocol (RSVP).\
+    \  The design trade-off is that\n      dropping all IP optioned packets protects\
+    \ the router from attacks\n      that leverage malformed options, as well as attacks\
+    \ that rely on\n      the slow-path processing (i.e., software processing path)\
+    \ of IP\n      optioned packets.  For network deployments where the protocols\
+    \ do\n      not use IP options, the filter is simpler to design in that it can\n\
+    \      drop all packets with any IP option set.  However, for networks\n     \
+    \ utilizing protocols relying on IP options, the filter to identify\n      the\
+    \ legitimate packets is more complex.  If the filter is not\n      designed correctly,\
+    \ it could result in the inadvertent blackholing\n      of traffic for those protocols.\
+    \  This document does not include\n      filter configurations for IP optioned\
+    \ packets; additional\n      explanations regarding the filtering of packets based\
+    \ on the IP\n      options they contain can be found in [IP-OPTIONS-FILTER].\n\
+    \   The goal of the method for protecting the router control plane is to\n   minimize\
+    \ the possibility for disruptions by reducing the vulnerable\n   surface, which\
+    \ is inversely proportional to the granularity of the\n   filter design.  The\
+    \ finer the granularity of the filter design (e.g.,\n   filtering a more targeted\
+    \ subset of traffic from the rest of the\n   policed traffic, or isolating valid\
+    \ source addresses into a different\n   class or classes), the smaller the probability\
+    \ of disruption.\n   In addition to the traffic that matches explicit classes,\
+    \ care should\n   be taken on the policy decision that governs the handling of\
+    \ traffic\n   that would fall through the classification.  Typically, that traffic\n\
+    \   is referred to as traffic that gets matched in a default class.  It\n   may\
+    \ also be traffic that matches a blanket protocol specific class\n   where previous\
+    \ classes that have more granular classification did not\n   match all packets\
+    \ for that specific protocol.  The ideal policy would\n   have explicit classes\
+    \ to match only the traffic specifically required\n   at the router control plane\
+    \ and would drop all other traffic that\n   does not match a predefined class.\
+    \  As most vendor implementations\n   permit all traffic hitting the default class,\
+    \ an explicit drop action\n   would need to be configured in the policy such that\
+    \ the traffic\n   hitting that default class would be dropped, versus being permitted\n\
+    \   and delivered to the router control plane.  This approach requires\n   rigorous\
+    \ traffic pattern identification such that a default drop\n   policy does not\
+    \ break existing device functionality.  The approach\n   defined in this document\
+    \ allows the default traffic and rate-limits\n   it as opposed to dropping it.\
+    \  This approach was chosen as a way to\n   give the operator time to evaluate\
+    \ and characterize traffic in a\n   production scenario prior to dropping all\
+    \ traffic not explicitly\n   matched and permitted.  However, it is highly recommended\
+    \ that after\n   monitoring the traffic matching the default class, explicit classes\n\
+    \   be defined to catch the legitimate traffic.  After all legitimate\n   traffic\
+    \ has been identified and explicitly allowed, the default class\n   should be\
+    \ configured to drop any remaining traffic.\n   Additionally, the baselining and\
+    \ monitoring of traffic flows to the\n   router's control plane are critical in\
+    \ determining both the rates and\n   granularity of the policies being applied.\
+    \  It is also important to\n   validate the existing policies and rules or update\
+    \ them as the\n   network evolves and its traffic dynamics change.  Some possible\
+    \ ways\n   to achieve this include individual policy counters that can be\n  \
+    \ exported or retrieved, for example via SNMP, and logging of filtering\n   actions.\n\
+    \   Finally, the use of flow-based behavioral analysis or command-line\n   interface\
+    \ (CLI) functions to identify what client/server functions a\n   given router's\
+    \ control plane handles would be very useful during\n   initial policy development\
+    \ phases, and certainly for ongoing forensic\n   analysis.\n"
+- title: 3.4.  Additional Protection Considerations
+  contents:
+  - "3.4.  Additional Protection Considerations\n   In addition to the design described\
+    \ in this document of defining\n   \"allowed\" traffic (i.e., identifying traffic\
+    \ that the control plane\n   must process) and limiting (e.g., rate-limiting or\
+    \ blocking) the\n   rest, the router control plane protection method can be applied\
+    \ to\n   thwart specific attacks.  In particular, it can be used to protect\n\
+    \   against TCP SYN flooding attacks and other Denial-of-Service attacks\n   that\
+    \ starve router control plane resources.\n"
+- title: 4.  Security Considerations
+  contents:
+  - "4.  Security Considerations\n   The filters described in this document leave\
+    \ the router susceptible\n   to discovery from any host in the Internet.  If network\
+    \ operators\n   find this risk objectionable, they can reduce the exposure to\n\
+    \   discovery with ICMP by restricting the sub-networks from which ICMP\n   Echo\
+    \ requests and potential traceroute packets (i.e., packets that\n   would trigger\
+    \ an ICMP Time Exceeded reply) are accepted, and\n   therefore to which sub-networks\
+    \ ICMP responses (ICMP Echo Reply and\n   Time Exceeded) are sent.  A similar\
+    \ concern exists for ICMPv6 traffic\n   but on a broader level due to the additional\
+    \ functionalities\n   implemented in ICMPv6.  Filtering recommendations for ICMPv6\
+    \ can be\n   found in [RFC4890].  Moreover, different rate-limiting policies may\n\
+    \   be defined for internally (e.g., from the Network Operations Center\n   (NOC))\
+    \ versus externally sourced traffic.  Note that this document is\n   not targeted\
+    \ at the specifics of ICMP filtering or traffic filtering\n   designed to prevent\
+    \ device discovery.\n   The filters described in this document do not block unwanted\
+    \ traffic\n   having spoofed source addresses that match a defined traffic profile\n\
+    \   as discussed in Section 3.1.  Network operators can mitigate this\n   risk\
+    \ by preventing source address spoofing with filters applied at\n   the network\
+    \ edge.  Refer to Section 5.3.8 of [RFC1812] for more\n   information regarding\
+    \ source address validation.  Other methods also\n   exist for limiting exposure\
+    \ to packet spoofing, such as the\n   Generalized Time to Live (TTL) Security\
+    \ Mechanism (GTSM) [RFC5082]\n   and Ingress Filtering [RFC2827] [RFC3704].\n\
+    \   The ICMP rate limiter specified for the filters described in this\n   document\
+    \ protects the router from floods of ICMP traffic; see\n   Sections 3.1 and 3.3\
+    \ for details.  However, during an ICMP flood,\n   some legitimate ICMP traffic\
+    \ may be dropped.  Because of this, when\n   operators discover a flood of ICMP\
+    \ traffic, they are highly motivated\n   to stop it at the source where the traffic\
+    \ is being originated.\n   Additional considerations pertaining to the usage and\
+    \ handling of\n   traffic that utilizes the IP Router Alert Options can be found\
+    \ in\n   [RTR-ALERT-CONS], and additional IP options filtering explanations\n\
+    \   can be found in [IP-OPTIONS-FILTER].\n   The treatment of exception traffic\
+    \ in the forwarding plane and the\n   generation of specific messages by the router\
+    \ control plane also\n   require protection from a DoS attack.  Specifically,\
+    \ the generation\n   of ICMP Unreachable messages by the router control plane\
+    \ needs to be\n   rate-limited, either implicitly within the router's architecture\
+    \ or\n   explicitly through configuration.  When possible, different ICMP\n  \
+    \ Destination Unreachable codes (e.g., \"fragmentation needed and DF\n   set\"\
+    ) or \"Packet Too Big\" messages can receive a different rate-\n   limiting treatment.\
+    \  Continuous benchmarking of router-generated ICMP\n   traffic should be done\
+    \ before applying rate limits such that\n   sufficient headroom is included to\
+    \ prevent inadvertent Path Maximum\n   Transmission Unit Discovery (PMTUD) blackhole\
+    \ scenarios during normal\n   operation.  It is also recommended to deploy explicit\
+    \ rate limiters\n   where possible to improve troubleshooting and monitoring capability.\n\
+    \   The explicit rate limiters in a class allow for monitoring tools to\n   detect\
+    \ and report when these rate limiters become active (i.e., when\n   traffic is\
+    \ policed).  This in turn serves as an indicator that either\n   the normal traffic\
+    \ rates have increased or \"out of policy\" traffic\n   rates have been detected.\
+    \  More thorough analysis of the traffic\n   flows and rate-limited traffic is\
+    \ needed to identify which of these\n   two cases triggered the rate limiters.\
+    \  For additional information\n   regarding specific ICMP rate-limiting, see Section\
+    \ 4.3.2.8 of\n   [RFC1812].\n   Additionally, the handling of TTL / Hop Limit\
+    \ expired traffic needs\n   protection.  This traffic is not necessarily addressed\
+    \ to the device,\n   but it can get sent to the router control plane to process\
+    \ the TTL /\n   Hop Limit expiration.  For example, rate-limiting the TTL / Hop\
+    \ Limit\n   expired traffic before sending the packets to the router control\n\
+    \   plane component that will generate the ICMP error, and distributing\n   the\
+    \ sending of ICMP errors to Line Card CPUs, are protection\n   mechanisms that\
+    \ mitigate attacks before they can negatively affect a\n   rate-limited router\
+    \ control plane component.\n"
+- title: 5.  Acknowledgements
+  contents:
+  - "5.  Acknowledgements\n   The authors would like to thank Ron Bonica for providing\
+    \ initial and\n   ongoing review, suggestions, and valuable input.  Pekka Savola,\n\
+    \   Warren Kumari, and Xu Chen provided very thorough and useful feedback\n  \
+    \ that improved the document.  Many thanks to John Kristoff,\n   Christopher Morrow,\
+    \ and Donald Smith for a fruitful discussion around\n   the operational and manageability\
+    \ aspects of router control plane\n   protection techniques.  The authors would\
+    \ also like to thank\n   Joel Jaeggli, Richard Graveman, Danny McPherson, Gregg\
+    \ Schudel, Eddie\n   Parra, Seo Boon Ng, Manav Bhatia, German Martinez, Wen Zhang,\
+    \ Roni\n   Even, Acee Lindem, Glen Zorn, Joe Abley, Ralph Droms, and Stewart\n\
+    \   Bryant for providing thorough review, useful suggestions, and\n   valuable\
+    \ input.  Assistance from Jim Bailey and Raphan Han in\n   providing technical\
+    \ direction and sample configuration guidance on\n   the IPv6 sections was also\
+    \ very much appreciated.  Finally, the\n   authors extend kudos to Andrew Yourtchenko\
+    \ for his review, comments,\n   and willingness to present this document at IETF\
+    \ 78 (July 2010,\n   Maastricht, The Netherlands) on behalf of the authors.\n"
+- title: 6.  Informative References
+  contents:
+  - "6.  Informative References\n   [IP-OPTIONS-FILTER]\n              Gont, F. and\
+    \ S. Fouant, \"IP Options Filtering\n              Recommendations\", Work in\
+    \ Progress, February 2010.\n   [RFC1812]  Baker, F., Ed., \"Requirements for IP\
+    \ Version 4 Routers\",\n              RFC 1812, June 1995.\n   [RFC2827]  Ferguson,\
+    \ P. and D. Senie, \"Network Ingress Filtering:\n              Defeating Denial\
+    \ of Service Attacks which employ IP Source\n              Address Spoofing\"\
+    , BCP 38, RFC 2827, May 2000.\n   [RFC3704]  Baker, F. and P. Savola, \"Ingress\
+    \ Filtering for Multihomed\n              Networks\", BCP 84, RFC 3704, March\
+    \ 2004.\n   [RFC4890]  Davies, E. and J. Mohacsi, \"Recommendations for Filtering\n\
+    \              ICMPv6 Messages in Firewalls\", RFC 4890, May 2007.\n   [RFC5082]\
+    \  Gill, V., Heasley, J., Meyer, D., Savola, P., Ed., and C.\n              Pignataro,\
+    \ \"The Generalized TTL Security Mechanism\n              (GTSM)\", RFC 5082,\
+    \ October 2007.\n   [RTR-ALERT-CONS]\n              Le Faucheur, F., Ed., \"IP\
+    \ Router Alert Considerations and\n              Usage\", Work in Progress, March\
+    \ 2011.\n"
+- title: Appendix A.  Configuration Examples
+  contents:
+  - "Appendix A.  Configuration Examples\n   The configurations provided below are\
+    \ syntactical representations of\n   the semantics described in the document and\
+    \ should be treated as\n   non-normative.\n"
+- title: A.1.  Cisco Configuration
+  contents:
+  - "A.1.  Cisco Configuration\n   Refer to the Control Plane Policing (CoPP) document\
+    \ in the Cisco IOS\n   Software Feature Guides (available at <http://www.cisco.com/>)\
+    \ for\n   more information on the syntax and options available when configuring\n\
+    \   Control Plane Policing.\n   !Start: Protecting The Router Control Plane\n\
+    \   !\n   !Control Plane Policing (CoPP) Configuration\n   !\n   !Access Control\
+    \ List Definitions\n   !\n   ip access-list extended ICMP\n    permit icmp any\
+    \ any\n   ipv6 access-list ICMPv6\n    permit icmp any any\n   ip access-list\
+    \ extended OSPF\n    permit ospf 192.0.2.0 0.0.0.255 any\n   ipv6 access-list\
+    \ OSPFv3\n    permit 89 FE80::/10 any\n   ip access-list extended IBGP\n    permit\
+    \ tcp 192.0.2.0 0.0.0.255 eq bgp any\n    permit tcp 192.0.2.0 0.0.0.255 any eq\
+    \ bgp\n   ipv6 access-list IBGPv6\n    permit tcp 2001:DB8:1::/48 eq bgp any\n\
+    \    permit tcp 2001:DB8:1::/48 any eq bgp\n   ip access-list extended EBGP\n\
+    \    permit tcp host 198.51.100.25 eq bgp any\n    permit tcp host 198.51.100.25\
+    \ any eq bgp\n    permit tcp host 198.51.100.27 eq bgp any\n    permit tcp host\
+    \ 198.51.100.27 any eq bgp\n    permit tcp host 198.51.100.29 eq bgp any\n   \
+    \ permit tcp host 198.51.100.29 any eq bgp\n    permit tcp host 198.51.100.31\
+    \ eq bgp any\n    permit tcp host 198.51.100.31 any eq bgp\n   ipv6 access-list\
+    \ EBGPv6\n    permit tcp host 2001:DB8:100::25 eq bgp any\n    permit tcp host\
+    \ 2001:DB8:100::25 any eq bgp\n    permit tcp host 2001:DB8:100::27 eq bgp any\n\
+    \    permit tcp host 2001:DB8:100::27 any eq bgp\n    permit tcp host 2001:DB8:100::29\
+    \ eq bgp any\n    permit tcp host 2001:DB8:100::29 any eq bgp\n    permit tcp\
+    \ host 2001:DB8:100::31 eq bgp any\n    permit tcp host 2001:DB8:100::31 any eq\
+    \ bgp\n   ip access-list extended DNS\n    permit udp 198.51.100.0 0.0.0.252 eq\
+    \ domain any\n   ipv6 access-list DNSv6\n    permit udp 2001:DB8:100:1::/64 eq\
+    \ domain any\n    permit tcp 2001:DB8:100:1::/64 eq domain any\n   ip access-list\
+    \ extended NTP\n    permit udp 198.51.100.4 255.255.255.252 any eq ntp\n   ipv6\
+    \ access-list NTPv6\n    permit udp 2001:DB8:100:2::/64 any eq ntp\n   ip access-list\
+    \ extended SSH\n    permit tcp 198.51.100.128 0.0.0.128 any eq 22\n   ipv6 access-list\
+    \ SSHv6\n    permit tcp 2001:DB8:100:3::/64 any eq 22\n   ip access-list extended\
+    \ SNMP\n    permit udp 198.51.100.128 0.0.0.128 any eq snmp\n   ipv6 access-list\
+    \ SNMPv6\n    permit udp 2001:DB8:100:3::/64 any eq snmp\n   ip access-list extended\
+    \ RADIUS\n    permit udp host 198.51.100.9 eq 1812 any\n    permit udp host 198.51.100.9\
+    \ eq 1813 any\n    permit udp host 198.51.100.10 eq 1812 any\n    permit udp host\
+    \ 198.51.100.10 eq 1813 any\n   ipv6 access-list RADIUSv6\n    permit udp host\
+    \ 2001:DB8:100::9 eq 1812 any\n    permit udp host 2001:DB8:100::9 eq 1813 any\n\
+    \    permit udp host 2001:DB8:100::10 eq 1812 any\n    permit udp host 2001:DB8:100::10\
+    \ eq 1813 any\n   ip access-list extended FRAGMENTS\n    permit ip any any fragments\n\
+    \   ipv6 access-list FRAGMENTSv6\n    permit ipv6 any any fragments\n   ip access-list\
+    \ extended ALLOTHERIP\n    permit ip any any\n   ipv6 access-list ALLOTHERIPv6\n\
+    \    permit ipv6 any any\n   !\n   !Class Definitions\n   !\n   class-map match-any\
+    \ ICMP\n    match access-group name ICMP\n   class-map match-any ICMPv6\n    match\
+    \ access-group name ICMPv6\n   class-map match-any OSPF\n    match access-group\
+    \ name OSPF\n    match access-group name OSPFv3\n   class-map match-any IBGP\n\
+    \    match access-group name IBGP\n    match access-group name IBGPv6\n   class-map\
+    \ match-any EBGP\n    match access-group name EBGP\n    match access-group name\
+    \ EBGPv6\n   class-map match-any DNS\n    match access-group name DNS\n    match\
+    \ access-group name DNSv6\n   class-map match-any NTP\n    match access-group\
+    \ name NTP\n    match access-group name NTPv6\n   class-map match-any SSH\n  \
+    \  match access-group name SSH\n    match access-group name SSHv6\n   class-map\
+    \ match-any SNMP\n    match access-group name SNMP\n    match access-group name\
+    \ SNMPv6\n   class-map match-any RADIUS\n    match access-group name RADIUS\n\
+    \    match access-group name RADIUSv6\n   class-map match-any FRAGMENTS\n    match\
+    \ access-group name FRAGMENTS\n    match access-group name FRAGMENTSv6\n   class-map\
+    \ match-any ALLOTHERIP\n    match access-group name ALLOTHERIP\n   class-map match-any\
+    \ ALLOTHERIPv6\n    match access-group name ALLOTHERIPv6\n   !\n   !Policy Definition\n\
+    \   !\n   policy-map COPP\n    class FRAGMENTS\n     drop\n    class ICMP\n  \
+    \   police 500000\n        conform-action transmit\n        exceed-action drop\n\
+    \        violate-action drop\n    class ICMPv6\n     police 500000\n        conform-action\
+    \ transmit\n        exceed-action drop\n        violate-action drop\n    class\
+    \ OSPF\n    class IBGP\n    class EBGP\n    class DNS\n    class NTP\n    class\
+    \ SSH\n    class SNMP\n    class RADIUS\n    class ALLOTHERIP\n      police cir\
+    \ 500000\n        conform-action transmit\n        exceed-action drop\n      \
+    \  violate-action drop\n    class ALLOTHERIPv6\n      police cir 500000\n    \
+    \    conform-action transmit\n        exceed-action drop\n        violate-action\
+    \ drop\n    class class-default\n      police cir 250000\n        conform-action\
+    \ transmit\n        exceed-action drop\n        violate-action drop\n   !\n  \
+    \ !Control Plane Configuration\n   !\n   control-plane\n    service-policy input\
+    \ COPP\n   !\n   !End: Protecting The Router Control Plane\n"
+- title: A.2.  Juniper Configuration
+  contents:
+  - "A.2.  Juniper Configuration\n   Refer to the Firewall Filter Configuration section\
+    \ of the Junos\n   Software Policy Framework Configuration Guide (available at\n\
+    \   <http://www.juniper.net/>) for more information on the syntax and\n   options\
+    \ available when configuring Junos firewall filters.\n   policy-options {\n  \
+    \     prefix-list IBGP-NEIGHBORS {\n           192.0.2.0/24;\n       }\n     \
+    \  prefix-list EBGP-NEIGHBORS {\n           198.51.100.25/32;\n           198.51.100.27/32;\n\
+    \           198.51.100.29/32;\n           198.51.100.31/32;\n       }\n      \
+    \ prefix-list RADIUS-SERVERS {\n           198.51.100.9/32;\n           198.51.100.10/32;\n\
+    \       }\n       prefix-list IBGPv6-NEIGHBORS {\n           2001:DB8:1::/48;\n\
+    \       }\n       prefix-list EBGPv6-NEIGHBORS {\n           2001:DB8:100::25/128;\n\
+    \           2001:DB8:100::27/128;\n           2001:DB8:100::29/128;\n        \
+    \   2001:DB8:100::31/128;\n       }\n       prefix-list RADIUSv6-SERVERS {\n \
+    \          2001:DB8:100::9/128;\n           2001:DB8:100::10/128;\n       }\n\
+    \   }\n   firewall {\n       policer 500kbps {\n           if-exceeding {\n  \
+    \             bandwidth-limit 500k;\n               burst-size-limit 1500;\n \
+    \          }\n           then discard;\n       }\n       policer 250kbps {\n \
+    \          if-exceeding {\n               bandwidth-limit 250k;\n            \
+    \   burst-size-limit 1500;\n           }\n           then discard;\n       }\n\
+    \       family inet {\n           filter protect-router-control-plane {\n    \
+    \           term first-frag {\n                   from {\n                   \
+    \    first-fragment;\n                   }\n                   then {\n      \
+    \                 count frag-discards;\n                       log;\n        \
+    \               discard;\n                   }\n               }\n           \
+    \    term next-frag {\n                   from {\n                       is-fragment;\n\
+    \                   }\n                   then {\n                       count\
+    \ frag-discards;\n                       log;\n                       discard;\n\
+    \                   }\n               }\n               term icmp {\n        \
+    \           from {\n                       protocol icmp;\n                  \
+    \ }\n                   then {\n                       policer 500kbps;\n    \
+    \                   accept;\n                   }\n               }\n        \
+    \       term ospf {\n                   from {\n                       source-address\
+    \ {\n                           192.0.2.0/24;\n                       }\n    \
+    \                   protocol ospf;\n                   }\n                   then\
+    \ accept;\n               }\n               term ibgp-connect {\n            \
+    \       from {\n                       source-prefix-list {\n                \
+    \           IBGP-NEIGHBORS;\n                       }\n                      \
+    \ protocol tcp;\n                       destination-port bgp;\n              \
+    \     }\n                   then accept;\n               }\n               term\
+    \ ibgp-reply {\n                   from {\n                       source-prefix-list\
+    \ {\n                           IBGP-NEIGHBORS;\n                       }\n  \
+    \                     protocol tcp;\n                       port bgp;\n      \
+    \             }\n                   then accept;\n               }\n         \
+    \      term ebgp-connect {\n                   from {\n                      \
+    \ source-prefix-list {\n                           EBGP-NEIGHBORS;\n         \
+    \              }\n                       protocol tcp;\n                     \
+    \  destination-port bgp;\n                   }\n                   then accept;\n\
+    \               }\n               term ebgp-reply {\n                   from {\n\
+    \                       source-prefix-list {\n                           EBGP-NEIGHBORS;\n\
+    \                       }\n                       protocol tcp;\n            \
+    \           port bgp;\n                   }\n                   then accept;\n\
+    \               }\n               term dns {\n                   from {\n    \
+    \                   source-address {\n                           198.51.100.0/30;\n\
+    \                       }\n                       protocol udp;\n            \
+    \           port domain;\n                   }\n                   then accept;\n\
+    \               }\n               term ntp {\n                   from {\n    \
+    \                   source-address {\n                           198.51.100.4/30;\n\
+    \                       }\n                       protocol udp;\n            \
+    \           destination-port ntp;\n                   }\n                   then\
+    \ accept;\n               }\n               term ssh {\n                   from\
+    \ {\n                       source-address {\n                           198.51.100.128/25;\n\
+    \                       }\n                       protocol tcp;\n            \
+    \           destination-port ssh;\n                   }\n                   then\
+    \ accept;\n               }\n               term snmp {\n                   from\
+    \ {\n                       source-address {\n                           198.51.100.128/25;\n\
+    \                       }\n                       protocol udp;\n            \
+    \           destination-port snmp;\n                   }\n                   then\
+    \ accept;\n               }\n               term radius {\n                  \
+    \ from {\n                       source-prefix-list {\n                      \
+    \     RADIUS-SERVERS;\n                       }\n                       protocol\
+    \ udp;\n                       port [ 1812 1813 ];\n                   }\n   \
+    \                then accept;\n               }\n               term default-term\
+    \ {\n                   then {\n                       count copp-exceptions;\n\
+    \                       log;\n                       policer 500kbps;\n      \
+    \                 accept;\n                   }\n               }\n          \
+    \ }\n       }\n       family inet6 {\n           filter protect-router-control-plane-v6\
+    \ {\n               term fragv6 {\n                   from {\n               \
+    \        next-header fragment;\n                   }\n                   then\
+    \ {\n                       count frag-v6-discards;\n                       log;\n\
+    \                       discard;\n                   }\n               }\n   \
+    \            term icmpv6 {\n                   from {\n                      \
+    \ next-header icmpv6;\n                   }\n                   then {\n     \
+    \                  policer 500kbps;\n                       accept;\n        \
+    \           }\n               }\n               term ospfv3 {\n              \
+    \     from {\n                       source-address {\n                      \
+    \     FE80::/10;\n                       }\n                       next-header\
+    \ ospf;\n                   }\n                   then accept;\n             \
+    \  }\n               term ibgpv6-connect {\n                   from {\n      \
+    \                 source-prefix-list {\n                           IBGPv6-NEIGHBORS;\n\
+    \                       }\n                       next-header tcp;\n         \
+    \              destination-port bgp;\n                   }\n                 \
+    \  then accept;\n               }\n               term ibgpv6-reply {\n      \
+    \             from {\n                       source-prefix-list {\n          \
+    \                 IBGPv6-NEIGHBORS;\n                       }\n              \
+    \         next-header tcp;\n                       port bgp;\n               \
+    \    }\n                   then accept;\n               }\n               term\
+    \ ebgpv6-connect {\n                   from {\n                       source-prefix-list\
+    \ {\n                           EBGPv6-NEIGHBORS;\n                       }\n\
+    \                       next-header tcp;\n                       destination-port\
+    \ bgp;\n                   }\n                   then accept;\n              \
+    \ }\n               term ebgpv6-reply {\n                   from {\n         \
+    \              source-prefix-list {\n                           EBGPv6-NEIGHBORS;\n\
+    \                       }\n                       next-header tcp;\n         \
+    \              port bgp;\n                   }\n                   then accept;\n\
+    \               }\n               term dnsv6 {\n                   from {\n  \
+    \                     source-address {\n                          2001:DB8:100:1::/64;\n\
+    \                          }\n                       next-header [ udp tcp ];\n\
+    \                       port domain;\n                   }\n                 \
+    \  then accept;\n               }\n               term ntpv6 {\n             \
+    \      from {\n                       source-address {\n                     \
+    \      2001:DB8:100:2::/64;\n                       }\n                      \
+    \ next-header udp;\n                       destination-port ntp;\n           \
+    \        }\n                   then accept;\n               }\n              \
+    \ term sshv6 {\n                   from {\n                       source-address\
+    \ {\n                           2001:DB8:100:3::/64;\n                       }\n\
+    \                       next-header tcp;\n                       destination-port\
+    \ ssh;\n                   }\n                   then accept;\n              \
+    \ }\n               term snmpv6 {\n                   from {\n               \
+    \        source-address {\n                           2001:DB8:100:3::/64;\n \
+    \                      }\n                       next-header udp;\n          \
+    \             destination-port snmp;\n                   }\n                 \
+    \  then accept;\n               }\n               term radiusv6 {\n          \
+    \         from {\n                       source-prefix-list {\n              \
+    \             RADIUSv6-SERVERS;\n                       }\n                  \
+    \     next-header udp;\n                       port [ 1812 1813 ];\n         \
+    \          }\n                   then accept;\n               }\n            \
+    \   term default-term-v6 {\n                   then {\n                      \
+    \ policer 500kbps;\n                       count copp-exceptions-v6;\n       \
+    \                log;\n                       accept;\n                   }\n\
+    \               }\n           }\n       }\n       family any {\n           filter\
+    \ protect-router-control-plane-non-ip {\n               term rate-limit-non-ip\
+    \ {\n                   then {\n                       policer 250kbps;\n    \
+    \                   accept;\n                   }\n               }\n        \
+    \   }\n       }\n   }\n   interfaces {\n       lo0 {\n           unit 0 {\n  \
+    \             family inet {\n                   filter input protect-router-control-plane;\n\
+    \               }\n               family inet6 {\n                   filter input\
+    \ protect-router-control-plane-v6;\n               }\n               family any\
+    \ {\n                   filter input protect-router-control-plane-non-ip;\n  \
+    \             }\n           }\n       }\n   }\n"
+- title: Authors' Addresses
+  contents:
+  - "Authors' Addresses\n   Dave Dugal\n   Juniper Networks\n   10 Technology Park\
+    \ Drive\n   Westford, MA  01886\n   US\n   EMail: dave@juniper.net\n   Carlos\
+    \ Pignataro\n   Cisco Systems\n   7200-12 Kit Creek Road\n   Research Triangle\
+    \ Park, NC  27709\n   US\n   EMail: cpignata@cisco.com\n   Rodney Dunn\n   Cisco\
+    \ Systems\n   7200-12 Kit Creek Road\n   Research Triangle Park, NC  27709\n \
+    \  US\n   EMail: rodunn@cisco.com\n"

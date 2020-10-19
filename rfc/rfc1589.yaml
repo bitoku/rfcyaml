@@ -1,0 +1,1140 @@
+- title: __initial_text__
+  contents:
+  - '                A Kernel Model for Precision Timekeeping
+
+    '
+- title: Status of this Memo
+  contents:
+  - "Status of this Memo\n   This memo provides information for the Internet community.\
+    \  This memo\n   does not specify an Internet standard of any kind.  Distribution\
+    \ of\n   this memo is unlimited.\n"
+- title: Overview
+  contents:
+  - "Overview\n   This memorandum describes an engineering model which implements\
+    \ a\n   precision time-of-day function for a generic operating system. The\n \
+    \  model is based on the principles of disciplined oscillators and\n   phase-lock\
+    \ loops (PLL) often found in the engineering literature. It\n   has been implemented\
+    \ in the Unix kernel for several workstations,\n   including those made by Sun\
+    \ Microsystems and Digital Equipment. The\n   model changes the way the system\
+    \ clock is adjusted in time and\n   frequency, as well as provides mechanisms\
+    \ to discipline its frequency\n   to an external precision timing source. The\
+    \ model incorporates a\n   generic system-call interface for use with the Network\
+    \ Time Protocol\n   (NTP) or similar time synchronization protocol. The NTP Version\
+    \ 3\n   daemon xntpd operates with this model to provide synchronization\n   limited\
+    \ in principle only by the accuracy and stability of the\n   external timing source.\n\
+    \   This memorandum does not obsolete or update any RFC. It does not\n   propose\
+    \ a standard protocol, specification or algorithm. It is\n   intended to provoke\
+    \ comment, refinement and alternative\n   implementations. While a working knowledge\
+    \ of NTP is not required for\n   an understanding of the design principles or\
+    \ implementation of the\n   model, it may be helpful in understanding how the\
+    \ model behaves in a\n   fully functional timekeeping system. The architecture\
+    \ and design of\n   NTP is described in [1], while the current NTP Version 3 protocol\n\
+    \   specification is given in RFC-1305 [2] and a subset of the protocol,\n   the\
+    \ Simple Network Time Protocol (SNTP), in RFC-1361 [4].\n   The model has been\
+    \ implemented in three Unix kernels for Sun\n   Microsystems and Digital Equipment\
+    \ workstations. In addition, for the\n   Digital machines the model provides improved\
+    \ precision to one\n   microsecond (us). Since these specific implementations\
+    \ involve\n   modifications to licensed code, they cannot be provided directly.\n\
+    \   Inquiries should be directed to the manufacturer's representatives.\n   However,\
+    \ the engineering model for these implementations, including a\n   simulator with\
+    \ code segments almost identical to the implementations,\n   but not involving\
+    \ licensed code, is available via anonymous FTP from\n   host louie.udel.edu in\
+    \ the directory pub/ntp and compressed tar\n   archive kernel.tar.Z. The NTP Version\
+    \ 3 distribution can be obtained\n   via anonymous ftp from the same host and\
+    \ directory in the compressed\n   tar archive xntp3.3g.tar.Z, where the version\
+    \ number shown as 3.3g\n   may be adjusted for new versions as they occur.\n"
+- title: 1. Introduction
+  contents:
+  - "1. Introduction\n   This memorandum describes a model and programming interface\
+    \ for\n   generic operating system software that manages the system clock and\n\
+    \   timer functions. The model provides improved accuracy and stability\n   for\
+    \ most workstations and servers using the Network Time Protocol\n   (NTP) or similar\
+    \ time synchronization protocol. This memorandum\n   describes the principles\
+    \ of design and implementation of the model.\n   Related technical reports discuss\
+    \ the design approach, engineering\n   analysis and performance evaluation of\
+    \ the model as implemented in\n   Unix kernels for Sun Microsystems and Digital\
+    \ Equipment workstations.\n   The NTP Version 3 daemon xntpd operates with these\
+    \ implementations to\n   provide improved accuracy and stability, together with\
+    \ diminished\n   overhead in the operating system and network. In addition, the\
+    \ model\n   supports the use of external timing sources, such as precision\n \
+    \  pulse-per-second (PPS) signals and the industry standard IRIG timing\n   signals.\
+    \ The NTP daemon automatically detects the presence of the new\n   features and\
+    \ utilizes them when available.\n   There are three prototype implementations\
+    \ of the model presented in\n   this memorandum, one each for the Sun Microsystems\
+    \ SPARCstation with\n   the SunOS 4.1.x kernel, Digital Equipment DECstation 5000\
+    \ with the\n   Ultrix 4.x kernel and Digital Equipment 3000 AXP Alpha with the\
+    \ OSF/1\n   V1.x kernel. In addition, for the DECstation 5000/240 and 3000 AXP\n\
+    \   Alpha machines, a special feature provides improved precision to 1 us\n  \
+    \ (Sun 4.1.x kernels already do provide 1-us precision). Other than\n   improving\
+    \ the system clock accuracy, stability and precision, these\n   implementations\
+    \ do not change the operation of existing Unix system\n   calls which manage the\
+    \ system clock, such as gettimeofday(),\n   settimeofday() and adjtime(); however,\
+    \ if the new features are in\n   use, the operations of gettimeofday() and adjtime()\
+    \ can be controlled\n   instead by new system calls ntp_gettime() and ntp_adjtime()\
+    \ as\n   described below.\n   A detailed description of the variables and algorithms\
+    \ is given in\n   the hope that similar functionality can be incorporated in Unix\n\
+    \   kernels for other machines. The algorithms involve only minor changes\n  \
+    \ to the system clock and interval timer routines and include\n   interfaces for\
+    \ application programs to learn the system clock status\n   and certain statistics\
+    \ of the time synchronization process. Detailed\n   installation instructions\
+    \ are given in a specific README files\n   included in the kernel distributions.\n\
+    \   In this memorandum, NTP Version 3 and the Unix implementation xntp3\n   are\
+    \ used as an example application of the new system calls for use by\n   a synchronization\
+    \ daemon. In principle, the new system calls can be\n   used by other protocols\
+    \ and implementations as well. Even in cases\n   where the local time is maintained\
+    \ by periodic exchanges of messages\n   at relatively long intervals, such as\
+    \ using the NIST Automated\n   Computer Time Service, the ability to precisely\
+    \ adjust the system\n   clock frequency simplifies the synchronization procedures\
+    \ and allows\n   the telephone call frequency to be considerably reduced.\n"
+- title: 2. Design Approach
+  contents:
+  - "2. Design Approach\n   While not strictly necessary for an understanding or implementation\n\
+    \   of the model, it may be helpful to briefly describe how NTP operates\n   to\
+    \ control the system clock in a client workstation. As described in\n   [1], the\
+    \ NTP protocol exchanges timestamps with one or more peers\n   sharing a synchronization\
+    \ subnet to calculate the time offsets\n   between peer clocks and the local clock.\
+    \ These offsets are processed\n   by several algorithms which refine and combine\
+    \ the offsets to produce\n   an ensemble average, which is then used to adjust\
+    \ the local clock\n   time and frequency. The manner in which the local clock\
+    \ is adjusted\n   represents the main topic of this memorandum. The goal in the\n\
+    \   enterprise is the most accurate and stable system clock possible with\n  \
+    \ the available kernel software and workstation hardware.\n   In order to understand\
+    \ how the new software works, it is useful to\n   review how most Unix kernels\
+    \ maintain the system time. In the Unix\n   design a hardware counter interrupts\
+    \ the kernel at a fixed rate: 100\n   Hz in the SunOS kernel, 256 Hz in the Ultrix\
+    \ kernel and 1024 Hz in\n   the OSF/1 kernel. Since the Ultrix timer interval\
+    \ (reciprocal of the\n   rate) does not evenly divide one second in microseconds,\
+    \ the Ultrix\n   kernel adds 64 microseconds once each second, so the timescale\n\
+    \   consists of 255 advances of 3906 us plus one of 3970 us. Similarly,\n   the\
+    \ OSF/1 kernel adds 576 us once each second, so its timescale\n   consists of\
+    \ 1023 advances of 976 us plus one of 1552 us.\n   2.1. Mechanisms to Adjust Time\
+    \ and Frequency\n      In most Unix kernels it is possible to slew the system\
+    \ clock to a\n      new offset relative to the current time by using the adjtime()\n\
+    \      system call. To do this the clock frequency is changed by adding\n    \
+    \  or subtracting a fixed amount (tickadj) at each timer interrupt\n      (tick)\
+    \ for a calculated number of ticks. Since this calculation\n      involves dividing\
+    \ the requested offset by tickadj, it is possible\n      to slew to a new offset\
+    \ with a precision only of tickadj, which is\n      usually in the neighborhood\
+    \ of 5 us, but sometimes much more. This\n      results in a roundoff error which\
+    \ can accumulate to an\n      unacceptable degree, so that special provisions\
+    \ must be made in\n      the clock adjustment procedures of the synchronization\
+    \ daemon.\n      In order to implement a frequency-discipline function, it is\n\
+    \      necessary to provide time offset adjustments to the kernel at\n      regular\
+    \ adjustment intervals using the adjtime() system call. In\n      order to reduce\
+    \ the system clock jitter to the regime considered\n      in this memorandum,\
+    \ it is necessary that the adjustment interval\n      be relatively small, in\
+    \ the neighborhood of 1 s. However, the Unix\n      adjtime() implementation requires\
+    \ each offset adjustment to\n      complete before another one can be begun, which\
+    \ means that large\n      adjustments must be amortized in possibly many adjustment\n\
+    \      intervals. The requirement to implement the adjustment interval\n     \
+    \ and compensate for roundoff error considerably complicates the\n      synchronizing\
+    \ daemon implementation.\n      In the new model this scheme is replaced by another\
+    \ that\n      represents the system clock as a multiple-word, precision-time\n\
+    \      variable in order to provide very precise clock adjustments. At\n     \
+    \ each timer interrupt a precisely calibrated quantity is added to\n      the\
+    \ kernel time variable and overflows propagated as required. The\n      quantity\
+    \ is computed as in the NTP local clock model described in\n      [3], which operates\
+    \ as an adaptive-parameter, first-order, type-II\n      phase-lock loop (PLL).\
+    \ In principle, this PLL design can provide\n      precision control of the system\
+    \ clock oscillator within 1 us and\n      frequency to within parts in 10^11.\
+    \ While precisions of this order\n      are surely well beyond the capabilities\
+    \ of the CPU clock\n      oscillator used in typical workstations, they are appropriate\n\
+    \      using precision external oscillators as described below.\n      The PLL\
+    \ design is identical to the one originally implemented in\n      NTP and described\
+    \ in [3]. In this design the software daemon\n      simulates the PLL using the\
+    \ adjtime() system call; however, the\n      daemon implementation is considerably\
+    \ complicated by the\n      considerations described above. The modified kernel\
+    \ routines\n      implement the PLL in the kernel using precision time and frequency\n\
+    \      representions, so that these complications are avoided. A new\n      system\
+    \ call ntp_adjtime() is called only as each new time update\n      is determined,\
+    \ which in NTP occurs at intervals of from 16 s to\n      1024 s. In addition,\
+    \ doing frequency compensation in the kernel\n      means that the system time\
+    \ runs true even if the daemon were to\n      cease operation or the network paths\
+    \ to the primary\n      synchronization source fail.\n      In the new model the\
+    \ new ntp_adjtime() operates in a way similar\n      to the original adjtime()\
+    \ system call, but does so independently\n      of adjtime(), which continues\
+    \ to operate in its traditional\n      fashion. When used with NTP, it is the\
+    \ design intent that\n      settimeofday() or adjtime() be used only for system\
+    \ time\n      adjustments greater than +-128 ms, although the dynamic range of\n\
+    \      the new model is much larger at +-512 ms. It has been the Internet\n  \
+    \    experience that the need to change the system time in increments\n      greater\
+    \ than +-128 ms is extremely rare and is usually associated\n      with a hardware\
+    \ or software malfunction or system reboot.\n      The easiest way to set the\
+    \ time is with the settimeofday() system\n      call; however, this can under\
+    \ some conditions cause the clock to\n      jump backward. If this cannot be tolerated,\
+    \ adjtime() can be used\n      to slew the clock to the new value without running\
+    \ backward or\n      affecting the frequency discipline process. Once the system\
+    \ clock\n      has been set within +-128 ms, the ntp_adjtime() system call is\n\
+    \      used to provide periodic updates including the time offset,\n      maximum\
+    \ error, estimated error and PLL time constant. With NTP the\n      update interval\
+    \ depends on the measured dispersion and time\n      constant; however, the scheme\
+    \ is quite forgiving and neither\n      moderate loss of updates nor variations\
+    \ in the update interval are\n      serious.\n   2.2 Daemon and Application Interface\n\
+    \      Unix application programs can read the system clock using the\n      gettimeofday()\
+    \ system call, which returns only the system time and\n      timezone data. For\
+    \ some applications it is useful to know the\n      maximum error of the reported\
+    \ time due to all causes, including\n      clock reading errors, oscillator frequency\
+    \ errors and accumulated\n      latencies on the path to a primary synchronization\
+    \ source.\n      However, in the new model the PLL adjusts the system clock to\n\
+    \      compensate for its intrinsic frequency error, so that the time\n      errors\
+    \ expected in normal operation will usually be much less than\n      the maximum\
+    \ error. The programming interface includes a new system\n      call ntp_gettime(),\
+    \ which returns the system time, as well as the\n      maximum error and estimated\
+    \ error. This interface is intended to\n      support applications that need such\
+    \ things, including distributed\n      file systems, multimedia teleconferencing\
+    \ and other real-time\n      applications. The programming interface also includes\
+    \ the new\n      system call ntp_adjtime() mentioned previously, which can be\
+    \ used\n      to read and write kernel variables for time and frequency\n    \
+    \  adjustment, PLL time constant, leap-second warning and related\n      data.\n\
+    \      In addition, the kernel adjusts the maximum error to grow by an\n     \
+    \ amount equal to the oscillator frequency tolerance times the\n      elapsed\
+    \ time since the last update. The default engineering\n      parameters have been\
+    \ optimized for update intervals in the order\n      of 64 s. For other intervals\
+    \ the PLL time constant can be adjusted\n      to optimize the dynamic response\
+    \ over intervals of 16-1024 s.\n      Normally, this is automatically done by\
+    \ NTP. In any case, if\n      updates are suspended, the PLL coasts at the frequency\
+    \ last\n      determined, which usually results in errors increasing only to a\n\
+    \      few tens of milliseconds over a day using room-temperature quartz\n   \
+    \   oscillators of typical modern workstations.\n      While any synchronization\
+    \ daemon can in principle be modified to\n      use the new system calls, the\
+    \ most likely will be users of the NTP\n      Version 3 daemon xntpd. The xntpd\
+    \ code determines whether the new\n      system calls are implemented and automatically\
+    \ reconfigures as\n      required. When implemented, the daemon reads the frequency\
+    \ offset\n      from a file and provides it and the initial time constant via\n\
+    \      ntp_adjtime(). In subsequent calls to ntp_adjtime(), only the time\n  \
+    \    offset and time constant are affected. The daemon reads the\n      frequency\
+    \ from the kernel using ntp_adjtime() at intervals of\n      about one hour and\
+    \ writes it to a system file. This information is\n      recovered when the daemon\
+    \ is restarted after reboot, for example,\n      so the sometimes extensive training\
+    \ period to learn the frequency\n      separately for each system can be avoided.\n\
+    \   2.3. Precision Clocks for DECstation 5000/240 and 3000 AXP Alpha\n      The\
+    \ stock microtime() routine in the Ultrix kernel returns system\n      time to\
+    \ the precision of the timer interrupt interval, which is in\n      the 1-4 ms\
+    \ range. However, in the DECstation 5000/240 and possibly\n      other machines\
+    \ of that family, there is an undocumented IOASIC\n      hardware register that\
+    \ counts system bus cycles at a rate of 25\n      MHz. The new microtime() routine\
+    \ for the Ultrix kernel uses this\n      register to interpolate system time between\
+    \ timer interrupts. This\n      results in a precision of 1 us for all time values\
+    \ obtained via\n      the gettimeofday() and ntp_gettime() system calls. For the\
+    \ Digital\n      Equipment 3000 AXP Alpha, the architecture provides a hardware\n\
+    \      Process Cycle Counter and a machine instruction rpcc to read it.\n    \
+    \  This counter operates at the fundamental frequency of the CPU\n      clock\
+    \ or some submultiple of it, 133.333 MHz for the 3000/400 for\n      example.\
+    \ The new microtime() routine for the OSF/1 kernel uses\n      this counter in\
+    \ the same fashion as the Ultrix routine.\n      In both the Ultrix and OSF/1\
+    \ kernels the gettimeofday() and\n      ntp_gettime() system call use the new\
+    \ microtime() routine, which\n      returns the actual interpolated value, but\
+    \ does not change the\n      kernel time variable. Therefore, other routines that\
+    \ access the\n      kernel time variable directly and do not call either\n   \
+    \   gettimeofday(), ntp_gettime() or microtime() will continue their\n      present\
+    \ behavior. The microtime() feature is independent of other\n      features described\
+    \ here and is operative even if the kernel PLL or\n      new system calls have\
+    \ not been implemented.\n      The SunOS kernel already includes a system clock\
+    \ with 1-us\n      resolution; so, in principle, no microtime() routine is necessary.\n\
+    \      An existing kernel routine uniqtime() implements this function,\n     \
+    \ but it is coded in the C language and is rather slow at 42-85 us\n      per\
+    \ call. A replacement microtime() routine coded in assembler\n      language is\
+    \ available in the NTP Version 3 distribution and is\n      much faster at about\
+    \ 3 us per call.\n   2.4. External Time and Frequency Discipline\n      The overall\
+    \ accuracy of a time synchronization subnet with respect\n      to Coordinated\
+    \ Universal Time (UTC) depends on the accuracy and\n      stability of the primary\
+    \ synchronization source, usually a radio\n      or satellite receiver, and the\
+    \ system clock oscillator of the\n      primary server. As discussed in [5], the\
+    \ traditional interface\n      using an RS232 protocol and serial port precludes\
+    \ the full\n      accuracy of the radio clock. In addition, the poor stability\
+    \ of\n      typical CPU clock oscillators limits the accuracy, whether or not\n\
+    \      precision time sources are available. There are, however, several\n   \
+    \   ways in which the system clock accuracy and stability can be\n      improved\
+    \ to the degree limited only by the accuracy and stability\n      of the synchronization\
+    \ source and the jitter of the operating\n      system.\n      Many radio clocks\
+    \ produce special signals that can be used by\n      external equipment to precisely\
+    \ synchronize time and frequency.\n      Most produce a pulse-per-second (PPS)\
+    \ signal that can be read via\n      a modem-control lead of a serial port and\
+    \ some produce a special\n      IRIG signal that can be read directly by a bus\
+    \ peripheral, such as\n      the KSI/Odetics TPRO IRIG SBus interface, or indirectly\
+    \ via the\n      audio codec of some workstations, as described in [5]. In the\
+    \ NTP\n      Version 3 distribution, the PPS signal can be used to augment the\n\
+    \      less precise ASCII serial timecode to improve accuracy to the\n      order\
+    \ of microseconds. Support is also included in the\n      distribution for the\
+    \ TPRO interface as well as the audio codec;\n      however, the latter requires\
+    \ a modified kernel audio driver\n      contained in the bsd_audio.tar.Z distribution\
+    \ in the same host and\n      directory as the NTP Version 3 distribution mentioned\
+    \ previously.\n      2.4.1. PPS Signal\n         The NTP Version 3 distribution\
+    \ includes a special ppsclock\n         module for the SunOS 4.1.x kernel that\
+    \ captures the PPS signal\n         presented via a modem-control lead of a serial\
+    \ port. Normally,\n         the ppsclock module produces a timestamp at each transition\
+    \ of\n         the PPS signal and provides it to the synchronization daemon\n\
+    \         for integration with the serial ASCII timecode, also produced\n    \
+    \     by the radio clock. With the conventional PLL implementation in\n      \
+    \   either the daemon or the kernel as described above, the\n         accuracy\
+    \ of this scheme is limited by the intrinsic stability\n         of the CPU clock\
+    \ oscillator to a millisecond or two, depending\n         on environmental temperature\
+    \ variations.\n         The ppsclock module has been modified to in addition call\
+    \ a new\n         kernel routine hardpps() once each second. The kernel routine\n\
+    \         compares the timestamp with a sample of the CPU clock\n         oscillator\
+    \ to develop a frequency offset estimate. This offset\n         is used to discipline\
+    \ the oscillator frequency, nominally to\n         within a few parts in 10^8,\
+    \ which is about two orders of\n         magnitude better than the undisciplined\
+    \ oscillator. The new\n         feature is conditionally compiled in the code\
+    \ described below\n         only if the PPS_SYNC option is used in the kernel\
+    \ configuration\n         file.\n         When using the PPS signal to adjust\
+    \ the time, there is a\n         problem with the SunOS implementation which is\
+    \ very delicate to\n         fix. The Sun serial port interrupt routine operates\
+    \ at\n         interrupt priority level 12, while the timer interrupt routine\n\
+    \         operates at priority 10. Thus, it is possible that the PPS\n       \
+    \  signal interrupt can occur during the timer interrupt routine,\n         with\
+    \ result that a tick increment can be missed and the\n         returned time early\
+    \ by one tick. It may happen that, if the CPU\n         clock oscillator is within\
+    \ a few ppm of the PPS oscillator,\n         this condition can persist for two\
+    \ or more successive PPS\n         interrupts. A useful workaround has been to\
+    \ use a median filter\n         to process the PPS sample offsets. In this filter\
+    \ the sample\n         offsets in a window of 20 samples are sorted by offset\
+    \ and the\n         six highest and six lowest outlyers discarded. The average\
+    \ of\n         the eight samples remaining becomes the output of the filter.\n\
+    \         The problem is not nearly so serious when using the PPS signal\n   \
+    \      to discipline the frequency of the CPU clock oscillator. In\n         this\
+    \ case the quantity of interest is the contents of the\n         microseconds\
+    \ counter only, which does not depend on the kernel\n         time variable.\n\
+    \      2.4.2. External Clocks\n         It is possible to replace the system clock\
+    \ function with an\n         external bus peripheral. The TPRO device mentioned\
+    \ previously\n         can be used to provide IRIG-synchronized time with a precision\n\
+    \         of 1 us. A driver for this device tprotime.c and header file\n     \
+    \    tpro.h are included in the kernel.tar.Z distribution mentioned\n        \
+    \ previously. Using this device the system clock is read directly\n         from\
+    \ the interface; however, the device does not record the\n         year, so special\
+    \ provisions have to be made to obtain the year\n         from the kernel time\
+    \ variable and initialize the driver\n         accordingly. This feature is conditionally\
+    \ compiled in the code\n         described below only if the EXT_CLOCK option\
+    \ is used in the\n         kernel configuration file.\n         While the system\
+    \ clock function is provided directly by the\n         microtime() routine in\
+    \ the driver, the kernel time variable\n         must be disciplined as well,\
+    \ since not all system timing\n         functions use the microtime() routine.\
+    \ This is done by\n         measuring the difference between the microtime() clock\
+    \ and\n         kernel time variable and using the difference to adjust the\n\
+    \         kernel PLL as if the adjustment were provided by an external\n     \
+    \    peer and NTP.\n         A good deal of error checking is done in the TPRO\
+    \ driver, since\n         the system clock is vulnerable to a misbehaving radio\
+    \ clock,\n         IRIG signal source, interface cables and TPRO device itself.\n\
+    \         Unfortunately, there is no easy way to utilize the extensive\n     \
+    \    diversity and redundancy capabilities available in the NTP\n         synchronization\
+    \ daemon. In order to avoid disruptions that\n         might occur if the TPRO\
+    \ time is far different from the kernel\n         time variable, the latter is\
+    \ used instead of the former if the\n         difference between the two exceeds\
+    \ 1000 s; presumably in that\n         case operator intervention is required.\n\
+    \      2.4.3. External Oscillators\n         Even if a source of PPS or IRIG signals\
+    \ is not available, it is\n         still possible to improve the stability of\
+    \ the system clock\n         through the use of a specialized bus peripheral.\
+    \ In order to\n         explore the benefits of such an approach, a special SBus\n\
+    \         peripheral caled HIGHBALL has been constructed. The device\n       \
+    \  includes a pair of 32-bit hardware counters in Unix timeval\n         format,\
+    \ together with a precision, oven-controlled quartz\n         oscillator with\
+    \ a stability of a few parts in 10^9. A driver\n         for this device hightime.c\
+    \ and header file high.h are included\n         in the kernel.tar.Z distribution\
+    \ mentioned previously. This\n         feature is conditionally compiled in the\
+    \ code described below\n         only if the EXT_CLOCK and HIGHBALL options are\
+    \ used in the\n         kernel configuration file.\n         Unlike the external\
+    \ clock case, where the system clock function\n         is provided directly by\
+    \ the microtime() routine in the driver,\n         the HIGHBALL counter offsets\
+    \ with respect to UTC must be\n         provided first.  This is done using the\
+    \ ordinary kernel PLL,\n         but controlling the counter offsets directly,\
+    \ rather than the\n         kernel time variable. At first, this might seem to\
+    \ defeat the\n         purpose of the design, since the jitter and wander of the\n\
+    \         synchronization source will affect the counter offsets and thus\n  \
+    \       the accuracy of the time. However, the jitter is much reduced\n      \
+    \   by the PLL and the wander is small, especially if using a radio\n        \
+    \ clock or another primary server disciplined in the same way.\n         In practice,\
+    \ the scheme works to reduce the incidental wander\n         to a few parts in\
+    \ 10^8, or about the same as using the PPS\n         signal.\n         As in the\
+    \ previous case, the kernel time variable must be\n         disciplined as well,\
+    \ since not all system timing functions use\n         the microtime() routine.\
+    \ However, the kernel PLL cannot be used\n         for this, since it is already\
+    \ in use providing offsets for the\n         HIGHBALL counters. Therefore, a special\
+    \ correction is\n         calculated from the difference between the microtime()\
+    \ clock\n         and the kernel time variable and used to adjust the kernel time\n\
+    \         variable at the next timer interrupt. This somewhat roundabout\n   \
+    \      approach is necessary in order that the adjustment does not\n         cause\
+    \ the kernel time variable to jump backwards and possibly\n         lose or duplicate\
+    \ a timer event.\n   2.5 Other Features\n      It is a design feature of the NTP\
+    \ architecture that the system\n      clocks in a synchronization subnet are to\
+    \ read the same or nearly\n      the same values before during and after a leap-second\
+    \ event, as\n      declared by national standards bodies. The new model is designed\n\
+    \      to implement the leap event upon command by an ntp_adjtime()\n      argument.\
+    \ The intricate and sometimes arcane details of the model\n      and implementation\
+    \ are discussed in [3] and [5]. Further details\n      are given in the technical\
+    \ summary later in this memorandum.\n"
+- title: 3. Technical Summary
+  contents:
+  - "3. Technical Summary\n   In order to more fully understand the workings of the\
+    \ model, a stand-\n   alone simulator kern.c and header file timex.h are included\
+    \ in the\n   kernel.tar.Z distribution mentioned previously. In addition, a\n\
+    \   complete C program kern_ntptime.c which implements the ntp_gettime()\n   and\
+    \ ntp_adjtime() functions is provided, but with the vendor-specific\n   argument-passing\
+    \ code deleted. Since the distribution is somewhat\n   large, due to copious comments\
+    \ and ornamentation, it is impractical\n   to include a listing of these programs\
+    \ in this memorandum. In any\n   case, implementors may choose to snip portions\
+    \ of the simulator for\n   use in new kernel designs, but, due to formatting conventions,\
+    \ this\n   would be difficult if included in this memorandum.\n   The kern.c program\
+    \ is an implementation of an adaptive-parameter,\n   first-order, type-II phase-lock\
+    \ loop. The system clock is implemented\n   using a set of variables and algorithms\
+    \ defined in the simulator and\n   driven by explicit offsets generated by a driver\
+    \ program also\n   included in the program. The algorithms include code fragments\
+    \ almost\n   identical to those in the machine-specific kernel implementations\
+    \ and\n   operate in the same way, but the operations can be understood\n   separately\
+    \ from any licensed source code into which these fragments\n   may be integrated.\
+    \ The code fragments themselves are not derived from\n   any licensed code. The\
+    \ following discussion assumes that the\n   simulator code is available for inspection.\n\
+    \   3.1. PLL Simulation\n      The simulator operates in conformance with the\
+    \ analytical model\n      described in [3]. The main() program operates as a driver\
+    \ for the\n      fragments hardupdate(), hardclock(), second_overflow(), hardpps()\n\
+    \      and microtime(), although not all functions implemented in these\n    \
+    \  fragments are simulated. The program simulates the PLL at each\n      timer\
+    \ interrupt and prints a summary of critical program variables\n      at each\
+    \ time update.\n      There are three defined options in the kernel configuration\
+    \ file\n      specific to each implementation. The PPS_SYNC option provides\n\
+    \      support for a pulse-per-second (PPS) signal, which is used to\n      discipline\
+    \ the frequency of the CPU clock oscillator. The\n      EXT_CLOCK option provides\
+    \ support for an external kernel-readable\n      clock, such as the KSI/Odetics\
+    \ TPRO IRIG interface or HIGHBALL\n      precision oscillator, both for the SBus.\
+    \ The TPRO option provides\n      support for the former, while the HIGHBALL option\
+    \ provides support\n      for the latter. External clocks are implemented as the\
+    \ microtime()\n      clock driver, with the specific source code selected by the\
+    \ kernel\n      configuration file.\n      3.1.1. The hardupdate() Fragment\n\
+    \         The hardupdate() fragment is called by ntp_adjtime() as each\n     \
+    \    update is computed to adjust the system clock phase and\n         frequency.\
+    \ Note that the time constant is in units of powers of\n         two, so that\
+    \ multiplies can be done by simple shifts. The phase\n         variable is computed\
+    \ as the offset divided by the time\n         constant. Then, the time since the\
+    \ last update is computed and\n         clamped to a maximum (for robustness)\
+    \ and to zero if\n         initializing. The offset is multiplied (sorry about\
+    \ the ugly\n         multiply) by the result and divided by the square of the\
+    \ time\n         constant and then added to the frequency variable. Note that\n\
+    \         all shifts are assumed to be positive and that a shift of a\n      \
+    \   signed quantity to the right requires a little dance.\n         With the defines\
+    \ given, the maximum time offset is determined\n         by the size in bits of\
+    \ the long type (32 or 64) less the\n         SHIFT_UPDATE scale factor (12) or\
+    \ at least 20 bits (signed).\n         The scale factor is chosen so that there\
+    \ is no loss of\n         significance in later steps, which may involve a right\
+    \ shift up\n         to SHIFT_UPDATE bits. This results in a time adjustment range\n\
+    \         over +-512 ms. Since time_constant must be greater than or\n       \
+    \  equal to zero, the maximum frequency offset is determined by\n         the\
+    \ SHIFT_USEC scale factor (16) or at least 16 bits (signed).\n         This results\
+    \ in a frequency adjustment range over +-31,500 ppm.\n         In the addition\
+    \ step, the value of offset * mtemp is not\n         greater than MAXPHASE * MAXSEC\
+    \ = 31 bits (signed), which will\n         not overflow a long add on a 32-bit\
+    \ machine. There could be a\n         loss of precision due to the right shift\
+    \ of up to 12 bits,\n         since time_constant is bounded at 6. This results\
+    \ in a net\n         worst-case frequency resolution of about .063 ppm, which\
+    \ is not\n         significant for most quartz oscillators. The worst case could\n\
+    \         be realized only if the NTP peer misbehaves according to the\n     \
+    \    protocol specification.\n         The time_offset value is clamped upon entry.\
+    \ The time_phase\n         variable is an accumulator, so is clamped to the tolerance\
+    \ on\n         every call. This helps to damp transients before the oscillator\n\
+    \         frequency has been determined, as well as to satisfy the\n         correctness\
+    \ assertions if the time synchronization protocol or\n         implementation\
+    \ misbehaves.\n      3.1.2. The hardclock() Fragment\n         The hardclock()\
+    \ fragment is inserted in the hardware timer\n         interrupt routine at the\
+    \ point the system clock is to be\n         incremented. Previous to this fragment\
+    \ the time_update variable\n         has been initialized to the value computed\
+    \ by the adjtime()\n         system call in the stock Unix kernel, normally plus/minus\
+    \ the\n         tickadj value, which is usually in the order of 5 us. The\n  \
+    \       time_phase variable, which represents the instantaneous phase\n      \
+    \   of the system clock, is advanced by time_adj, which is\n         calculated\
+    \ in the second_overflow() fragment described below.\n         If the value of\
+    \ time_phase exceeds 1 us in scaled units,\n         time_update is increased\
+    \ by the (signed) excess and time_phase\n         retains the residue.\n     \
+    \    Except in the case of an external oscillator such as the\n         HIGHBALL\
+    \ interface, the hardclock() fragment advances the\n         system clock by the\
+    \ value of tick plus time_update. However, in\n         the case of an external\
+    \ oscillator, the system clock is\n         obtained directly from the interface\
+    \ and time_update used to\n         discipline that interface instead. However,\
+    \ the system clock\n         must still be disciplined as explained previously,\
+    \ so the value\n         of clock_cpu computed by the second_overflow() fragment\
+    \ is used\n         instead.\n      3.1.3. The second_overflow() Fragment\n  \
+    \       The second_overflow() fragment is inserted at the point where\n      \
+    \   the microseconds field of the system time variable is being\n         checked\
+    \ for overflow. Upon overflow the maximum error\n         time_maxerror is increased\
+    \ by time_tolerance to reflect the\n         maximum time offset due to oscillator\
+    \ frequency error. Then,\n         the increment time_adj to advance the kernel\
+    \ time variable is\n         calculated from the (scaled) time_offset and time_freq\n\
+    \         variables updated at the last call to the hardclock() fragment.\n  \
+    \       The phase adjustment is calculated as a (signed) fraction of\n       \
+    \  the time_offset remaining, where the fraction is added to\n         time_adj,\
+    \ then subtracted from time_offset. This technique\n         provides a rapid\
+    \ convergence when offsets are high, together\n         with good resolution when\
+    \ offsets are low. The frequency\n         adjustment is the sum of the (scaled)\
+    \ time_freq variable, an\n         adjustment necessary when the tick interval\
+    \ does not evenly\n         divide one second fixtick and PPS frequency adjustment\
+    \ pps_ybar\n         (if configured).\n         The scheme of approximating exact\
+    \ multiply/divide operations\n         with shifts produces good results, except\
+    \ when an exact\n         calculation is required, such as when the PPS signal\
+    \ is being\n         used to discipling the CPU clock oscillator frequency, as\n\
+    \         described below. As long as the actual oscillator frequency is\n   \
+    \      a power of two in seconds, no correction is required. However,\n      \
+    \   in the SunOS kernel the clock frequency is 100 Hz, which\n         results\
+    \ in an error factor of 0.78. In this case the code\n         increases time_adj\
+    \ by a factor of 1.25, which results in an\n         overall error less than three\
+    \ percent.\n         On rollover of the day, the leap-second state machine described\n\
+    \         below  determines whether a second is to be inserted or deleted\n  \
+    \       in the timescale. The microtime() routine insures that the\n         reported\
+    \ time is always monotonically increasing.\n      3.1.4. The hardpps() Fragment\n\
+    \         The hardpps() fragment is operative only if the PPS_SYNC option\n  \
+    \       is specified in the kernel configuration file. It is called\n        \
+    \ from the serial port driver or equivalent interface at the on-\n         time\
+    \ transition of the PPS signal. The fragment operates as a\n         first-order,\
+    \ type-I frequency-lock loop (FLL) controlled by the\n         difference between\
+    \ the frequency represented by the pps_ybar\n         variable and the frequency\
+    \ of the hardware clock oscillator.\n         In order to avoid calling the microtime()\
+    \ routine more than\n         once for each PPS transition, the interface requires\
+    \ the\n         calling program to capture the system time and hardware counter\n\
+    \         contents at the on-time transition of the PPS signal and\n         provide\
+    \ a pointer to the timestamp (Unix timeval) and counter\n         contents as\
+    \ arguments to the hardpps() call. The hardware\n         counter contents can\
+    \ be determined by saving the microseconds\n         field of the system time,\
+    \ calling the microtime() routine, and\n         subtracting the saved value.\
+    \ If a counter overflow has occured\n         during the process, the resulting\
+    \ microseconds value will be\n         negative, in which case the caller adds\
+    \ 1000000 to normalize\n         the microseconds field.\n         The frequency\
+    \ of the hardware oscillator can be determined from\n         the difference in\
+    \ hardware counter readings at the beginning\n         and end of the calibration\
+    \ interval divided by the duration of\n         the interval. However, the oscillator\
+    \ frequency tolerance, as\n         much as 100 ppm, may cause the difference\
+    \ to exceed the tick\n         value, creating an ambiguity. In order to avoid\
+    \ this ambiguity,\n         the hardware counter value at the beginning of the\
+    \ interval is\n         increased by the current pps_ybar value once each second,\
+    \ but\n         computed modulo the tick value. At the end of the interval, the\n\
+    \         difference between this value and the value computed from the\n    \
+    \     hardware counter is used as a control signal sample for the\n         FLL.\n\
+    \         Control signal samples which exceed the frequency tolerance are\n  \
+    \       discarded, as well as samples resulting from excessive interval\n    \
+    \     duration jitter. Surviving samples are then processed by a\n         three-stage\
+    \ median filter. The signal which drives the FLL is\n         derived from the\
+    \ median sample, while the average of\n         differences between the other\
+    \ two samples is used as a measure\n         of dispersion. If the dispersion\
+    \ is below the threshold\n         pps_dispmax, the median is used to correct\
+    \ the pps_ybar value\n         with a weight expressed as a shift PPS_AVG (2).\
+    \ In addition to\n         the averaging function, pps_disp is increased by the\
+    \ amount\n         pps_dispinc once each second. The result is that, should the\n\
+    \         dispersion be exceptionally high, or if the PPS signal fails\n     \
+    \    for some reason, the pps_disp will eventually exceed\n         pps_dispmax\
+    \ and raise an alarm.\n         Initially, an approximate value for pps_ybar is\
+    \ not known, so\n         the duration of the calibration interval must be kept\
+    \ small to\n         avoid overflowing the tick. The time difference at the end\
+    \ of\n         the calibration interval is measured. If greater than a\n     \
+    \    fraction tick/4, the interval is reduced by half. If less than\n        \
+    \ this fraction for four successive calibration intervals, the\n         interval\
+    \ is doubled. This design automatically adapts to\n         nominal jitter in\
+    \ the PPS signal, as well as the value of tick.\n         The duration of the\
+    \ calibration interval is set by the\n         pps_shift variable as a shift in\
+    \ powers of two. The minimum\n         value PPS_SHIFT (2) is chosen so that with\
+    \ the highest CPU\n         oscillator frequency 1024 Hz and frequency tolerance\
+    \ 100 ppm\n         the tick will not overflow. The maximum value PPS_SHIFTMAX\
+    \ (8)\n         is chosen such that the maximum averaging time is about 1000 s\n\
+    \         as determined by measurements of Allan variance [5].\n         Should\
+    \ the PPS signal fail, the current frequency estimate\n         pps_ybar continues\
+    \ to be used, so the nominal frequency remains\n         correct subject only\
+    \ to the instability of the undisciplined\n         oscillator. The procedure\
+    \ to save and restore the frequency\n         estimate works as follows. When\
+    \ setting the frequency from a\n         file, the time_freq value is set as the\
+    \ file value minus the\n         pps_ybar value; when retrieving the frequency,\
+    \ the two values\n         are added before saving in the file. This scheme provides\
+    \ a\n         seamless interface should the PPS signal fail or the kernel\n  \
+    \       configuration change. Note that the frequency discipline is\n        \
+    \ active whether or not the synchronization daemon is active.\n         Since\
+    \ all Unix systems take some time after reboot to build a\n         running system,\
+    \ usually by that time the discipline process has\n         already settled down\
+    \ and the initial transients due to\n         frequency discipline have damped\
+    \ out.\n      3.1.4. External Clock Interface\n         The external clock driver\
+    \ interface is implemented with two\n         routines, microtime(), which returns\
+    \ the current clock time,\n         and clock_set(), which furnishes the apparent\
+    \ system time\n         derived from the kernel time variable. The latter routine\
+    \ is\n         called only when the clock is set using the settimeofday()\n  \
+    \       system call, but can be called from within the driver, such as\n     \
+    \    when the year rolls over, for example.\n         In the stock SunOS kernel\
+    \ and modified Ultrix and OSF/1\n         kernels, the microtime() routine returns\
+    \ the kernel time\n         variable plus an interpolation between timer interrupts\
+    \ based\n         on the contents of a hardware counter. In the case of an\n \
+    \        external clock, such as described above, the system clock is\n      \
+    \   read directly from the hardware clock registers. Examples of\n         external\
+    \ clock drivers are in the tprotime.c and hightime.c\n         routines included\
+    \ in the kernel.tar.Z distribution.\n         The external clock routines return\
+    \ a status code which\n         indicates whether the clock is operating correctly\
+    \ and the\n         nature of the problem, if not. The return code is interpreted\n\
+    \         by the ntp_gettime() system call, which transitions the status\n   \
+    \      state machine to the TIME_ERR state if an error code is\n         returned.\
+    \ This is the only error checking implemented for the\n         external clock\
+    \ in the present version of the code.\n      The simulator has been used to check\
+    \ the PLL operation over the\n      design envelope of +-512 ms in time error\
+    \ and +-100 ppm in\n      frequency error. This confirms that no overflows occur\
+    \ and that\n      the loop initially converges in about 15 minutes for timer\n\
+    \      interrupt rates from 50 Hz to 1024 Hz. The loop has a normal\n      overshoot\
+    \ of a few percent and a final convergence time of several\n      hours, depending\
+    \ on the initial time and frequency error.\n   3.2. Leap Seconds\n      It does\
+    \ not seem generally useful in the user application\n      interface to provide\
+    \ additional details private to the kernel and\n      synchronization protocol,\
+    \ such as stratum, reference identifier,\n      reference timestamp and so forth.\
+    \ It would in principle be\n      possible for the application to independently\
+    \ evaluate the quality\n      of time and project into the future how long this\
+    \ time might be\n      \"valid.\" However, to do that properly would duplicate\
+    \ the\n      functionality of the synchronization protocol and require\n     \
+    \ knowledge of many mundane details of the platform architecture,\n      such\
+    \ as the subnet configuration, reachability status and related\n      variables.\
+    \ For the curious, the ntp_adjtime() system call can be\n      used to reveal\
+    \ some of these mysteries.\n      However, the user application may need to know\
+    \ whether a leap\n      second is scheduled, since this might affect interval\
+    \ calculations\n      spanning the event. A leap-warning condition is determined\
+    \ by the\n      synchronization protocol (if remotely synchronized), by the\n\
+    \      timecode receiver (if available), or by the operator (if awake).\n    \
+    \  This condition is set by the synchronization daemon on the day the\n      leap\
+    \ second is to occur (30 June or 31 December, as announced) by\n      specifying\
+    \ in a ntp_adjtime() system call a clock status of either\n      TIME_DEL, if\
+    \ a second is to be deleted, or TIME_INS, if a second\n      is to be inserted.\
+    \ Note that, on all occasions since the inception\n      of the leap-second scheme,\
+    \ there has never been a deletion\n      occasion, nor is there likely to be one\
+    \ in future. If the value is\n      TIME_DEL, the kernel adds one second to the\
+    \ system time\n      immediately following second 23:59:58 and resets the clock\
+    \ status\n      to TIME_OK. If the value is TIME_INS, the kernel subtracts one\n\
+    \      second from the system time immediately following second 23:59:59\n   \
+    \   and resets the clock status to TIME_OOP, in effect causing system\n      time\
+    \ to repeat second 59. Immediately following the repeated\n      second, the kernel\
+    \ resets the clock status to TIME_OK.\n      Depending upon the system call implementation,\
+    \ the reported time\n      during a leap second may repeat (with the TIME_OOP\
+    \ return code set\n      to advertise that fact) or be monotonically adjusted\
+    \ until system\n      time \"catches up\" to reported time. With the latter scheme\
+    \ the\n      reported time will be correct before and shortly after the leap\n\
+    \      second (depending on the number of microtime() calls during the\n     \
+    \ leap second), but freeze or slowly advance during the leap second\n      itself.\
+    \ However, Most programs will probably use the ctime()\n      library routine\
+    \ to convert from timeval (seconds, microseconds)\n      format to tm format (seconds,\
+    \ minutes,...). If this routine is\n      modified to use the ntp_gettime() system\
+    \ call and inspect the\n      return code, it could simply report the leap second\
+    \ as second 60.\n   3.3. Clock Status State Machine\n      The various options\
+    \ possible with the system clock model described\n      in this memorandum require\
+    \ a careful examination of the state\n      transitions, status indications and\
+    \ recovery procedures should a\n      crucial signal or interface fail. In this\
+    \ section is presented a\n      prototype state machine designed to support leap\
+    \ second insertion\n      and deletion, as well as reveal various kinds of errors\
+    \ in the\n      synchronization process. The states of this machine are decoded\
+    \ as\n      follows:\n      TIME_OK   If an external clock is present, it is working\
+    \ properly\n                and the system clock is derived from it. If no external\n\
+    \                clock is present, the synchronization daemon is working\n   \
+    \             properly and the system clock is synchronized to a radio\n     \
+    \           clock or one or more peers.\n      TIME_INS  An insertion of one second\
+    \ in the system clock has been\n                declared following the last second\
+    \ of the current day,\n                but has not yet been executed.\n      TIME_DEL\
+    \  A deletion of the last second of the current day has\n                been\
+    \ declared, but not yet executed.\n      TIME_OOP  An insertion of one second\
+    \ in the system clock has been\n                declared following the last second\
+    \ of the current day.\n                The second is in progress, but not yet\
+    \ completed.\n                Library conversion routines should interpret this\
+    \ second\n                as 23:59:60.\n      TIME_BAD  Either (a) the synchronization\
+    \ daemon has declared the\n                protocol is not working properly, (b)\
+    \ all sources of\n                outside synchronization have been lost or (c)\
+    \ an\n                external clock is present and it has just become\n     \
+    \           operational following a non-operational condition.\n      TIME_ERR\
+    \  An external clock is present, but is in a non-\n                operational\
+    \ condition.\n      In all except the TIME_ERR state the system clock is derived\
+    \ from\n      either an external clock, if present, or the kernel time variable,\n\
+    \      if not. In the TIME_ERR state the external clock is present, but\n    \
+    \  not working properly, so the system clock may be derived from the\n      kernel\
+    \ time variable. The following diagram indicates the normal\n      transitions\
+    \ of the state machine. Not all valid transitions are\n      shown.\n        \
+    \  +--------+     +--------+     +--------+     +--------+\n          |      \
+    \  |     |        |     |        |     |        |\n          |TIME_BAD|---->|TIME_OK\
+    \ |<----|TIME_OOP|<----|TIME_INS|\n          |        |     |        |     | \
+    \       |     |        |\n          +--------+     +--------+     +--------+ \
+    \    +--------+\n               A              A\n               |           \
+    \   |\n               |              |\n          +--------+     +--------+\n\
+    \          |        |     |        |\n          |TIME_ERR|     |TIME_DEL|\n  \
+    \        |        |     |        |\n          +--------+     +--------+\n    \
+    \  The state machine makes a transition once each second at an\n      instant\
+    \ where the microseconds field of the kernel time variable\n      overflows and\
+    \ one second is added to the seconds field. However,\n      this condition is\
+    \ checked at each timer interrupt, which may not\n      exactly coincide with\
+    \ the actual instant of overflow. This may\n      lead to some interesting anomalies,\
+    \ such as a status indication of\n      a leap second in progress (TIME_OOP) when\
+    \ actually the leap second\n      had already expired.\n      The following state\
+    \ transitions are executed automatically by the\n      kernel:\n      any state\
+    \ -> TIME_ERR   This transition occurs when an external\n                    \
+    \          clock is present and an attempt is made to\n                      \
+    \        read it when in a non-operational\n                              condition.\n\
+    \      TIME_INS -> TIME_OOP    This transition occurs immediately\n          \
+    \                    following second 86,400 of the current day\n            \
+    \                  when an insert-second event has been\n                    \
+    \          declared.\n      TIME_OOP -> TIME_OK     This transition occurs immediately\n\
+    \                              following second 86,401 of the current\n      \
+    \                        day; that is, one second after entry to\n           \
+    \                   the TIME_OOP state.\n      TIME_DEL -> TIME_OK     This transition\
+    \ occurs immediately\n                              following second 86,399 of\
+    \ the current day\n                              when a delete-second event has\
+    \ been\n                              declared.\n      The following state transitions\
+    \ are executed by specific\n      ntp_adjtime() system calls:\n      TIME_OK ->\
+    \ TIME_INS     This transition occurs as the result of a\n                   \
+    \           ntp_adjtime() system call to declare an\n                        \
+    \      insert-second event.\n      TIME_OK -> TIME_DEL     This transition occurs\
+    \ as the result of a\n                              ntp_adjtime() system call\
+    \ to declare a\n                              delete-second event.\n      any\
+    \ state -> TIME_BAD   This transition occurs as the result of a\n            \
+    \                  ntp_adjtime() system call to declare loss\n               \
+    \               of all sources of synchronization or in\n                    \
+    \          other cases of error.\n      The following table summarizes the actions\
+    \ just before, during and\n      just after a leap-second event. Each line in\
+    \ the table shows the\n      UTC and NTP times at the beginning of the second.\
+    \ The left column\n      shows the behavior when no leap event is to occur. In\
+    \ the middle\n      column the state machine is in TIME_INS at the end of UTC\
+    \ second\n      23:59:59 and the NTP time has just reached 400. The NTP time is\n\
+    \      set back one second to 399 and the machine enters TIME_OOP. At the\n  \
+    \    end of the repeated second the machine enters TIME_OK and the UTC\n     \
+    \ and NTP times are again in correspondence. In the right column the\n      state\
+    \ machine is in TIME_DEL at the end of UTC second 23:59:58 and\n      the NTP\
+    \ time has just reached 399. The NTP time is incremented,\n      the machine enters\
+    \ TIME_OK and both UTC and NTP times are again in\n      correspondence.\n   \
+    \                No Leap       Leap Insert    Leap Delete\n                  \
+    \ UTC NTP         UTC NTP        UTC NTP\n              ---------------------------------------------\n\
+    \              23:59:58|398    23:59:58|398   23:59:58|398\n                 \
+    \     |               |              |\n              23:59:59|399    23:59:59|399\
+    \   00:00:00|400\n                      |               |              |\n   \
+    \           00:00:00|400    23:59:60|399   00:00:01|401\n                    \
+    \  |               |              |\n              00:00:01|401    00:00:00|400\
+    \   00:00:02|402\n                      |               |              |\n   \
+    \           00:00:02|402    00:00:01|401   00:00:03|403\n                    \
+    \  |               |              |\n      To determine local midnight without\
+    \ fuss, the kernel code simply\n      finds the residue of the time.tv_sec (or\
+    \ time.tv_sec + 1) value\n      mod 86,400, but this requires a messy divide.\
+    \ Probably a better\n      way to do this is to initialize an auxiliary counter\
+    \ in the\n      settimeofday() routine using an ugly divide and increment the\n\
+    \      counter at the same time the time.tv_sec is incremented in the\n      timer\
+    \ interrupt routine. For future embellishment.\n"
+- title: 4. Programming Model and Interfaces
+  contents:
+  - "4. Programming Model and Interfaces\n   This section describes the programming\
+    \ model for the synchronization\n   daemon and user application programs. The\
+    \ ideas are based on\n   suggestions from Jeff Mogul and Philip Gladstone and\
+    \ a similar\n   interface designed by the latter. It is important to point out\
+    \ that\n   the functionality of the original Unix adjtime() system call is\n \
+    \  preserved, so that the modified kernel will work as the unmodified\n   one,\
+    \ should the new features not be in use. In this case the\n   ntp_adjtime() system\
+    \ call can still be used to read and write kernel\n   variables that might be\
+    \ used by a synchronization daemon other than\n   NTP, for example.\n   4.1. The\
+    \ ntp_gettime() System Call\n      The syntax and semantics of the ntp_gettime()\
+    \ call are given in\n      the following fragment of the timex.h header file.\
+    \ This file is\n      identical, except for the SHIFT_HZ define, in the SunOS,\
+    \ Ultrix\n      and OSF/1 kernel distributions. (The SHIFT_HZ define represents\n\
+    \      the logarithm to the base 2 of the clock oscillator frequency\n      specific\
+    \ to each system type.) Note that the timex.h file calls\n      the syscall.h\
+    \ system header file, which must be modified to define\n      the SYS_ntp_gettime\
+    \ system call specific to each system type. The\n      kernel distributions include\
+    \ directions on how to do this.\n      /*\n       * This header file defines the\
+    \ Network Time Protocol (NTP)\n       * interfaces for user and daemon application\
+    \ programs. These are\n       * implemented using private system calls and data\
+    \ structures and\n       * require specific kernel support.\n       *\n      \
+    \ * NAME\n       *   ntp_gettime - NTP user application interface\n       *\n\
+    \       * SYNOPSIS\n       *   #include <sys/timex.h>\n       *\n       *   int\
+    \ system call(SYS_ntp_gettime, tptr)\n       *\n       *   int SYS_ntp_gettime\
+    \     defined in syscall.h header file\n       *   struct ntptimeval *tptr pointer\
+    \ to ntptimeval structure\n       *\n       * NTP user interface - used to read\
+    \ kernel clock values\n       * Note: maximum error = NTP synch distance = dispersion\
+    \ + delay /\n       * 2\n       * estimated error = NTP dispersion.\n       */\n\
+    \      struct ntptimeval {\n           struct timeval time;    /* current time\
+    \ */\n           long maxerror;          /* maximum error (us) */\n          \
+    \ long esterror;          /* estimated error (us) */\n      };\n      The ntp_gettime()\
+    \ system call returns three values in the\n      ntptimeval structure: the current\
+    \ time in unix timeval format plus\n      the maximum and estimated errors in\
+    \ microseconds. While the 32-bit\n      long data type limits the error quantities\
+    \ to something more than\n      an hour, in practice this is not significant,\
+    \ since the protocol\n      itself will declare an unsynchronized condition well\
+    \ below that\n      limit. In the NTP Version 3 specification, if the protocol\n\
+    \      computes either of these values in excess of 16 seconds, they are\n   \
+    \   clamped to that value and the system clock declared\n      unsynchronized.\n\
+    \      Following is a detailed description of the ntptimeval structure\n     \
+    \ members.\n      struct timeval time;    /* current time */\n         This member\
+    \ returns the current system time, expressed as a\n         Unix timeval structure.\
+    \ The timeval structure consists of two\n         32-bit words; the first returns\
+    \ the number of seconds past 1\n         January 1970, while the second returns\
+    \ the number of\n         microseconds.\n      long maxerror;          /* maximum\
+    \ error (us) */\n         This member returns the time_maxerror kernel variable\
+    \ in\n         microseconds. See the entry for this variable in section 5 for\n\
+    \         additional information.\n      long esterror;          /* estimated\
+    \ error (us) */\n         This member returns the time_esterror kernel variable\
+    \ in\n         microseconds. See the entry for this variable in section 5 for\n\
+    \         additional information.\n   4.2. The ntp_adjtime() System Call\n   \
+    \   The syntax and semantics of the ntp_adjtime() call are given in\n      the\
+    \ following fragment of the timex.h header file. Note that, as\n      in the ntp_gettime()\
+    \ system call, the syscall.h system header file\n      must be modified to define\
+    \ the SYS_ntp_adjtime system call\n      specific to each system type.\n     \
+    \ /*\n       * NAME\n       *   ntp_adjtime - NTP daemon application interface\n\
+    \       *\n       * SYNOPSIS\n       *   #include <sys/timex.h>\n       *\n  \
+    \     *   int system call(SYS_ntp_adjtime, mode, tptr)\n       *\n       *   int\
+    \ SYS_ntp_adjtime     defined in syscall.h header file\n       *   struct timex\
+    \ *tptr      pointer to timex structure\n       *\n       * NTP daemon interface\
+    \ - used to discipline kernel clock\n       * oscillator\n       */\n      struct\
+    \ timex {\n          int mode;                /* mode selector */\n          long\
+    \ offset;             /* time offset (us) */\n          long frequency;      \
+    \    /* frequency offset (scaled ppm) */\n          long maxerror;           /*\
+    \ maximum error (us) */\n          long esterror;           /* estimated error\
+    \ (us) */\n          int status;              /* clock command/status */\n   \
+    \       long time_constant;      /* pll time constant */\n          long precision;\
+    \          /* clock precision (us) (read only)\n                             \
+    \       */\n          long tolerance;          /* clock frequency tolerance (scaled\n\
+    \                                    * ppm) (read only) */\n          /*\n   \
+    \        * The following read-only structure members are implemented\n       \
+    \    * only if the PPS signal discipline is configured in the\n           * kernel.\n\
+    \           */\n          long ybar;               /* frequency estimate (scaled\
+    \ ppm) */\n          long disp;               /* dispersion estimate (scaled ppm)\n\
+    \                                    */\n          int shift;               /*\
+    \ interval duration (s) (shift) */\n          long calcnt;             /* calibration\
+    \ intervals */\n          long jitcnt;             /* jitter limit exceeded */\n\
+    \          long discnt;             /* dispersion limit exceeded */\n      };\n\
+    \      The ntp_adjtime() system call is used to read and write certain\n     \
+    \ time-related kernel variables summarized in this and subsequent\n      sections.\
+    \ Writing these variables can only be done in superuser\n      mode. To write\
+    \ a variable, the mode structure member is set with\n      one or more bits, one\
+    \ of which is assigned each of the following\n      variables in turn. The current\
+    \ values for all variables are\n      returned in any case; therefore, a mode\
+    \ argument of zero means to\n      return these values without changing anything.\n\
+    \      Following is a description of the timex structure members.\n      int mode;\
+    \               /* mode selector */\n         This is a bit-coded variable selecting\
+    \ one or more structure\n         members, with one bit assigned each member.\
+    \ If a bit is set,\n         the value of the associated member variable is copied\
+    \ to the\n         corresponding kernel variable; if not, the member is ignored.\n\
+    \         The bits are assigned as given in the following fragment of the\n  \
+    \       timex.h header file. Note that the precision and tolerance are\n     \
+    \    determined by the kernel and cannot be changed by\n         ntp_adjtime().\n\
+    \         /*\n          * Mode codes (timex.mode)\n          */\n         #define\
+    \ ADJ_OFFSET       0x0001    /* time offset */\n         #define ADJ_FREQUENCY\
+    \    0x0002    /* frequency offset */\n         #define ADJ_MAXERROR     0x0004\
+    \    /* maximum time error */\n         #define ADJ_ESTERROR     0x0008    /*\
+    \ estimated time error */\n         #define ADJ_STATUS       0x0010    /* clock\
+    \ status */\n         #define ADJ_TIMECONST    0x0020    /* pll time constant\
+    \ */\n      long offset;            /* time offset (us) */\n         If selected,\
+    \ this member replaces the value of the time_offset\n         kernel variable\
+    \ in microseconds. The absolute value must be\n         less than MAXPHASE microseconds\
+    \ defined in the timex.h header\n         file. See the entry for this variable\
+    \ in section 5 for\n         additional information.\n         If within range\
+    \ and the PPS signal and/or external oscillator\n         are configured and operating\
+    \ properly, the clock status is\n         automatically set to TIME_OK.\n    \
+    \  long time_constant;     /* pll time constant */\n         If selected, this\
+    \ member replaces the value of the\n         time_constant kernel variable. The\
+    \ value must be between zero\n         and MAXTC defined in the timex.h header\
+    \ file. See the entry for\n         this variable in section 5 for additional\
+    \ information.\n      long frequency;         /* frequency offset (scaled ppm)\
+    \ */\n         If selected, this member replaces the value of the\n         time_frequency\
+    \ kernel variable. The value is in ppm, with the\n         integer part in the\
+    \ high order 16 bits and fraction in the low\n         order 16 bits. The absolute\
+    \ value must be in the range less\n         than MAXFREQ ppm defined in the timex.h\
+    \ header file. See the\n         entry for this variable in section 5 for additional\n\
+    \         information.\n      long maxerror;          /* maximum error (us) */\n\
+    \         If selected, this member replaces the value of the\n         time_maxerror\
+    \ kernel variable in microseconds. See the entry\n         for this variable in\
+    \ section 5 for additional information.\n      long esterror;          /* estimated\
+    \ error (us) */\n         If selected, this member replaces the value of the\n\
+    \         time_esterror kernel variable in microseconds. See the entry\n     \
+    \    for this variable in section 5 for additional information.\n      int status;\
+    \             /* clock command/status */\n         If selected, this member replaces\
+    \ the value of the time_status\n         kernel variable. See the entry for this\
+    \ variable in section 5\n         for additional information.\n         In order\
+    \ to set this variable by ntp_adjtime(), either (a) the\n         current clock\
+    \ status must be TIME_OK or (b) the member value is\n         TIME_BAD; that is,\
+    \ the ntp_adjtime() call can always set the\n         clock to the unsynchronized\
+    \ state or, if the clock is running\n         correctly, can set it to any state.\
+    \ In any case, the\n         ntp_adjtime() call always returns the current state\
+    \ in this\n         member, so the caller can determine whether or not the request\n\
+    \         succeeded.\n      long time_constant;     /* pll time constant */\n\
+    \         If selected, this member replaces the value of the\n         time_constant\
+    \ kernel variable. The value must be between zero\n         and MAXTC defined\
+    \ in the timex.h header file. See the entry for\n         this variable in section\
+    \ 5 for additional information.\n      long precision;         /* clock precision\
+    \ (us) (read only) */\n         This member returns the time_precision kernel\
+    \ variable in\n         microseconds. The variable can be written only by the\
+    \ kernel.\n         See the entry for this variable in section 5 for additional\n\
+    \         information.\n      long tolerance;         /* clock frequency tolerance\
+    \ (scaled ppm)\n                               */\n         This member returns\
+    \ the time_tolerance kernel variable in\n         microseconds. The variable can\
+    \ be written only by the kernel.\n         See the entry for this variable in\
+    \ section 5 for additional\n         information.\n      long ybar;          \
+    \    /* frequency estimate (scaled ppm) */\n         This member returns the pps_ybar\
+    \ kernel variable in\n         microseconds. The variable can be written only\
+    \ by the kernel.\n         See the entry for this variable in section 5 for additional\n\
+    \         information.\n      long disp;              /* dispersion estimate (scaled\
+    \ ppm) */\n         This member returns the pps_disp kernel variable in\n    \
+    \     microseconds. The variable can be written only by the kernel.\n        \
+    \ See the entry for this variable in section 5 for additional\n         information.\n\
+    \      int shift;              /* interval duration (s) (shift) */\n         This\
+    \ member returns the pps_shift kernel variable in\n         microseconds. The\
+    \ variable can be written only by the kernel.\n         See the entry for this\
+    \ variable in section 5 for additional\n         information.\n      long calcnt;\
+    \            /* calibration intervals */\n         This member returns the pps_calcnt\
+    \ kernel variable in\n         microseconds. The variable can be written only\
+    \ by the kernel.\n         See the entry for this variable in section 5 for additional\n\
+    \         information.\n      long jitcnt;            /* jitter limit exceeded\
+    \ */\n         This member returns the pps_jittcnt kernel variable in\n      \
+    \   microseconds. The variable can be written only by the kernel.\n         See\
+    \ the entry for this variable in section 5 for additional\n         information.\n\
+    \      long discnt;            /* dispersion limit exceeded */\n         This\
+    \ member returns the pps_discnt kernel variable in\n         microseconds. The\
+    \ variable can be written only by the kernel.\n         See the entry for this\
+    \ variable in section 5 for additional\n         information.\n   4.3. Command/Status\
+    \ Codes\n      The kernel routines use the system clock status variable\n    \
+    \  time_status, which records whether the clock is synchronized,\n      waiting\
+    \ for a leap second, etc. The value of this variable is\n      returned as the\
+    \ result code by both the ntp_gettime() and\n      ntp_adjtime() system calls.\
+    \ In addition, it can be explicitly read\n      and written using the ntp_adjtime()\
+    \ system call, but can be\n      written only in superuser mode. Values presently\
+    \ defined in the\n      timex.h header file are as follows:\n      /*\n      \
+    \ * Clock command/status codes (timex.status)\n       */\n      #define TIME_OK\
+    \    0    /* clock synchronized */\n      #define TIME_INS   1    /* insert leap\
+    \ second */\n      #define TIME_DEL   2    /* delete leap second */\n      #define\
+    \ TIME_OOP   3    /* leap second in progress */\n      #define TIME_BAD   4  \
+    \  /* kernel clock not synchronized */\n      #define TIME_ERR   5    /* external\
+    \ oscillator not\n                                 synchronized */\n      A detailed\
+    \ description of these codes as used by the leap-second\n      state machine is\
+    \ given later in this memorandum. In case of a\n      negative result code, the\
+    \ kernel has intercepted an invalid\n      address or (in case of the ntp_adjtime()\
+    \ system call), a superuser\n      violation.\n"
+- title: 5. Kernel Variables
+  contents:
+  - "5. Kernel Variables\n   This section contains a list of kernel variables and\
+    \ a detailed\n   description of their function, initial value, scaling and limits.\n\
+    \   5.1. Interface Variables\n      The following variables are read and set by\
+    \ the ntp_adjtime()\n      system call. Additional automatic variables are used\
+    \ as\n      temporaries as described in the code fragments.\n      int time_status\
+    \ = TIME_BAD;\n         This variable controls the state machine used to insert\
+    \ or\n         delete leap seconds and show the status of the timekeeping\n  \
+    \       system, PPS signal and external oscillator, if configured.\n      long\
+    \ time_offset = 0;\n         This variable is used by the PLL to adjust the system\
+    \ time in\n         small increments. It is scaled by (1 << SHIFT_UPDATE) (12)\
+    \ in\n         microseconds. The maximum value that can be represented is\n  \
+    \       about +-512 ms and the minimum value or precision is a few\n         parts\
+    \ in 10^10 s.\n      long time_constant = 0;      /* pll time constant */\n  \
+    \       This variable determines the bandwidth or \"stiffness\" of the\n     \
+    \    PLL. The value is used as a shift between zero and MAXTC (6),\n         with\
+    \ the effective PLL time constant equal to a multiple of (1\n         << time_constant)\
+    \ in seconds. For room-temperature quartz\n         oscillator the recommended\
+    \ default value is 2, which\n         corresponds to a PLL time constant of about\
+    \ 900 s and a maximum\n         update interval of about 64 s. The maximum update\
+    \ interval\n         scales directly with the time constant, so that at the maximum\n\
+    \         time constant of 6, the update interval can be as large as 1024\n  \
+    \       s.\n         Values of time_constant between zero and 2 can be used if\
+    \ quick\n         convergence is necessary; values between 2 and 6 can be used\
+    \ to\n         reduce network load, but at a modest cost in accuracy. Values\n\
+    \         above 6 are appropriate only if an external oscillator is\n        \
+    \ present.\n      long time_tolerance = MAXFREQ; /* frequency tolerance (ppm)\
+    \ */\n         This variable represents the maximum frequency error or\n     \
+    \    tolerance in ppm of the particular CPU clock oscillator and is\n        \
+    \ a property of the architecture; however, in principle it could\n         change\
+    \ as result of the presence of external discipline\n         signals, for instance.\
+    \ It is expressed as a positive number\n         greater than zero in parts-per-million\
+    \ (ppm).\n         The recommended value of MAXFREQ is 200 ppm is appropriate\
+    \ for\n         room-temperature quartz oscillators used in typical\n        \
+    \ workstations. However, it can change due to the operating\n         condition\
+    \ of the PPS signal and/or external oscillator. With\n         either the PPS\
+    \ signal or external oscillator, the recommended\n         value for MAXFREQ is\
+    \ 100 ppm.\n      long time_precision = 1000000 / HZ; /* clock precision (us)\
+    \ */\n         This variable represents the maximum error in reading the\n   \
+    \      system clock in microseconds. It is usually based on the number\n     \
+    \    of microseconds between timer interrupts, 10000 us for the\n         SunOS\
+    \ kernel, 3906 us for the Ultrix kernel, 976 us for the\n         OSF/1 kernel.\
+    \ However, in cases where the time can be\n         interpolated between timer\
+    \ interrupts with microsecond\n         resolution, such as in the unmodified\
+    \ SunOS kernel and modified\n         Ultrix and OSF/1 kernels, the precision\
+    \ is specified as 1 us.\n         In cases where a PPS signal or external oscillator\
+    \ is\n         available, the precision can depend on the operating condition\n\
+    \         of the signal or oscillator. This variable is determined by the\n  \
+    \       kernel for use by the synchronization daemon, but is otherwise\n     \
+    \    not used by the kernel.\n      long time_maxerror = MAXPHASE; /* maximum\
+    \ error */\n         This variable establishes the maximum error of the indicated\n\
+    \         time relative to the primary synchronization source in\n         microseconds.\
+    \ For NTP, the value is initialized by a\n         ntp_adjtime() call to the synchronization\
+    \ distance, which is\n         equal to the root dispersion plus one-half the\
+    \ root delay. It\n         is increased by a small amount (time_tolerance) each\
+    \ second to\n         reflect the clock frequency tolerance. This variable is\n\
+    \         computed by the synchronization daemon and the kernel, but is\n    \
+    \     otherwise not used by the kernel.\n      long time_esterror = MAXPHASE;\
+    \ /* estimated error */\n         This variable establishes the expected error\
+    \ of the indicated\n         time relative to the primary synchronization source\
+    \ in\n         microseconds. For NTP, the value is determined as the root\n  \
+    \       dispersion, which represents the best estimate of the actual\n       \
+    \  error of the system clock based on its past behavior, together\n         with\
+    \ observations of multiple clocks within the peer group.\n         This variable\
+    \ is computed by the synchronization daemon and\n         returned in system calls,\
+    \ but is otherwise not used by the\n         kernel.\n   5.2. Phase-Lock Loop\
+    \ Variables\n      The following variables establish the state of the PLL and\
+    \ the\n      residual time and frequency offset of the system clock. Additional\n\
+    \      automatic variables are used as temporaries as described in the\n     \
+    \ code fragments.\n      long time_phase = 0;         /* phase offset (scaled\
+    \ us) */\n         The time_phase variable represents the phase of the kernel\
+    \ time\n         variable at each tick of the clock. This variable is scaled by\n\
+    \         (1 << SHIFT_SCALE) (23) in microseconds, giving a maximum\n        \
+    \ adjustment of about +-256 us/tick and a resolution less than\n         one part\
+    \ in 10^12.\n      long time_offset = 0;        /* time offset (scaled us) */\n\
+    \         The time_offset variable represents the time offset of the CPU\n   \
+    \      clock oscillator. It is recalculated as each update to the\n         system\
+    \ clock is received via the hardupdate() routine and at\n         each second\
+    \ in the seconds_overflow routine. This variable is\n         scaled by (1 <<\
+    \ SHIFT_UPDATE) (12) in microseconds, giving a\n         maximum adjustment of\
+    \ about +-512 ms and a resolution of a few\n         parts in 10^10 s.\n     \
+    \ long time_freq = 0;          /* frequency offset (scaled ppm) */\n         The\
+    \ time_freq variable represents the frequency offset of the\n         CPU clock\
+    \ oscillator. It is recalculated as each update to the\n         system clock\
+    \ is received via the hardupdate() routine. It can\n         also be set via ntp_adjtime()\
+    \ from a value stored in a file\n         when the synchronization daemon is first\
+    \ started. It can be\n         retrieved via ntp_adjtime() and written to the\
+    \ file about once\n         per hour by the daemon. The time_freq variable is\
+    \ scaled by (1\n         << SHIFT_KF) (16) ppm, giving it a maximum value well\
+    \ in excess\n         of the limit of +-256 ppm imposed by other constraints.\
+    \ The\n         precision of this representation (frequency resolution) is\n \
+    \        parts in 10^11, which is adequate for all but the best external\n   \
+    \      oscillators.\n      time_adj = 0;                /* tick adjust (scaled\
+    \ 1 / HZ) */\n         The time_adj variable is the adjustment added to the value\
+    \ of\n         tick at each timer interrupt. It is computed once each second\n\
+    \         from the time_offset, time_freq and, if the PPS signal is\n        \
+    \ present, the ps_ybar variable once each second.\n      long time_reftime = 0;\
+    \       /* time at last adjustment (s) */\n         This variable is the seconds\
+    \ portion of the system time on the\n         last update received by the hardupdate()\
+    \ routine. It is used to\n         compute the time_freq variable as the time\
+    \ since the last\n         update increases.\n      int fixtick = 1000000 % HZ;\
+    \  /* amortization factor */\n         In the Ultrix and OSF/1 kernels, the interval\
+    \ between timer\n         interrupts does not evenly divide the number of microseconds\
+    \ in\n         the second. In order that the clock runs at a precise rate, it\n\
+    \         is necessary to introduce an amortization factor into the local\n  \
+    \       timescale. In the original Unix code, the value of fixtick is\n      \
+    \   amortized once each second, introducing an additional source of\n        \
+    \ jitter; in the new model the value is amortized at each tick of\n         the\
+    \ system clock, reducing the jitter by the reciprocal of the\n         clock oscillator\
+    \ frequency. This is not a new kernel variable,\n         but a new use of an\
+    \ existing kernel variable.\n   5.3. Pulse-per-second (PPS) Frequency-Lock Loop\
+    \ Variables\n      The following variables are used only if a pulse-per-second\
+    \ (PPS)\n      signal is available and connected via a modem-control lead, such\n\
+    \      as produced by the optional ppsclock feature incorporated in the\n    \
+    \  serial port driver. They establish the design parameters of the\n      PPS\
+    \ frequency-lock loop used to discipline the CPU clock\n      oscillator to an\
+    \ external PPS signal. Additional automatic\n      variables are used as temporaries\
+    \ as described in the code\n      fragments.\n      long pps_usec;          /*\
+    \ microseconds at last pps */\n         The pps_usec variable is latched from\
+    \ a high resolution counter\n         or external oscillator at each PPS interrupt.\
+    \ In determining\n         this value, only the hardware counter contents are\
+    \ used, not\n         the contents plus the kernel time variable, as returned\
+    \ by the\n         microtime() routine.\n      long pps_ybar = 0;      /* pps\
+    \ frequency offset estimate */\n         The pps_ybar variable is the average\
+    \ CPU clock oscillator\n         frequency offset relative to the PPS disciplining\
+    \ signal. It is\n         scaled in the same units as the time_freq variable.\n\
+    \      pps_disp = MAXFREQ;     /* dispersion estimate (scaled ppm) */\n      \
+    \   The pps_disp variable represents the average sample dispersion\n         measured\
+    \ over the last three samples. It is scaled in the same\n         units as the\
+    \ time_freq variable.\n      pps_dispmax = MAXFREQ / 2; /* dispersion threshold\
+    \ */\n         The pps_dispmax variable is used as a dispersion threshold. If\n\
+    \         pps_disp is less than this threshold, the median sample is used\n  \
+    \       to update the pps_ybar estimate; if not, the sample is\n         discarded.\n\
+    \      pps_dispinc = MAXFREQ >> (PPS_SHIFT + 4); /* pps dispersion\n      increment/sec\
+    \ */\n         The pps_dispinc variable is the increment to add to pps_disp\n\
+    \         once each second. It is computed such that, if no PPS samples\n    \
+    \     have arrived for several calibration intervals, the value of\n         pps_disp\
+    \ will exceed the pps_dispmax threshold and raise an\n         alarm.\n      int\
+    \ pps_mf[] = {0, 0, 0};    /* pps median filter */\n         The pps-mf[] array\
+    \ is used as a median filter to detect and\n         discard jitter in the PPS\
+    \ signal.\n      int pps_count = 0;           /* pps calibrate interval counter\
+    \ */\n         The pps_count variable measures the length of the calibration\n\
+    \         interval used to calculate the frequency. It normally counts\n     \
+    \    from zero to the value 1 << pps_shift.\n      pps_shift = PPS_SHIFT;    \
+    \   /* interval duration (s) (shift) */\n         The pps_shift variable determines\
+    \ the duration of the\n         calibration interval, 1 << pps_shift s.\n    \
+    \  pps_intcnt = 0;              /* intervals at current duration */\n        \
+    \ The pps_intcnt variable counts the number of calibration\n         intervals\
+    \ at the current interval duration. It is reset to zero\n         after four intervals\
+    \ and when the interval duration is changed.\n      long pps_calcnt = 0;     \
+    \    /* calibration intervals */\n         The pps_calcnt variable counts the\
+    \ number of calibration\n         intervals.\n      long pps_jitcnt = 0;     \
+    \    /* jitter limit exceeded */\n         The pps_jitcnt variable counts the\
+    \ number of resets due to\n         excessive jitter or frequency offset. These\
+    \ resets are\n         usually due to excessive noise in the PPS signal or\n \
+    \        interface.\n      long pps_discnt = 0;         /* dispersion limit exceeded\
+    \ */\n         The pps_discnt variable counts the number of calibration\n    \
+    \     intervals where the dispersion is above the pps_dispmax\n         limit.\
+    \  These resets are usually due to excessive frequency\n         wander in the\
+    \ PPS signal source.\n   5.4. External Oscillator Variables\n      The following\
+    \ variables are used only if an external oscillator\n      (HIGHBALL or TPRO)\
+    \ is present. Additional automatic variables are\n      used as temporaries as\
+    \ described in the code fragments.\n      int clock_count = 0;         /* CPU\
+    \ clock counter */\n         The clock_count variable counts the seconds between\
+    \ adjustments\n         to the kernel time variable to discipline it to the external\n\
+    \         clock.\n      struct timeval clock_offset; /* HIGHBALL clock offset\
+    \ */\n         The clock_offset variable defines the offset between system\n \
+    \        time and the HIGHBALL counters.\n      long clock_cpu = 0;          /*\
+    \ CPU clock adjust */\n         The clock_cpu variable contains the offset between\
+    \ the system\n         clock and the HIGHBALL clock for use in disciplining the\
+    \ kernel\n         time variable.\n"
+- title: 6. Architecture Constants
+  contents:
+  - "6. Architecture Constants\n   Following is a list of the important architecture\
+    \ constants that\n   establish the response and stability of the PLL and provide\
+    \ maximum\n   bounds on behavior in order to satisfy correctness assertions made\
+    \ in\n   the protocol specification. Additional definitions are given in the\n\
+    \   timex.h header file.\n   6.1. Phase-lock loop (PLL) definitions\n      The\
+    \ following defines establish the performance envelope of the\n      PLL. They\
+    \ establish the maximum phase error (MAXPHASE), maximum\n      frequency error\
+    \ (MAXFREQ), minimum interval between updates\n      (MINSEC) and maximum interval\
+    \ between updates (MAXSEC). The intent\n      of these bounds is to force the\
+    \ PLL to operate within predefined\n      limits in order to satisfy correctness\
+    \ assertions of the\n      synchronization protocol. An excursion which exceeds\
+    \ these bounds\n      is clamped to the bound and operation proceeds normally.\
+    \ In\n      practice, this can occur only if something has failed or is\n    \
+    \  operating out of tolerance, but otherwise the PLL continues to\n      operate\
+    \ in a stable mode.\n      MAXPHASE must be set greater than or equal to CLOCK.MAX\
+    \ (128 ms),\n      as defined in the NTP specification. CLOCK.MAX establishes\
+    \ the\n      maximum time offset allowed before the system time is reset,\n  \
+    \    rather than incrementally adjusted. Here, the maximum offset is\n      clamped\
+    \ to MAXPHASE only in order to prevent overflow errors due\n      to defective\
+    \ programming.\n      MAXFREQ reflects the manufacturing frequency tolerance of\
+    \ the CPU\n      oscillator plus the maximum slew rate allowed by the protocol.\
+    \ It\n      should be set to at least the intrinsic frequency tolerance of the\n\
+    \      oscillator plus 100 ppm for vernier frequency adjustments. If the\n   \
+    \   kernel frequency discipline code is installed (PPS_SYNC), the CPU\n      oscillator\
+    \ frequency is disciplined to an external source,\n      presumably with negligible\
+    \ frequency error.\n      #define MAXPHASE 512000      /* max phase error (us)\
+    \ */\n      #ifdef PPS_SYNC\n      #define MAXFREQ 100          /* max frequency\
+    \ error (ppm) */\n      #else\n      #define MAXFREQ 200          /* max frequency\
+    \ error (ppm) */\n      #endif /* PPS_SYNC */\n      #define MINSEC 16       \
+    \     /* min interval between updates (s)\n                                  \
+    \  */\n      #define MAXSEC 1200          /* max interval between updates (s)\n\
+    \                                    */\n   6.2. Pulse-per-second (PPS) Frequency-lock\
+    \ Loop (FLL) Definitions\n      The following defines and declarations are used\
+    \ only if a pulse-\n      per-second (PPS) signal is available and connected via\
+    \ a modem-\n      control lead, such as produced by the optional ppsclock feature\n\
+    \      incorporated in the serial port driver. They establish the design\n   \
+    \   parameters of the frequency-lock loop (FLL) used to discipline the\n     \
+    \ CPU clock oscillator to the PPS oscillator.\n      PPS_AVG is the averaging\
+    \ constant used to update the FLL from\n      frequency samples measured for each\
+    \ calibration interval.\n      PPS_SHIFT and PPS_SHIFTMAX are the minimum and\
+    \ maximem,\n      respectively, of the calibration interval represented as a power\n\
+    \      of two. The PPS_DISPINC is the initial increment to pps_disp at\n     \
+    \ each second.\n      #define PPS_AVG 2            /* pps averaging constant (shift)\
+    \ */\n      #define PPS_SHIFT 2          /* min interval duration (s) (shift)\n\
+    \                                    */\n      #define PPS_SHIFTMAX 6       /*\
+    \ max interval duration (s) (shift)\n                                    */\n\
+    \      #define PPS_DISPINC 0        /* dispersion increment (us/s) */\n   6.3.\
+    \ External Oscillator Definitions\n      The following definitions and declarations\
+    \ are used only if an\n      external oscillator (HIGHBALL or TPRO) is configured\
+    \ on the\n      system.\n      #define CLOCK_INTERVAL 30    /* CPU clock update\
+    \ interval (s) */\n"
+- title: 7. References
+  contents:
+  - "7. References\n   [1] Mills, D., \"Internet time synchronization: the Network\
+    \ Time\n       Protocol\", IEEE Trans. Communications COM-39, 10 (October 1991),\n\
+    \       1482- 1493. Also in: Yang, Z., and T.A. Marsland (Eds.). Global\n    \
+    \   States and Time in Distributed Systems, IEEE Press, Los Alamitos,\n      \
+    \ CA, 91-102.\n   [2] Mills, D., \"Network Time Protocol (Version 3) specification,\n\
+    \       implementation and analysis\", RFC 1305, University of Delaware,\n   \
+    \    March 1992, 113 pp.\n   [3] Mills, D., \"Modelling and analysis of computer\
+    \ network clocks\",\n       Electrical Engineering Department Report 92-5-2, University\
+    \ of\n       Delaware, May 1992, 29 pp.\n   [4] Mills, D., \"Simple Network Time\
+    \ Protocol (SNTP)\", RFC 1361,\n       University of Delaware, August 1992, 10\
+    \ pp.\n   [5] Mills, D., \"Precision synchronizatin of computer network clocks\"\
+    ,\n       Electrical Engineering Department Report 93-11-1, University of\n  \
+    \     Delaware, November 1993, 66 pp.\n"
+- title: Security Considerations
+  contents:
+  - "Security Considerations\n   Security issues are not discussed in this memo.\n"
+- title: Author's Address
+  contents:
+  - "Author's Address\n   David L. Mills\n   Electrical Engineering Department\n \
+    \  University of Delaware\n   Newark, DE 19716\n   Phone: (302) 831-8247\n   EMail:\
+    \ mills@udel.edu\n"

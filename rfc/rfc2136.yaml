@@ -1,0 +1,695 @@
+- title: __initial_text__
+  contents:
+  - '         Dynamic Updates in the Domain Name System (DNS UPDATE)
+
+    '
+- title: Status of this Memo
+  contents:
+  - "Status of this Memo\n   This document specifies an Internet standards track protocol\
+    \ for the\n   Internet community, and requests discussion and suggestions for\n\
+    \   improvements.  Please refer to the current edition of the \"Internet\n   Official\
+    \ Protocol Standards\" (STD 1) for the standardization state\n   and status of\
+    \ this protocol.  Distribution of this memo is unlimited.\n"
+- title: Abstract
+  contents:
+  - "Abstract\n   The Domain Name System was originally designed to support queries\
+    \ of\n   a statically configured database.  While the data was expected to\n \
+    \  change, the frequency of those changes was expected to be fairly low,\n   and\
+    \ all updates were made as external edits to a zone's Master File.\n   Using this\
+    \ specification of the UPDATE opcode, it is possible to add\n   or delete RRs\
+    \ or RRsets from a specified zone.  Prerequisites are\n   specified separately\
+    \ from update operations, and can specify a\n   dependency upon either the previous\
+    \ existence or nonexistence of an\n   RRset, or the existence of a single RR.\n\
+    \   UPDATE is atomic, i.e., all prerequisites must be satisfied or else\n   no\
+    \ update operations will take place.  There are no data dependent\n   error conditions\
+    \ defined after the prerequisites have been met.\n"
+- title: 1 - Definitions
+  contents:
+  - "1 - Definitions\n   This document intentionally gives more definition to the\
+    \ roles of\n   \"Master,\" \"Slave,\" and \"Primary Master\" servers, and their\n\
+    \   enumeration in NS RRs, and the SOA MNAME field.  In that sense, the\n   following\
+    \ server type definitions can be considered an addendum to\n   [RFC1035], and\
+    \ are intended to be consistent with [RFC1996]:\n      Slave           an authoritative\
+    \ server that uses AXFR or IXFR to\n                      retrieve the zone and\
+    \ is named in the zone's NS\n                      RRset.\n      Master      \
+    \    an authoritative server configured to be the\n                      source\
+    \ of AXFR or IXFR data for one or more slave\n                      servers.\n\
+    \      Primary Master  master server at the root of the AXFR/IXFR\n          \
+    \            dependency graph.  The primary master is named in\n             \
+    \         the zone's SOA MNAME field and optionally by an NS\n               \
+    \       RR.  There is by definition only one primary master\n                \
+    \      server per zone.\n   A domain name identifies a node within the domain\
+    \ name space tree\n   structure.  Each node has a set (possibly empty) of Resource\
+    \ Records\n   (RRs).  All RRs having the same NAME, CLASS and TYPE are called\
+    \ a\n   Resource Record Set (RRset).\n   The pseudocode used in this document\
+    \ is for example purposes only.\n   If it is found to disagree with the text,\
+    \ the text shall be\n   considered authoritative.  If the text is found to be\
+    \ ambiguous, the\n   pseudocode can be used to help resolve the ambiguity.\n \
+    \  1.1 - Comparison Rules\n   1.1.1. Two RRs are considered equal if their NAME,\
+    \ CLASS, TYPE,\n   RDLENGTH and RDATA fields are equal.  Note that the time-to-live\n\
+    \   (TTL) field is explicitly excluded from the comparison.\n   1.1.2. The rules\
+    \ for comparison of character strings in names are\n   specified in [RFC1035 2.3.3].\n\
+    \   1.1.3. Wildcarding is disabled.  That is, a wildcard (\"*\") in an\n   update\
+    \ only matches a wildcard (\"*\") in the zone, and vice versa.\n   1.1.4. Aliasing\
+    \ is disabled: A CNAME in the zone matches a CNAME in\n   the update, and will\
+    \ not otherwise be followed.  All UPDATE\n   operations are done on the basis\
+    \ of canonical names.\n   1.1.5. The following RR types cannot be appended to\
+    \ an RRset.  If the\n   following comparison rules are met, then an attempt to\
+    \ add the new RR\n   will result in the replacement of the previous RR:\n    \
+    \  SOA    compare only NAME, CLASS and TYPE -- it is not possible to\n       \
+    \      have more than one SOA per zone, even if any of the data\n            \
+    \ fields differ.\n      WKS    compare only NAME, CLASS, TYPE, ADDRESS, and PROTOCOL\n\
+    \             -- only one WKS RR is possible for this tuple, even if the\n   \
+    \          services masks differ.\n      CNAME  compare only NAME, CLASS, and\
+    \ TYPE -- it is not possible\n             to have more than one CNAME RR, even\
+    \ if their data fields\n             differ.\n   1.2 - Glue RRs\n   For the purpose\
+    \ of determining whether a domain name used in the\n   UPDATE protocol is contained\
+    \ within a specified zone, a domain name\n   is \"in\" a zone if it is owned by\
+    \ that zone's domain name.  See\n   section 7.18 for details.\n   1.3 - New Assigned\
+    \ Numbers\n      CLASS = NONE (254)\n      RCODE = YXDOMAIN (6)\n      RCODE =\
+    \ YXRRSET (7)\n      RCODE = NXRRSET (8)\n      RCODE = NOTAUTH (9)\n      RCODE\
+    \ = NOTZONE (10)\n      Opcode = UPDATE (5)\n"
+- title: 2 - Update Message Format
+  contents:
+  - "2 - Update Message Format\n   The DNS Message Format is defined by [RFC1035 4.1].\
+    \  Some extensions\n   are necessary (for example, more error codes are possible\
+    \ under\n   UPDATE than under QUERY) and some fields must be overloaded (see\n\
+    \   description of CLASS fields below).\n   The overall format of an UPDATE message\
+    \ is, following [ibid]:\n      +---------------------+\n      |        Header\
+    \       |\n      +---------------------+\n      |         Zone        | specifies\
+    \ the zone to be updated\n      +---------------------+\n      |     Prerequisite\
+    \    | RRs or RRsets which must (not) preexist\n      +---------------------+\n\
+    \      |        Update       | RRs or RRsets to be added or deleted\n      +---------------------+\n\
+    \      |   Additional Data   | additional data\n      +---------------------+\n\
+    \   The Header Section specifies that this message is an UPDATE, and\n   describes\
+    \ the size of the other sections.  The Zone Section names the\n   zone that is\
+    \ to be updated by this message.  The Prerequisite Section\n   specifies the starting\
+    \ invariants (in terms of zone content) required\n   for this update.  The Update\
+    \ Section contains the edits to be made,\n   and the Additional Data Section contains\
+    \ data which may be necessary\n   to complete, but is not part of, this update.\n\
+    \   2.1 - Transport Issues\n   An update transaction may be carried in a UDP datagram,\
+    \ if the\n   request fits, or in a TCP connection (at the discretion of the\n\
+    \   requestor).  When TCP is used, the message is in the format described\n  \
+    \ in [RFC1035 4.2.2].\n   2.2 - Message Header\n   The header of the DNS Message\
+    \ Format is defined by [RFC 1035 4.1].\n   Not all opcodes define the same set\
+    \ of flag bits, though as a\n   practical matter most of the bits defined for\
+    \ QUERY (in [ibid]) are\n   identically defined by the other opcodes.  UPDATE\
+    \ uses only one flag\n   bit (QR).\n   The DNS Message Format specifies record\
+    \ counts for its four sections\n   (Question, Answer, Authority, and Additional).\
+    \  UPDATE uses the same\n   fields, and the same section formats, but the naming\
+    \ and use of these\n   sections differs as shown in the following modified header,\
+    \ after\n   [RFC1035 4.1.1]:\n                                      1  1  1  1\
+    \  1  1\n        0  1  2  3  4  5  6  7  8  9  0  1  2  3  4  5\n      +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+\n\
+    \      |                      ID                       |\n      +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+\n\
+    \      |QR|   Opcode  |          Z         |   RCODE   |\n      +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+\n\
+    \      |                    ZOCOUNT                    |\n      +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+\n\
+    \      |                    PRCOUNT                    |\n      +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+\n\
+    \      |                    UPCOUNT                    |\n      +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+\n\
+    \      |                    ADCOUNT                    |\n      +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+\n\
+    \   These fields are used as follows:\n   ID      A 16-bit identifier assigned\
+    \ by the entity that generates any\n           kind of request.  This identifier\
+    \ is copied in the\n           corresponding reply and can be used by the requestor\
+    \ to match\n           replies to outstanding requests, or by the server to detect\n\
+    \           duplicated requests from some requestor.\n   QR      A one bit field\
+    \ that specifies whether this message is a\n           request (0), or a response\
+    \ (1).\n   Opcode  A four bit field that specifies the kind of request in this\n\
+    \           message.  This value is set by the originator of a request\n     \
+    \      and copied into the response.  The Opcode value that\n           identifies\
+    \ an UPDATE message is five (5).\n   Z       Reserved for future use.  Should\
+    \ be zero (0) in all requests\n           and responses.  A non-zero Z field should\
+    \ be ignored by\n           implementations of this specification.\n   RCODE \
+    \  Response code - this four bit field is undefined in requests\n           and\
+    \ set in responses.  The values and meanings of this field\n           within\
+    \ responses are as follows:\n              Mneumonic   Value   Description\n \
+    \             ------------------------------------------------------------\n \
+    \             NOERROR     0       No error condition.\n              FORMERR \
+    \    1       The name server was unable to interpret\n                       \
+    \           the request due to a format error.\n              SERVFAIL    2  \
+    \     The name server encountered an internal\n                              \
+    \    failure while processing this request,\n                                \
+    \  for example an operating system error\n                                  or\
+    \ a forwarding timeout.\n              NXDOMAIN    3       Some name that ought\
+    \ to exist,\n                                  does not exist.\n             \
+    \ NOTIMP      4       The name server does not support\n                     \
+    \             the specified Opcode.\n              REFUSED     5       The name\
+    \ server refuses to perform the\n                                  specified operation\
+    \ for policy or\n                                  security reasons.\n       \
+    \       YXDOMAIN    6       Some name that ought not to exist,\n             \
+    \                     does exist.\n              YXRRSET     7       Some RRset\
+    \ that ought not to exist,\n                                  does exist.\n  \
+    \            NXRRSET     8       Some RRset that ought to exist,\n           \
+    \                       does not exist.\n              NOTAUTH     9       The\
+    \ server is not authoritative for\n                                  the zone\
+    \ named in the Zone Section.\n              NOTZONE     10      A name used in\
+    \ the Prerequisite or\n                                  Update Section is not\
+    \ within the\n                                  zone denoted by the Zone Section.\n\
+    \   ZOCOUNT The number of RRs in the Zone Section.\n   PRCOUNT The number of RRs\
+    \ in the Prerequisite Section.\n   UPCOUNT The number of RRs in the Update Section.\n\
+    \   ADCOUNT The number of RRs in the Additional Data Section.\n   2.3 - Zone Section\n\
+    \   The Zone Section has the same format as that specified in [RFC1035\n   4.1.2],\
+    \ with the fields redefined as follows:\n                                    \
+    \  1  1  1  1  1  1\n        0  1  2  3  4  5  6  7  8  9  0  1  2  3  4  5\n\
+    \      +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+\n      |            \
+    \                                   |\n      /                     ZNAME     \
+    \                /\n      /                                               /\n\
+    \      +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+\n      |            \
+    \         ZTYPE                     |\n      +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+\n\
+    \      |                     ZCLASS                    |\n      +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+\n\
+    \   UPDATE uses this section to denote the zone of the records being\n   updated.\
+    \  All records to be updated must be in the same zone, and\n   therefore the Zone\
+    \ Section is allowed to contain exactly one record.\n   The ZNAME is the zone\
+    \ name, the ZTYPE must be SOA, and the ZCLASS is\n   the zone's class.\n   2.4\
+    \ - Prerequisite Section\n   This section contains a set of RRset prerequisites\
+    \ which must be\n   satisfied at the time the UPDATE packet is received by the\
+    \ primary\n   master server.  The format of this section is as specified by\n\
+    \   [RFC1035 4.1.3].  There are five possible sets of semantics that can\n   be\
+    \ expressed here, summarized as follows and then explained below.\n      (1) \
+    \ RRset exists (value independent).  At least one RR with a\n           specified\
+    \ NAME and TYPE (in the zone and class specified by\n           the Zone Section)\
+    \ must exist.\n      (2)  RRset exists (value dependent).  A set of RRs with a\n\
+    \           specified NAME and TYPE exists and has the same members\n        \
+    \   with the same RDATAs as the RRset specified here in this\n           Section.\n\
+    \      (3)  RRset does not exist.  No RRs with a specified NAME and TYPE\n   \
+    \       (in the zone and class denoted by the Zone Section) can exist.\n     \
+    \ (4)  Name is in use.  At least one RR with a specified NAME (in\n          \
+    \ the zone and class specified by the Zone Section) must exist.\n           Note\
+    \ that this prerequisite is NOT satisfied by empty\n           nonterminals.\n\
+    \      (5)  Name is not in use.  No RR of any type is owned by a\n           specified\
+    \ NAME.  Note that this prerequisite IS satisfied by\n           empty nonterminals.\n\
+    \   The syntax of these is as follows:\n   2.4.1 - RRset Exists (Value Independent)\n\
+    \   At least one RR with a specified NAME and TYPE (in the zone and class\n  \
+    \ specified in the Zone Section) must exist.\n   For this prerequisite, a requestor\
+    \ adds to the section a single RR\n   whose NAME and TYPE are equal to that of\
+    \ the zone RRset whose\n   existence is required.  RDLENGTH is zero and RDATA\
+    \ is therefore\n   empty.  CLASS must be specified as ANY to differentiate this\n\
+    \   condition from that of an actual RR whose RDLENGTH is naturally zero\n   (0)\
+    \ (e.g., NULL).  TTL is specified as zero (0).\n   2.4.2 - RRset Exists (Value\
+    \ Dependent)\n   A set of RRs with a specified NAME and TYPE exists and has the\
+    \ same\n   members with the same RDATAs as the RRset specified here in this\n\
+    \   section.  While RRset ordering is undefined and therefore not\n   significant\
+    \ to this comparison, the sets be identical in their\n   extent.\n   For this\
+    \ prerequisite, a requestor adds to the section an entire\n   RRset whose preexistence\
+    \ is required.  NAME and TYPE are that of the\n   RRset being denoted.  CLASS\
+    \ is that of the zone.  TTL must be\n   specified as zero (0) and is ignored when\
+    \ comparing RRsets for\n   identity.\n   2.4.3 - RRset Does Not Exist\n   No RRs\
+    \ with a specified NAME and TYPE (in the zone and class denoted\n   by the Zone\
+    \ Section) can exist.\n   For this prerequisite, a requestor adds to the section\
+    \ a single RR\n   whose NAME and TYPE are equal to that of the RRset whose nonexistence\n\
+    \   is required.  The RDLENGTH of this record is zero (0), and RDATA\n   field\
+    \ is therefore empty.  CLASS must be specified as NONE in order\n   to distinguish\
+    \ this condition from a valid RR whose RDLENGTH is\n   naturally zero (0) (for\
+    \ example, the NULL RR).  TTL must be specified\n   as zero (0).\n   2.4.4 - Name\
+    \ Is In Use\n   Name is in use.  At least one RR with a specified NAME (in the\
+    \ zone\n   and class specified by the Zone Section) must exist.  Note that this\n\
+    \   prerequisite is NOT satisfied by empty nonterminals.\n   For this prerequisite,\
+    \ a requestor adds to the section a single RR\n   whose NAME is equal to that\
+    \ of the name whose ownership of an RR is\n   required.  RDLENGTH is zero and\
+    \ RDATA is therefore empty.  CLASS must\n   be specified as ANY to differentiate\
+    \ this condition from that of an\n   actual RR whose RDLENGTH is naturally zero\
+    \ (0) (e.g., NULL).  TYPE\n   must be specified as ANY to differentiate this case\
+    \ from that of an\n   RRset existence test.  TTL is specified as zero (0).\n \
+    \  2.4.5 - Name Is Not In Use\n   Name is not in use.  No RR of any type is owned\
+    \ by a specified NAME.\n   Note that this prerequisite IS satisfied by empty nonterminals.\n\
+    \   For this prerequisite, a requestor adds to the section a single RR\n   whose\
+    \ NAME is equal to that of the name whose nonownership of any RRs\n   is required.\
+    \  RDLENGTH is zero and RDATA is therefore empty.  CLASS\n   must be specified\
+    \ as NONE.  TYPE must be specified as ANY.  TTL must\n   be specified as zero\
+    \ (0).\n   2.5 - Update Section\n   This section contains RRs to be added to or\
+    \ deleted from the zone.\n   The format of this section is as specified by [RFC1035\
+    \ 4.1.3].  There\n   are four possible sets of semantics, summarized below and\
+    \ with\n   details to follow.\n      (1) Add RRs to an RRset.\n      (2) Delete\
+    \ an RRset.\n      (3) Delete all RRsets from a name.\n      (4) Delete an RR\
+    \ from an RRset.\n   The syntax of these is as follows:\n   2.5.1 - Add To An\
+    \ RRset\n   RRs are added to the Update Section whose NAME, TYPE, TTL, RDLENGTH\n\
+    \   and RDATA are those being added, and CLASS is the same as the zone\n   class.\
+    \  Any duplicate RRs will be silently ignored by the primary\n   master.\n   2.5.2\
+    \ - Delete An RRset\n   One RR is added to the Update Section whose NAME and TYPE\
+    \ are those\n   of the RRset to be deleted.  TTL must be specified as zero (0)\
+    \ and is\n   otherwise not used by the primary master.  CLASS must be specified\
+    \ as\n   ANY.  RDLENGTH must be zero (0) and RDATA must therefore be empty.\n\
+    \   If no such RRset exists, then this Update RR will be silently ignored\n  \
+    \ by the primary master.\n   2.5.3 - Delete All RRsets From A Name\n   One RR\
+    \ is added to the Update Section whose NAME is that of the name\n   to be cleansed\
+    \ of RRsets.  TYPE must be specified as ANY.  TTL must\n   be specified as zero\
+    \ (0) and is otherwise not used by the primary\n   master.  CLASS must be specified\
+    \ as ANY.  RDLENGTH must be zero (0)\n   and RDATA must therefore be empty.  If\
+    \ no such RRsets exist, then\n   this Update RR will be silently ignored by the\
+    \ primary master.\n   2.5.4 - Delete An RR From An RRset\n   RRs to be deleted\
+    \ are added to the Update Section.  The NAME, TYPE,\n   RDLENGTH and RDATA must\
+    \ match the RR being deleted.  TTL must be\n   specified as zero (0) and will\
+    \ otherwise be ignored by the primary\n   master.  CLASS must be specified as\
+    \ NONE to distinguish this from an\n   RR addition.  If no such RRs exist, then\
+    \ this Update RR will be\n   silently ignored by the primary master.\n   2.6 -\
+    \ Additional Data Section\n   This section contains RRs which are related to the\
+    \ update itself, or\n   to new RRs being added by the update.  For example, out\
+    \ of zone glue\n   (A RRs referred to by new NS RRs) should be presented here.\
+    \  The\n   server can use or ignore out of zone glue, at the discretion of the\n\
+    \   server implementor.  The format of this section is as specified by\n   [RFC1035\
+    \ 4.1.3].\n"
+- title: 3 - Server Behavior
+  contents:
+  - "3 - Server Behavior\n   A server, upon receiving an UPDATE request, will signal\
+    \ NOTIMP to the\n   requestor if the UPDATE opcode is not recognized or if it\
+    \ is\n   recognized but has not been implemented.  Otherwise, processing\n   continues\
+    \ as follows.\n   3.1 - Process Zone Section\n   3.1.1. The Zone Section is checked\
+    \ to see that there is exactly one\n   RR therein and that the RR's ZTYPE is SOA,\
+    \ else signal FORMERR to the\n   requestor.  Next, the ZNAME and ZCLASS are checked\
+    \ to see if the zone\n   so named is one of this server's authority zones, else\
+    \ signal NOTAUTH\n   to the requestor.  If the server is a zone slave, the request\
+    \ will be\n   forwarded toward the primary master.\n   3.1.2 - Pseudocode For\
+    \ Zone Section Processing\n      if (zcount != 1 || ztype != SOA)\n          \
+    \ return (FORMERR)\n      if (zone_type(zname, zclass) == SLAVE)\n           return\
+    \ forward()\n      if (zone_type(zname, zclass) == MASTER)\n           return\
+    \ update()\n      return (NOTAUTH)\n   Sections 3.2 through 3.8 describe the primary\
+    \ master's behaviour,\n   whereas Section 6 describes a forwarder's behaviour.\n\
+    \   3.2 - Process Prerequisite Section\n   Next, the Prerequisite Section is checked\
+    \ to see that all\n   prerequisites are satisfied by the current state of the\
+    \ zone.  Using\n   the definitions expressed in Section 1.2, if any RR's NAME\
+    \ is not\n   within the zone specified in the Zone Section, signal NOTZONE to\
+    \ the\n   requestor.\n   3.2.1. For RRs in this section whose CLASS is ANY, test\
+    \ to see that\n   TTL and RDLENGTH are both zero (0), else signal FORMERR to the\n\
+    \   requestor.  If TYPE is ANY, test to see that there is at least one RR\n  \
+    \ in the zone whose NAME is the same as that of the Prerequisite RR,\n   else\
+    \ signal NXDOMAIN to the requestor.  If TYPE is not ANY, test to\n   see that\
+    \ there is at least one RR in the zone whose NAME and TYPE are\n   the same as\
+    \ that of the Prerequisite RR, else signal NXRRSET to the\n   requestor.\n   3.2.2.\
+    \ For RRs in this section whose CLASS is NONE, test to see that\n   the TTL and\
+    \ RDLENGTH are both zero (0), else signal FORMERR to the\n   requestor.  If the\
+    \ TYPE is ANY, test to see that there are no RRs in\n   the zone whose NAME is\
+    \ the same as that of the Prerequisite RR, else\n   signal YXDOMAIN to the requestor.\
+    \  If the TYPE is not ANY, test to\n   see that there are no RRs in the zone whose\
+    \ NAME and TYPE are the\n   same as that of the Prerequisite RR, else signal YXRRSET\
+    \ to the\n   requestor.\n   3.2.3. For RRs in this section whose CLASS is the\
+    \ same as the ZCLASS,\n   test to see that the TTL is zero (0), else signal FORMERR\
+    \ to the\n   requestor.  Then, build an RRset for each unique <NAME,TYPE> and\n\
+    \   compare each resulting RRset for set equality (same members, no more,\n  \
+    \ no less) with RRsets in the zone.  If any Prerequisite RRset is not\n   entirely\
+    \ and exactly matched by a zone RRset, signal NXRRSET to the\n   requestor.  If\
+    \ any RR in this section has a CLASS other than ZCLASS\n   or NONE or ANY, signal\
+    \ FORMERR to the requestor.\n   3.2.4 - Table Of Metavalues Used In Prerequisite\
+    \ Section\n   CLASS    TYPE     RDATA    Meaning\n   ------------------------------------------------------------\n\
+    \   ANY      ANY      empty    Name is in use\n   ANY      rrset    empty    RRset\
+    \ exists (value independent)\n   NONE     ANY      empty    Name is not in use\n\
+    \   NONE     rrset    empty    RRset does not exist\n   zone     rrset    rr \
+    \      RRset exists (value dependent)\n   3.2.5 - Pseudocode for Prerequisite\
+    \ Section Processing\n      for rr in prerequisites\n           if (rr.ttl !=\
+    \ 0)\n                return (FORMERR)\n           if (zone_of(rr.name) != ZNAME)\n\
+    \                return (NOTZONE);\n           if (rr.class == ANY)\n        \
+    \        if (rr.rdlength != 0)\n                     return (FORMERR)\n      \
+    \          if (rr.type == ANY)\n                     if (!zone_name<rr.name>)\n\
+    \                          return (NXDOMAIN)\n                else\n         \
+    \            if (!zone_rrset<rr.name, rr.type>)\n                          return\
+    \ (NXRRSET)\n           if (rr.class == NONE)\n                if (rr.rdlength\
+    \ != 0)\n                     return (FORMERR)\n                if (rr.type ==\
+    \ ANY)\n                     if (zone_name<rr.name>)\n                       \
+    \   return (YXDOMAIN)\n                else\n                     if (zone_rrset<rr.name,\
+    \ rr.type>)\n                          return (YXRRSET)\n           if (rr.class\
+    \ == zclass)\n                temp<rr.name, rr.type> += rr\n           else\n\
+    \                return (FORMERR)\n      for rrset in temp\n           if (zone_rrset<rrset.name,\
+    \ rrset.type> != rrset)\n                return (NXRRSET)\n   3.3 - Check Requestor's\
+    \ Permissions\n   3.3.1. Next, the requestor's permission to update the RRs named\
+    \ in\n   the Update Section may be tested in an implementation dependent\n   fashion\
+    \ or using mechanisms specified in a subsequent Secure DNS\n   Update protocol.\
+    \  If the requestor does not have permission to\n   perform these updates, the\
+    \ server may write a warning message in its\n   operations log, and may either\
+    \ signal REFUSED to the requestor, or\n   ignore the permission problem and proceed\
+    \ with the update.\n   3.3.2. While the exact processing is implementation defined,\
+    \ if these\n   verification activities are to be performed, this is the point\
+    \ in the\n   server's processing where such performance should take place, since\n\
+    \   if a REFUSED condition is encountered after an update has been\n   partially\
+    \ applied, it will be necessary to undo the partial update\n   and restore the\
+    \ zone to its original state before answering the\n   requestor.\n   3.3.3 - Pseudocode\
+    \ for Permission Checking\n      if (security policy exists)\n           if (this\
+    \ update is not permitted)\n                if (local option)\n              \
+    \       log a message about permission problem\n                if (local option)\n\
+    \                     return (REFUSED)\n   3.4 - Process Update Section\n   Next,\
+    \ the Update Section is processed as follows.\n   3.4.1 - Prescan\n   The Update\
+    \ Section is parsed into RRs and each RR's CLASS is checked\n   to see if it is\
+    \ ANY, NONE, or the same as the Zone Class, else signal\n   a FORMERR to the requestor.\
+    \  Using the definitions in Section 1.2,\n   each RR's NAME must be in the zone\
+    \ specified by the Zone Section,\n   else signal NOTZONE to the requestor.\n \
+    \  3.4.1.2. For RRs whose CLASS is not ANY, check the TYPE and if it is\n   ANY,\
+    \ AXFR, MAILA, MAILB, or any other QUERY metatype, or any\n   unrecognized type,\
+    \ then signal FORMERR to the requestor.  For RRs\n   whose CLASS is ANY or NONE,\
+    \ check the TTL to see that it is zero (0),\n   else signal a FORMERR to the requestor.\
+    \  For any RR whose CLASS is\n   ANY, check the RDLENGTH to make sure that it\
+    \ is zero (0) (that is,\n   the RDATA field is empty), and that the TYPE is not\
+    \ AXFR, MAILA,\n   MAILB, or any other QUERY metatype besides ANY, or any unrecognized\n\
+    \   type, else signal FORMERR to the requestor.\n   3.4.1.3 - Pseudocode For Update\
+    \ Section Prescan\n      [rr] for rr in updates\n           if (zone_of(rr.name)\
+    \ != ZNAME)\n                return (NOTZONE);\n           if (rr.class == zclass)\n\
+    \                if (rr.type & ANY|AXFR|MAILA|MAILB)\n                     return\
+    \ (FORMERR)\n           elsif (rr.class == ANY)\n                if (rr.ttl !=\
+    \ 0 || rr.rdlength != 0\n                    || rr.type & AXFR|MAILA|MAILB)\n\
+    \                     return (FORMERR)\n           elsif (rr.class == NONE)\n\
+    \                if (rr.ttl != 0 || rr.type & ANY|AXFR|MAILA|MAILB)\n        \
+    \             return (FORMERR)\n           else\n                return (FORMERR)\n\
+    \   3.4.2 - Update\n   The Update Section is parsed into RRs and these RRs are\
+    \ processed in\n   order.\n   3.4.2.1. If any system failure (such as an out of\
+    \ memory condition,\n   or a hardware error in persistent storage) occurs during\
+    \ the\n   processing of this section, signal SERVFAIL to the requestor and undo\n\
+    \   all updates applied to the zone during this transaction.\n   3.4.2.2. Any\
+    \ Update RR whose CLASS is the same as ZCLASS is added to\n   the zone.  In case\
+    \ of duplicate RDATAs (which for SOA RRs is always\n   the case, and for WKS RRs\
+    \ is the case if the ADDRESS and PROTOCOL\n   fields both match), the Zone RR\
+    \ is replaced by Update RR.  If the\n   TYPE is SOA and there is no Zone SOA RR,\
+    \ or the new SOA.SERIAL is\n   lower (according to [RFC1982]) than or equal to\
+    \ the current Zone SOA\n   RR's SOA.SERIAL, the Update RR is ignored.  In the\
+    \ case of a CNAME\n   Update RR and a non-CNAME Zone RRset or vice versa, ignore\
+    \ the CNAME\n   Update RR, otherwise replace the CNAME Zone RR with the CNAME\
+    \ Update\n   RR.\n   3.4.2.3. For any Update RR whose CLASS is ANY and whose TYPE\
+    \ is ANY,\n   all Zone RRs with the same NAME are deleted, unless the NAME is\
+    \ the\n   same as ZNAME in which case only those RRs whose TYPE is other than\n\
+    \   SOA or NS are deleted.  For any Update RR whose CLASS is ANY and\n   whose\
+    \ TYPE is not ANY all Zone RRs with the same NAME and TYPE are\n   deleted, unless\
+    \ the NAME is the same as ZNAME in which case neither\n   SOA or NS RRs will be\
+    \ deleted.\n   3.4.2.4. For any Update RR whose class is NONE, any Zone RR whose\n\
+    \   NAME, TYPE, RDATA and RDLENGTH are equal to the Update RR is deleted,\n  \
+    \ unless the NAME is the same as ZNAME and either the TYPE is SOA or\n   the TYPE\
+    \ is NS and the matching Zone RR is the only NS remaining in\n   the RRset, in\
+    \ which case this Update RR is ignored.\n   3.4.2.5. Signal NOERROR to the requestor.\n\
+    \   3.4.2.6 - Table Of Metavalues Used In Update Section\n   CLASS    TYPE   \
+    \  RDATA    Meaning\n   ---------------------------------------------------------\n\
+    \   ANY      ANY      empty    Delete all RRsets from a name\n   ANY      rrset\
+    \    empty    Delete an RRset\n   NONE     rrset    rr       Delete an RR from\
+    \ an RRset\n   zone     rrset    rr       Add to an RRset\n   3.4.2.7 - Pseudocode\
+    \ For Update Section Processing\n      [rr] for rr in updates\n           if (rr.class\
+    \ == zclass)\n                if (rr.type == CNAME)\n                     if (zone_rrset<rr.name,\
+    \ ~CNAME>)\n                          next [rr]\n                elsif (zone_rrset<rr.name,\
+    \ CNAME>)\n                     next [rr]\n                if (rr.type == SOA)\n\
+    \                     if (!zone_rrset<rr.name, SOA> ||\n                     \
+    \    zone_rr<rr.name, SOA>.serial > rr.soa.serial)\n                         \
+    \ next [rr]\n                for zrr in zone_rrset<rr.name, rr.type>\n       \
+    \              if (rr.type == CNAME || rr.type == SOA ||\n                   \
+    \      (rr.type == WKS && rr.proto == zrr.proto &&\n                         \
+    \ rr.address == zrr.address) ||\n                         rr.rdata == zrr.rdata)\n\
+    \                          zrr = rr\n                          next [rr]\n   \
+    \             zone_rrset<rr.name, rr.type> += rr\n           elsif (rr.class ==\
+    \ ANY)\n                if (rr.type == ANY)\n                     if (rr.name\
+    \ == zname)\n                          zone_rrset<rr.name, ~(SOA|NS)> = Nil\n\
+    \                     else\n                          zone_rrset<rr.name, *> =\
+    \ Nil\n                elsif (rr.name == zname &&\n                       (rr.type\
+    \ == SOA || rr.type == NS))\n                     next [rr]\n                else\n\
+    \                     zone_rrset<rr.name, rr.type> = Nil\n           elsif (rr.class\
+    \ == NONE)\n                if (rr.type == SOA)\n                     next [rr]\n\
+    \                if (rr.type == NS && zone_rrset<rr.name, NS> == rr)\n       \
+    \              next [rr]\n                zone_rr<rr.name, rr.type, rr.data> =\
+    \ Nil\n      return (NOERROR)\n   3.5 - Stability\n   When a zone is modified\
+    \ by an UPDATE operation, the server must\n   commit the change to nonvolatile\
+    \ storage before sending a response to\n   the requestor or answering any queries\
+    \ or transfers for the modified\n   zone.  It is reasonable for a server to store\
+    \ only the update records\n   as long as a system reboot or power failure will\
+    \ cause these update\n   records to be incorporated into the zone the next time\
+    \ the server is\n   started.  It is also reasonable for the server to copy the\
+    \ entire\n   modified zone to nonvolatile storage after each update operation,\n\
+    \   though this would have suboptimal performance for large zones.\n   3.6 - Zone\
+    \ Identity\n   If the zone's SOA SERIAL is changed by an update operation, that\n\
+    \   change must be in a positive direction (using modulo 2**32 arithmetic\n  \
+    \ as specified by [RFC1982]).  Attempts to replace an SOA with one\n   whose SERIAL\
+    \ is less than the current one will be silently ignored by\n   the primary master\
+    \ server.\n   If the zone's SOA's SERIAL is not changed as a result of an update\n\
+    \   operation, then the server shall increment it automatically before\n   the\
+    \ SOA or any changed name or RR or RRset is included in any\n   response or transfer.\
+    \  The primary master server's implementor might\n   choose to autoincrement the\
+    \ SOA SERIAL if any of the following events\n   occurs:\n   (1)  Each update operation.\n\
+    \   (2)  A name, RR or RRset in the zone has changed and has subsequently\n  \
+    \      been visible to a DNS client since the unincremented SOA was\n        visible\
+    \ to a DNS client, and the SOA is about to become visible\n        to a DNS client.\n\
+    \   (3)  A configurable period of time has elapsed since the last update\n   \
+    \     operation.  This period shall be less than or equal to one third\n     \
+    \   of the zone refresh time, and the default shall be the lesser of\n       \
+    \ that maximum and 300 seconds.\n   (4)  A configurable number of updates has\
+    \ been applied since the last\n        SOA change.  The default value for this\
+    \ configuration parameter\n        shall be one hundred (100).\n   It is imperative\
+    \ that the zone's contents and the SOA's SERIAL be\n   tightly synchronized. \
+    \ If the zone appears to change, the SOA must\n   appear to change as well.\n\
+    \   3.7 - Atomicity\n   During the processing of an UPDATE transaction, the server\
+    \ must\n   ensure atomicity with respect to other (concurrent) UPDATE or QUERY\n\
+    \   transactions.  No two transactions can be processed concurrently if\n   either\
+    \ depends on the final results of the other; in particular, a\n   QUERY should\
+    \ not be able to retrieve RRsets which have been partially\n   modified by a concurrent\
+    \ UPDATE, and an UPDATE should not be able to\n   start from prerequisites that\
+    \ might not still hold at the completion\n   of some other concurrent UPDATE.\
+    \  Finally, if two UPDATE transactions\n   would modify the same names, RRs or\
+    \ RRsets, then such UPDATE\n   transactions must be serialized.\n   3.8 - Response\n\
+    \   At the end of UPDATE processing, a response code will be known.  A\n   response\
+    \ message is generated by copying the ID and Opcode fields\n   from the request,\
+    \ and either copying the ZOCOUNT, PRCOUNT, UPCOUNT,\n   and ADCOUNT fields and\
+    \ associated sections, or placing zeros (0) in\n   the these \"count\" fields\
+    \ and not including any part of the original\n   update.  The QR bit is set to\
+    \ one (1), and the response is sent back\n   to the requestor.  If the requestor\
+    \ used UDP, then the response will\n   be sent to the requestor's source UDP port.\
+    \  If the requestor used\n   TCP, then the response will be sent back on the requestor's\
+    \ open TCP\n   connection.\n"
+- title: 4 - Requestor Behaviour
+  contents:
+  - "4 - Requestor Behaviour\n   4.1. From a requestor's point of view, any authoritative\
+    \ server for\n   the zone can appear to be able to process update requests, even\n\
+    \   though only the primary master server is actually able to modify the\n   zone's\
+    \ master file.  Requestors are expected to know the name of the\n   zone they\
+    \ intend to update and to know or be able to determine the\n   name servers for\
+    \ that zone.\n   4.2. If update ordering is desired, the requestor will need to\
+    \ know\n   the value of the existing SOA RR.  Requestors who update the SOA RR\n\
+    \   must update the SOA SERIAL field in a positive direction (as defined\n   by\
+    \ [RFC1982]) and also preserve the other SOA fields unless the\n   requestor's\
+    \ explicit intent is to change them.  The SOA SERIAL field\n   must never be set\
+    \ to zero (0).\n   4.3. If the requestor has reasonable cause to believe that\
+    \ all of a\n   zone's servers will be equally reachable, then it should arrange\
+    \ to\n   try the primary master server (as given by the SOA MNAME field if\n \
+    \  matched by some NS NSDNAME) first to avoid unnecessary forwarding\n   inside\
+    \ the slave servers.  (Note that the primary master will in some\n   cases not\
+    \ be reachable by all requestors, due to firewalls or network\n   partitioning.)\n\
+    \   4.4. Once the zone's name servers been found and possibly sorted so\n   that\
+    \ the ones more likely to be reachable and/or support the UPDATE\n   opcode are\
+    \ listed first, the requestor composes an UPDATE message of\n   the following\
+    \ form and sends it to the first name server on its list:\n      ID:         \
+    \               (new)\n      Opcode:                    UPDATE\n      Zone zcount:\
+    \               1\n      Zone zname:                (zone name)\n      Zone zclass:\
+    \               (zone class)\n      Zone ztype:                T_SOA\n      Prerequisite\
+    \ Section:      (see previous text)\n      Update Section:            (see previous\
+    \ text)\n      Additional Data Section:   (empty)\n   4.5. If the requestor receives\
+    \ a response, and the response has an\n   RCODE other than SERVFAIL or NOTIMP,\
+    \ then the requestor returns an\n   appropriate response to its caller.\n   4.6.\
+    \ If a response is received whose RCODE is SERVFAIL or NOTIMP, or\n   if no response\
+    \ is received within an implementation dependent timeout\n   period, or if an\
+    \ ICMP error is received indicating that the server's\n   port is unreachable,\
+    \ then the requestor will delete the unusable\n   server from its internal name\
+    \ server list and try the next one,\n   repeating until the name server list is\
+    \ empty.  If the requestor runs\n   out of servers to try, an appropriate error\
+    \ will be returned to the\n   requestor's caller.\n"
+- title: 5 - Duplicate Detection, Ordering and Mutual Exclusion
+  contents:
+  - "5 - Duplicate Detection, Ordering and Mutual Exclusion\n   5.1. For correct operation,\
+    \ mechanisms may be needed to ensure\n   idempotence, order UPDATE requests and\
+    \ provide mutual exclusion.  An\n   UPDATE message or response might be delivered\
+    \ zero times, one time,\n   or multiple times.  Datagram duplication is of particular\
+    \ interest\n   since it covers the case of the so-called \"replay attack\" where\
+    \ a\n   correct request is duplicated maliciously by an intruder.\n   5.2. Multiple\
+    \ UPDATE requests or responses in transit might be\n   delivered in any order,\
+    \ due to network topology changes or load\n   balancing, or to multipath forwarding\
+    \ graphs wherein several slave\n   servers all forward to the primary master.\
+    \  In some cases, it might\n   be required that the earlier update not be applied\
+    \ after the later\n   update, where \"earlier\" and \"later\" are defined by an\
+    \ external time\n   base visible to some set of requestors, rather than by the\
+    \ order of\n   request receipt at the primary master.\n   5.3. A requestor can\
+    \ ensure transaction idempotence by explicitly\n   deleting some \"marker RR\"\
+    \ (rather than deleting the RRset of which it\n   is a part) and then adding a\
+    \ new \"marker RR\" with a different RDATA\n   field.  The Prerequisite Section\
+    \ should specify that the original\n   \"marker RR\" must be present in order\
+    \ for this UPDATE message to be\n   accepted by the server.\n   5.4. If the request\
+    \ is duplicated by a network error, all duplicate\n   requests will fail since\
+    \ only the first will find the original\n   \"marker RR\" present and having its\
+    \ known previous value.  The\n   decisions of whether to use such a \"marker RR\"\
+    \ and what RR to use are\n   left up to the application programmer, though one\
+    \ obvious choice is\n   the zone's SOA RR as described below.\n   5.5. Requestors\
+    \ can ensure update ordering by externally\n   synchronizing their use of successive\
+    \ values of the \"marker RR.\"\n   Mutual exclusion can be addressed as a degenerate\
+    \ case, in that a\n   single succession of the \"marker RR\" is all that is needed.\n\
+    \   5.6. A special case where update ordering and datagram duplication\n   intersect\
+    \ is when an RR validly changes to some new value and then\n   back to its previous\
+    \ value.  Without a \"marker RR\" as described\n   above, this sequence of updates\
+    \ can leave the zone in an undefined\n   state if datagrams are duplicated.\n\
+    \   5.7. To achieve an atomic multitransaction \"read-modify-write\" cycle,\n\
+    \   a requestor could first retrieve the SOA RR, and build an UPDATE\n   message\
+    \ one of whose prerequisites was the old SOA RR.  It would then\n   specify updates\
+    \ that would delete this SOA RR and add a new one with\n   an incremented SOA\
+    \ SERIAL, along with whatever actual prerequisites\n   and updates were the object\
+    \ of the transaction.  If the transaction\n   succeeds, the requestor knows that\
+    \ the RRs being changed were not\n   otherwise altered by any other requestor.\n"
+- title: 6 - Forwarding
+  contents:
+  - "6 - Forwarding\n   When a zone slave forwards an UPDATE message upward toward\
+    \ the zone's\n   primary master server, it must allocate a new ID and prepare\
+    \ to enter\n   the role of \"forwarding server,\" which is a requestor with respect\
+    \ to\n   the forward server.\n   6.1. The set of forward servers will be same\
+    \ as the set of servers\n   this zone slave would use as the source of AXFR or\
+    \ IXFR data.  So,\n   while the original requestor might have used the zone's\
+    \ NS RRset to\n   locate its update server, a forwarder always forwards toward\
+    \ its\n   designated zone master servers.\n   6.2. If the original requestor used\
+    \ TCP, then the TCP connection from\n   the requestor is still open and the forwarder\
+    \ must use TCP to forward\n   the message.  If the original requestor used UDP,\
+    \ the forwarder may\n   use either UDP or TCP to forward the message, at the whim\
+    \ of the\n   implementor.\n   6.3. It is reasonable for forward servers to be\
+    \ forwarders\n   themselves, if the AXFR dependency graph being followed is a\
+    \ deep one\n   involving firewalls and multiple connectivity realms.  In most\
+    \ cases\n   the AXFR dependency graph will be shallow and the forward server will\n\
+    \   be the primary master server.\n   6.4. The forwarder will not respond to its\
+    \ requestor until it\n   receives a response from its forward server.  UPDATE\
+    \ transactions\n   involving forwarders are therefore time synchronized with respect\
+    \ to\n   the original requestor and the primary master server.\n   6.5. When there\
+    \ are multiple possible sources of AXFR data and\n   therefore multiple possible\
+    \ forward servers, a forwarder will use the\n   same fallback strategy with respect\
+    \ to connectivity or timeout errors\n   that it would use when performing an AXFR.\
+    \  This is implementation\n   dependent.\n   6.6. When a forwarder receives a\
+    \ response from a forward server, it\n   copies this response into a new response\
+    \ message, assigns its\n   requestor's ID to that message, and sends the response\
+    \ back to the\n   requestor.\n"
+- title: 7 - Design, Implementation, Operation, and Protocol Notes
+  contents:
+  - "7 - Design, Implementation, Operation, and Protocol Notes\n   Some of the principles\
+    \ which guided the design of this UPDATE\n   specification are as follows.  Note\
+    \ that these are not part of the\n   formal specification and any disagreement\
+    \ between this section and\n   any other section of this document should be resolved\
+    \ in favour of\n   the other section.\n   7.1. Using metavalues for CLASS is possible\
+    \ only because all RRs in\n   the packet are assumed to be in the same zone, and\
+    \ CLASS is an\n   attribute of a zone rather than of an RRset.  (It is for this\
+    \ reason\n   that the Zone Section is not optional.)\n   7.2. Since there are\
+    \ no data-present or data-absent errors possible\n   from processing the Update\
+    \ Section, any necessary data-present and\n   data- absent dependencies should\
+    \ be specified in the Prerequisite\n   Section.\n   7.3. The Additional Data Section\
+    \ can be used to supply a server with\n   out of zone glue that will be needed\
+    \ in referrals.  For example, if\n   adding a new NS RR to HOME.VIX.COM specifying\
+    \ a nameserver called\n   NS.AU.OZ, the A RR for NS.AU.OZ can be included in the\
+    \ Additional\n   Data Section.  Servers can use this information or ignore it,\
+    \ at the\n   discretion of the implementor.  We discourage caching this\n   information\
+    \ for use in subsequent DNS responses.\n   7.4. The Additional Data Section might\
+    \ be used if some of the RRs\n   later needed for Secure DNS Update are not actually\
+    \ zone updates, but\n   rather ancillary keys or signatures not intended to be\
+    \ stored in the\n   zone (as an update would be), yet necessary for validating\
+    \ the update\n   operation.\n   7.5. It is expected that in the absence of Secure\
+    \ DNS Update, a\n   server will only accept updates if they come from a source\
+    \ address\n   that has been statically configured in the server's description\
+    \ of a\n   primary master zone.  DHCP servers would be likely candidates for\n\
+    \   inclusion in this statically configured list.\n   7.6. It is not possible\
+    \ to create a zone using this protocol, since\n   there is no provision for a\
+    \ slave server to be told who its master\n   servers are.  It is expected that\
+    \ this protocol will be extended in\n   the future to cover this case.  Therefore,\
+    \ at this time, the addition\n   of SOA RRs is unsupported.  For similar reasons,\
+    \ deletion of SOA RRs\n   is also unsupported.\n   7.7. The prerequisite for specifying\
+    \ that a name own at least one RR\n   differs semantically from QUERY, in that\
+    \ QUERY would return\n   <NOERROR,ANCOUNT=0> rather than NXDOMAIN if queried for\
+    \ an RRset at\n   this name, while UPDATE's prerequisite condition [Section 2.4.4]\n\
+    \   would NOT be satisfied.\n   7.8. It is possible for a UDP response to be lost\
+    \ in transit and for\n   a request to be retried due to a timeout condition. \
+    \ In this case an\n   UPDATE that was successful the first time it was received\
+    \ by the\n   primary master might ultimately appear to have failed when the\n\
+    \   response to a duplicate request is finally received by the requestor.\n  \
+    \ (This is because the original prerequisites may no longer be\n   satisfied after\
+    \ the update has been applied.)  For this reason,\n   requestors who require an\
+    \ accurate response code must use TCP.\n   7.9. Because a requestor who requires\
+    \ an accurate response code will\n   initiate their UPDATE transaction using TCP,\
+    \ a forwarder who receives\n   a request via TCP must forward it using TCP.\n\
+    \   7.10. Deferral of SOA SERIAL autoincrements is made possible so that\n   serial\
+    \ numbers can be conserved and wraparound at 2**32 can be made\n   an infrequent\
+    \ occurance.  Visible (to DNS clients) SOA SERIALs need\n   to differ if the zone\
+    \ differs.  Note that the Authority Section SOA\n   in a QUERY response is a form\
+    \ of visibility, for the purposes of this\n   prerequisite.\n   7.11. A zone's\
+    \ SOA SERIAL should never be set to zero (0) due to\n   interoperability problems\
+    \ with some older but widely installed\n   implementations of DNS.  When incrementing\
+    \ an SOA SERIAL, if the\n   result of the increment is zero (0) (as will be true\
+    \ when wrapping\n   around 2**32), it is necessary to increment it again or set\
+    \ it to one\n   (1).  See [RFC1982] for more detail on this subject.\n   7.12.\
+    \ Due to the TTL minimalization necessary when caching an RRset,\n   it is recommended\
+    \ that all TTLs in an RRset be set to the same value.\n   While the DNS Message\
+    \ Format permits variant TTLs to exist in the\n   same RRset, and this variance\
+    \ can exist inside a zone, such variance\n   will have counterintuitive results\
+    \ and its use is discouraged.\n   7.13. Zone cut management presents some obscure\
+    \ corner cases to the\n   add and delete operations in the Update Section.  It\
+    \ is possible to\n   delete an NS RR as long as it is not the last NS RR at the\
+    \ root of a\n   zone.  If deleting all RRs from a name, SOA and NS RRs at the\
+    \ root of\n   a zone are unaffected.  If deleting RRsets, it is not possible to\n\
+    \   delete either SOA or NS RRsets at the top of a zone.  An attempt to\n   add\
+    \ an SOA will be treated as a replace operation if an SOA already\n   exists,\
+    \ or as a no-op if the SOA would be new.\n   7.14. No semantic checking is required\
+    \ in the primary master server\n   when adding new RRs.  Therefore a requestor\
+    \ can cause CNAME or NS or\n   any other kind of RR to be added even if their\
+    \ target name does not\n   exist or does not have the proper RRsets to make the\
+    \ original RR\n   useful.  Primary master servers that DO implement this kind\
+    \ of\n   checking should take great care to avoid out-of-zone dependencies\n \
+    \  (whose veracity cannot be authoritatively checked) and should\n   implement\
+    \ all such checking during the prescan phase.\n   7.15. Nonterminal or wildcard\
+    \ CNAMEs are not well specified by\n   [RFC1035] and their use will probably lead\
+    \ to unpredictable results.\n   Their use is discouraged.\n   7.16. Empty nonterminals\
+    \ (nodes with children but no RRs of their\n   own) will cause <NOERROR,ANCOUNT=0>\
+    \ responses to be sent in response\n   to a query of any type for that name. \
+    \ There is no provision for\n   empty terminal nodes -- so if all RRs of a terminal\
+    \ node are deleted,\n   the name is no longer in use, and queries of any type\
+    \ for that name\n   will result in an NXDOMAIN response.\n   7.17. In a deep AXFR\
+    \ dependency graph, it has not historically been\n   an error for slaves to depend\
+    \ mutually upon each other.  This\n   configuration has been used to enable a\
+    \ zone to flow from the primary\n   master to all slaves even though not all slaves\
+    \ have continuous\n   connectivity to the primary master.  UPDATE's use of the\
+    \ AXFR\n   dependency graph for forwarding prohibits this kind of dependency\n\
+    \   loop, since UPDATE forwarding has no loop detection analagous to the\n   SOA\
+    \ SERIAL pretest used by AXFR.\n   7.18. Previously existing names which are occluded\
+    \ by a new zone cut\n   are still considered part of the parent zone, for the\
+    \ purposes of\n   zone transfers, even though queries for such names will be referred\n\
+    \   to the new subzone's servers.  If a zone cut is removed, all parent\n   zone\
+    \ names that were occluded by it will again become visible to\n   queries.  (This\
+    \ is a clarification of [RFC1034].)\n   7.19. If a server is authoritative for\
+    \ both a zone and its child,\n   then queries for names at the zone cut between\
+    \ them will be answered\n   authoritatively using only data from the child zone.\
+    \  (This is a\n   clarification of [RFC1034].)\n   7.20. Update ordering using\
+    \ the SOA RR is problematic since there is\n   no way to know which of a zone's\
+    \ NS RRs represents the primary\n   master, and the zone slaves can be out of\
+    \ date if their SOA.REFRESH\n   timers have not elapsed since the last time the\
+    \ zone was changed on\n   the primary master.  We recommend that a zone needing\
+    \ ordered updates\n   use only servers which implement NOTIFY (see [RFC1996])\
+    \ and IXFR (see\n   [RFC1995]), and that a client receiving a prerequisite error\
+    \ while\n   attempting an ordered update simply retry after a random delay period\n\
+    \   to allow the zone to settle.\n"
+- title: 8 - Security Considerations
+  contents:
+  - "8 - Security Considerations\n   8.1. In the absence of [RFC2137] or equivilent\
+    \ technology, the\n   protocol described by this document makes it possible for\
+    \ anyone who\n   can reach an authoritative name server to alter the contents\
+    \ of any\n   zones on that server.  This is a serious increase in vulnerability\n\
+    \   from the current technology.  Therefore it is very strongly\n   recommended\
+    \ that the protocols described in this document not be used\n   without [RFC2137]\
+    \ or other equivalently strong security measures,\n   e.g. IPsec.\n   8.2. A denial\
+    \ of service attack can be launched by flooding an update\n   forwarder with TCP\
+    \ sessions containing updates that the primary\n   master server will ultimately\
+    \ refuse due to permission problems.\n   This arises due to the requirement that\
+    \ an update forwarder receiving\n   a request via TCP use a synchronous TCP session\
+    \ for its forwarding\n   operation.  The connection management mechanisms of [RFC1035\
+    \ 4.2.2]\n   are sufficient to prevent large scale damage from such an attack,\
+    \ but\n   not to prevent some queries from going unanswered during the attack.\n"
+- title: Acknowledgements
+  contents:
+  - "Acknowledgements\n   We would like to thank the IETF DNSIND working group for\
+    \ their input\n   and assistance, in particular, Rob Austein, Randy Bush, Donald\n\
+    \   Eastlake, Masataka Ohta, Mark Andrews, and Robert Elz.  Special\n   thanks\
+    \ to Bill Simpson, Ken Wallich and Bob Halley for reviewing this\n   document.\n"
+- title: References
+  contents:
+  - "References\n   [RFC1035]\n      Mockapetris, P., \"Domain Names - Implementation\
+    \ and\n      Specification\", STD 13, RFC 1035, USC/Information Sciences\n   \
+    \   Institute, November 1987.\n   [RFC1982]\n      Elz, R., \"Serial Number Arithmetic\"\
+    , RFC 1982, University of\n      Melbourne, August 1996.\n   [RFC1995]\n     \
+    \ Ohta, M., \"Incremental Zone Transfer\", RFC 1995, Tokyo Institute\n      of\
+    \ Technology, August 1996.\n   [RFC1996]\n      Vixie, P., \"A Mechanism for Prompt\
+    \ Notification of Zone Changes\",\n      RFC 1996, Internet Software Consortium,\
+    \ August 1996.\n   [RFC2065]\n      Eastlake, D., and C. Kaufman, \"Domain Name\
+    \ System Protocol\n      Security Extensions\", RFC 2065, January 1997.\n   [RFC2137]\n\
+    \      Eastlake, D., \"Secure Domain Name System Dynamic Update\", RFC\n     \
+    \ 2137, April 1997.\n"
+- title: Authors' Addresses
+  contents:
+  - "Authors' Addresses\n   Yakov Rekhter\n   Cisco Systems\n   170 West Tasman Drive\n\
+    \   San Jose, CA 95134-1706\n   Phone: +1 914 528 0090\n   EMail: yakov@cisco.com\n\
+    \   Susan Thomson\n   Bellcore\n   445 South Street\n   Morristown, NJ 07960\n\
+    \   Phone: +1 201 829 4514\n   EMail: set@thumper.bellcore.com\n   Jim Bound\n\
+    \   Digital Equipment Corp.\n   110 Spitbrook Rd ZK3-3/U14\n   Nashua, NH 03062-2698\n\
+    \   Phone: +1 603 881 0400\n   EMail: bound@zk3.dec.com\n   Paul Vixie\n   Internet\
+    \ Software Consortium\n   Star Route Box 159A\n   Woodside, CA 94062\n   Phone:\
+    \ +1 415 747 0204\n   EMail: paul@vix.com\n"

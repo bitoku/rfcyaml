@@ -30,7 +30,7 @@ class RFC:
 
     def _load_sections(self) -> List[RFCSection]:
         with open(self.yaml_file) as f:
-            return yaml.load(f)
+            return yaml.load(f, yaml.SafeLoader)
 
     def _load_info(self) -> RFCInfo:
         with open(self.json_file) as f:
@@ -39,6 +39,22 @@ class RFC:
     def dump(self):
         with open(self.yaml_file, "w") as f:
             yaml.dump(self.sections, f)
+
+    def get_all_text(self):
+        ret: List[str] = []
+        for section in self.sections:
+            ret.append(get_section_text(section))
+        return ''.join(ret)
+
+
+def get_section_text(section: RFCSection):
+    ret = []
+    for content in section['contents']:
+        if type(content) == str:
+            ret.append(content)
+        else:
+            ret.append(get_section_text(content))
+    return ''.join(ret)
 
 
 class RFCStatus(Enum):
@@ -82,3 +98,10 @@ class RFCInfo(TypedDict):
 class RFCSection(TypedDict):
     title: str
     contents: List[Union[RFCSection, str]]
+
+
+def represent_section(dumper, instance):
+    return dumper.represent_mapping('tag:yaml.org,2002:map', instance.items())
+
+
+yaml.add_representer(dict, represent_section)

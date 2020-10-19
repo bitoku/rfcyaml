@@ -1,0 +1,649 @@
+- title: __initial_text__
+  contents:
+  - '                   TCP Extension for High-Speed Paths
+
+    '
+- title: Status of This Memo
+  contents:
+  - "Status of This Memo\n   This memo describes an Experimental Protocol extension\
+    \ to TCP for the\n   Internet community, and requests discussion and suggestions\
+    \ for\n   improvements.  Please refer to the current edition of the \"IAB\n  \
+    \ Official Protocol Standards\" for the standardization state and status\n   of\
+    \ this protocol.  Distribution of this memo is unlimited.\n"
+- title: Summary
+  contents:
+  - "Summary\n   This memo describes a small extension to TCP to support reliable\n\
+    \   operation over very high-speed paths, using sender timestamps\n   transmitted\
+    \ using the TCP Echo option proposed in RFC-1072.\n"
+- title: 1. INTRODUCTION
+  contents:
+  - "1. INTRODUCTION\n   TCP uses positive acknowledgments and retransmissions to\
+    \ provide\n   reliable end-to-end delivery over a full-duplex virtual circuit\n\
+    \   called a connection [Postel81].  A connection is defined by its two\n   end\
+    \ points; each end point is a \"socket\", i.e., a (host,port) pair.\n   To protect\
+    \ against data corruption, TCP uses an end-to-end checksum.\n   Duplication and\
+    \ reordering are handled using a fine-grained sequence\n   number space, with\
+    \ each octet receiving a distinct sequence number.\n   The TCP protocol [Postel81]\
+    \ was designed to operate reliably over\n   almost any transmission medium regardless\
+    \ of transmission rate,\n   delay, corruption, duplication, or reordering of segments.\
+    \  In\n   practice, proper TCP implementations have demonstrated remarkable\n\
+    \   robustness in adapting to a wide range of network characteristics.\n   For\
+    \ example, TCP implementations currently adapt to transfer rates in\n   the range\
+    \ of 100 bps to 10**7 bps and round-trip delays in the range\n   1 ms to 100 seconds.\n\
+    \   However, the introduction of fiber optics is resulting in ever-higher\n  \
+    \ transmission speeds, and the fastest paths are moving out of the\n   domain\
+    \ for which TCP was originally engineered.  This memo and RFC-\n   1072 [Jacobson88]\
+    \ propose modest extensions to TCP to extend the\n   domain of its application\
+    \ to higher speeds.\n   There is no one-line answer to the question: \"How fast\
+    \ can TCP go?\".\n   The issues are reliability and performance, and these depend\
+    \ upon the\n   round-trip delay and the maximum time that segments may be queued\
+    \ in\n   the Internet, as well as upon the transmission speed.  We must think\n\
+    \   through these relationships very carefully if we are to successfully\n   extend\
+    \ TCP's domain.\n   TCP performance depends not upon the transfer rate itself,\
+    \ but rather\n   upon the product of the transfer rate and the round-trip delay.\
+    \  This\n   \"bandwidth*delay product\" measures the amount of data that would\n\
+    \   \"fill the pipe\"; it is the buffer space required at sender and\n   receiver\
+    \ to obtain maximum throughput on the TCP connection over the\n   path.  RFC-1072\
+    \ proposed a set of TCP extensions to improve TCP\n   efficiency for \"LFNs\"\
+    \ (long fat networks), i.e., networks with large\n   bandwidth*delay products.\n\
+    \   On the other hand, high transfer rate can threaten TCP reliability by\n  \
+    \ violating the assumptions behind the TCP mechanism for duplicate\n   detection\
+    \ and sequencing.  The present memo specifies a solution for\n   this problem,\
+    \ extending TCP reliability to transfer rates well beyond\n   the foreseeable\
+    \ upper limit of bandwidth.\n   An especially serious kind of error may result\
+    \ from an accidental\n   reuse of TCP sequence numbers in data segments.  Suppose\
+    \ that an \"old\n   duplicate segment\", e.g., a duplicate data segment that was\
+    \ delayed\n   in Internet queues, was delivered to the receiver at the wrong moment\n\
+    \   so that its sequence numbers fell somewhere within the current\n   window.\
+    \  There would be no checksum failure to warn of the error, and\n   the result\
+    \ could be an undetected corruption of the data.  Reception\n   of an old duplicate\
+    \ ACK segment at the transmitter could be only\n   slightly less serious: it is\
+    \ likely to lock up the connection so that\n   no further progress can be made\
+    \ and a RST is required to\n   resynchronize the two ends.\n   Duplication of\
+    \ sequence numbers might happen in either of two ways:\n   (1)  Sequence number\
+    \ wrap-around on the current connection\n        A TCP sequence number contains\
+    \ 32 bits.  At a high enough\n        transfer rate, the 32-bit sequence space\
+    \ may be \"wrapped\"\n        (cycled) within the time that a segment may be delayed\
+    \ in\n        queues.  Section 2 discusses this case and proposes a mechanism\n\
+    \        to reject old duplicates on the current connection.\n   (2)  Segment\
+    \ from an earlier connection incarnation\n        Suppose a connection terminates,\
+    \ either by a proper close\n        sequence or due to a host crash, and the same\
+    \ connection (i.e.,\n        using the same pair of sockets) is immediately reopened.\
+    \  A\n        delayed segment from the terminated connection could fall within\n\
+    \        the current window for the new incarnation and be accepted as\n     \
+    \   valid.  This case is discussed in Section 3.\n   TCP reliability depends upon\
+    \ the existence of a bound on the lifetime\n   of a segment: the \"Maximum Segment\
+    \ Lifetime\" or MSL.  An MSL is\n   generally required by any reliable transport\
+    \ protocol, since every\n   sequence number field must be finite, and therefore\
+    \ any sequence\n   number may eventually be reused.  In the Internet protocol\
+    \ suite, the\n   MSL bound is enforced by an IP-layer mechanism, the \"Time-to-Live\"\
+    \ or\n   TTL field.\n   Watson's Delta-T protocol [Watson81] includes network-layer\n\
+    \   mechanisms for precise enforcement of an MSL.  In contrast, the IP\n   mechanism\
+    \ for MSL enforcement is loosely defined and even more\n   loosely implemented\
+    \ in the Internet.  Therefore, it is unwise to\n   depend upon active enforcement\
+    \ of MSL for TCP connections, and it is\n   unrealistic to imagine setting MSL's\
+    \ smaller than the current values\n   (e.g., 120 seconds specified for TCP). \
+    \ The timestamp algorithm\n   described in the following section gives a way out\
+    \ of this dilemma\n   for high-speed networks.\n"
+- title: 2.  SEQUENCE NUMBER WRAP-AROUND
+  contents:
+  - "2.  SEQUENCE NUMBER WRAP-AROUND\n   2.1  Background\n      Avoiding reuse of\
+    \ sequence numbers within the same connection is\n      simple in principle: enforce\
+    \ a segment lifetime shorter than the\n      time it takes to cycle the sequence\
+    \ space, whose size is\n      effectively 2**31.\n      More specifically, if\
+    \ the maximum effective bandwidth at which TCP\n      is able to transmit over\
+    \ a particular path is B bytes per second,\n      then the following constraint\
+    \ must be satisfied for error-free\n      operation:\n          2**31 / B  > MSL\
+    \ (secs)                                    [1]\n      The following table shows\
+    \ the value for Twrap = 2**31/B in\n      seconds, for some important values of\
+    \ the bandwidth B:\n           Network       B*8          B         Twrap\n  \
+    \                    bits/sec   bytes/sec      secs\n           _______    _______\
+    \      ______       ______\n           ARPANET       56kbps       7KBps    3*10**5\
+    \ (~3.6 days)\n           DS1          1.5Mbps     190KBps    10**4 (~3 hours)\n\
+    \           Ethernet      10Mbps    1.25MBps    1700 (~30 mins)\n           DS3\
+    \           45Mbps     5.6MBps    380\n           FDDI         100Mbps    12.5MBps\
+    \    170\n           Gigabit        1Gbps     125MBps    17\n      It is clear\
+    \ why wrap-around of the sequence space was not a\n      problem for 56kbps packet\
+    \ switching or even 10Mbps Ethernets.  On\n      the other hand, at DS3 and FDDI\
+    \ speeds, Twrap is comparable to the\n      2 minute MSL assumed by the TCP specification\
+    \ [Postel81].  Moving\n      towards gigabit speeds, Twrap becomes too small for\
+    \ reliable\n      enforcement by the Internet TTL mechanism.\n      The 16-bit\
+    \ window field of TCP limits the effective bandwidth B to\n      2**16/RTT, where\
+    \ RTT is the round-trip time in seconds\n      [McKenzie89].  If the RTT is large\
+    \ enough, this limits B to a\n      value that meets the constraint [1] for a\
+    \ large MSL value.  For\n      example, consider a transcontinental backbone with\
+    \ an RTT of 60ms\n      (set by the laws of physics).  With the bandwidth*delay\
+    \ product\n      limited to 64KB by the TCP window size, B is then limited to\n\
+    \      1.1MBps, no matter how high the theoretical transfer rate of the\n    \
+    \  path.  This corresponds to cycling the sequence number space in\n      Twrap=\
+    \ 2000 secs, which is safe in today's Internet.\n      Based on this reasoning,\
+    \ an earlier RFC [McKenzie89] has cautioned\n      that expanding the TCP window\
+    \ space as proposed in RFC-1072 will\n      lead to sequence wrap-around and hence\
+    \ to possible data\n      corruption.  We believe that this is mis-identifying\
+    \ the culprit,\n      which is not the larger window but rather the high bandwidth.\n\
+    \           For example, consider a (very large) FDDI LAN with a diameter\n  \
+    \         of 10km.  Using the speed of light, we can compute the RTT\n       \
+    \    across the ring as (2*10**4)/(3*10**8) = 67 microseconds, and\n         \
+    \  the delay*bandwidth product is then 833 bytes.  A TCP\n           connection\
+    \ across this LAN using a window of only 833 bytes\n           will run at the\
+    \ full 100mbps and can wrap the sequence space\n           in about 3 minutes,\
+    \ very close to the MSL of TCP. Thus, high\n           speed alone can cause a\
+    \ reliability problem with sequence\n           number wrap-around, even without\
+    \ extended windows.\n      An \"obvious\" fix for the problem of cycling the sequence\
+    \ space is\n      to increase the size of the TCP sequence number field.  For\n\
+    \      example, the sequence number field (and also the acknowledgment\n     \
+    \ field) could be expanded to 64 bits.  However, the proposals for\n      making\
+    \ such a change while maintaining compatibility with current\n      TCP have tended\
+    \ towards complexity and ugliness.\n      This memo proposes a simple solution\
+    \ to the problem, using the TCP\n      echo options defined in RFC-1072.  Section\
+    \ 2.2 which follows\n      describes the original use of these options to carry\
+    \ timestamps in\n      order to measure RTT accurately.  Section 2.3 proposes\
+    \ a method of\n      using these same timestamps to reject old duplicate segments\
+    \ that\n      could corrupt an open TCP connection.  Section 3 discusses the\n\
+    \      application of this mechanism to avoiding old duplicates from\n      previous\
+    \ incarnations.\n   2.2  TCP Timestamps\n      RFC-1072 defined two TCP options,\
+    \ Echo and Echo Reply.  Echo\n      carries a 32-bit number, and the receiver\
+    \ of the option must\n      return this same value to the source host in an Echo\
+    \ Reply option.\n      RFC-1072 furthermore describes the use of these options\
+    \ to contain\n      32-bit timestamps, for measuring the RTT.  A TCP sending data\n\
+    \      would include Echo options containing the current clock value.\n      The\
+    \ receiver would echo these timestamps in returning segments\n      (generally,\
+    \ ACK segments).  The difference between a timestamp\n      from an Echo Reply\
+    \ option and the current time would then measure\n      the RTT at the sender.\n\
+    \      This mechanism was designed to solve the following problem: almost\n  \
+    \    all TCP implementations base their RTT measurements on a sample of\n    \
+    \  only one packet per window.  If we look at RTT estimation as a\n      signal\
+    \ processing problem (which it is), a data signal at some\n      frequency (the\
+    \ packet rate) is being sampled at a lower frequency\n      (the window rate).\
+    \  Unfortunately, this lower sampling frequency\n      violates Nyquist's criteria\
+    \ and may introduce \"aliasing\" artifacts\n      into the estimated RTT [Hamming77].\n\
+    \      A good RTT estimator with a conservative retransmission timeout\n     \
+    \ calculation can tolerate the aliasing when the sampling frequency\n      is\
+    \ \"close\" to the data frequency.   For example, with a window of\n      8 packets,\
+    \ the sample rate is 1/8 the data frequency -- less than\n      an order of magnitude\
+    \ different.  However, when the window is tens\n      or hundreds of packets,\
+    \ the RTT estimator may be seriously in\n      error, resulting in spurious retransmissions.\n\
+    \      A solution to the aliasing problem that actually simplifies the\n     \
+    \ sender substantially (since the RTT code is typically the single\n      biggest\
+    \ protocol cost for TCP) is as follows: the will sender\n      place a timestamp\
+    \ in each segment and the receiver will reflect\n      these timestamps back in\
+    \ ACK segments.  Then a single subtract\n      gives the sender an accurate RTT\
+    \ measurement for every ACK segment\n      (which will correspond to every other\
+    \ data segment, with a\n      sensible receiver).  RFC-1072 defined a timestamp\
+    \ echo option for\n      this purpose.\n      It is vitally important to use the\
+    \ timestamp echo option with big\n      windows; otherwise, the door is opened\
+    \ to some dangerous\n      instabilities due to aliasing.  Furthermore, the option\
+    \ is\n      probably useful for all TCP's, since it simplifies the sender.\n \
+    \  2.3  Avoiding Old Duplicate Segments\n      Timestamps carried from sender\
+    \ to receiver in TCP Echo options can\n      also be used to prevent data corruption\
+    \ caused by sequence number\n      wrap-around, as this section describes.\n \
+    \     2.3.1  Basic Algorithm\n         Assume that every received TCP segment\
+    \ contains a timestamp.\n         The basic idea is that a segment received with\
+    \ a timestamp that\n         is earlier than the timestamp of the most recently\
+    \ accepted\n         segment can be discarded as an old duplicate.  More\n   \
+    \      specifically, the following processing is to be performed on\n        \
+    \ normal incoming segments:\n         R1)  If the timestamp in the arriving segment\
+    \ timestamp is less\n              than the timestamp of the most recently received\
+    \ in-\n              sequence segment, treat the arriving segment as not\n   \
+    \           acceptable:\n                   If SEG.LEN > 0, send an acknowledgement\
+    \ in reply as\n                   specified in RFC-793 page 69, and drop the segment;\n\
+    \                   otherwise, just silently drop the segment.*\n"
+- title: _________________________
+  contents:
+  - '_________________________
+
+    '
+- title: '*Sending an ACK segment in reply is not strictly necessary, since  the'
+  contents:
+  - '*Sending an ACK segment in reply is not strictly necessary, since  the
+
+    '
+- title: case  can  only  arise  when a later in-order segment has already been
+  contents:
+  - 'case  can  only  arise  when a later in-order segment has already been
+
+    '
+- title: received.   However,  for  consistency  and  simplicity,  we   suggest
+  contents:
+  - 'received.   However,  for  consistency  and  simplicity,  we   suggest
+
+    '
+- title: treating  a  timestamp  failure  the  same  way  TCP  treats any other
+  contents:
+  - 'treating  a  timestamp  failure  the  same  way  TCP  treats any other
+
+    '
+- title: unacceptable segment.
+  contents:
+  - "unacceptable segment.\n         R2)  If the segment is outside the window, reject\
+    \ it (normal\n              TCP processing)\n         R3)  If an arriving segment\
+    \ is in-sequence (i.e, at the left\n              window edge), accept it normally\
+    \ and record its timestamp.\n         R4)  Otherwise, treat the segment as a normal\
+    \ in-window, out-\n              of-sequence TCP segment (e.g., queue it for later\
+    \ delivery\n              to the user).\n         Steps R2-R4 are the normal TCP\
+    \ processing steps specified by\n         RFC-793, except that in R3 the latest\
+    \ timestamp is set from\n         each in-sequence segment that is accepted. \
+    \ Thus, the latest\n         timestamp recorded at the receiver corresponds to\
+    \ the left edge\n         of the window and only advances when the left edge moves\n\
+    \         [Jacobson88].\n         It is important to note that the timestamp is\
+    \ checked only when\n         a segment first arrives at the receiver, regardless\
+    \ of whether\n         it is in-sequence or is queued.  Consider the following\n\
+    \         example.\n              Suppose the segment sequence: A.1, B.1, C.1,\
+    \ ..., Z.1 has\n              been sent, where the letter indicates the sequence\
+    \ number\n              and the digit represents the timestamp.  Suppose also\
+    \ that\n              segment B.1 has been lost.  The highest in-sequence\n  \
+    \            timestamp is 1 (from A.1), so C.1, ..., Z.1 are considered\n    \
+    \          acceptable and are queued.  When B is retransmitted as\n          \
+    \    segment B.2 (using the latest timestamp), it fills the\n              hole\
+    \ and causes all the segments through Z to be\n              acknowledged and\
+    \ passed to the user.  The timestamps of\n              the queued segments are\
+    \ *not* inspected again at this\n              time, since they have already been\
+    \ accepted.  When B.2 is\n              accepted, the receivers's current timestamp\
+    \ is set to 2.\n         This rule is vital to allow reasonable performance under\
+    \ loss.\n         A full window of data is in transit at all times, and after\
+    \ a\n         loss a full window less one packet will show up out-of-sequence\n\
+    \         to be queued at the receiver (e.g., up to ~2**30 bytes of\n        \
+    \ data); the timestamp option must not result in discarding this\n         data.\n\
+    \         In certain unlikely circumstances, the algorithm of rules R1-R4\n  \
+    \       could lead to discarding some segments unnecessarily, as shown\n     \
+    \    in the following example:\n              Suppose again that segments: A.1,\
+    \ B.1, C.1, ..., Z.1 have\n              been sent in sequence and that segment\
+    \ B.1 has been lost.\n              Furthermore, suppose delivery of some of C.1,\
+    \ ... Z.1 is\n              delayed until AFTER the retransmission B.2 arrives\
+    \ at the\n              receiver.  These delayed segments will be discarded\n\
+    \              unnecessarily when they do arrive, since their timestamps\n   \
+    \           are now out of date.\n         This case is very unlikely to occur.\
+    \  If the retransmission was\n         triggered by a timeout, some of the segments\
+    \ C.1, ... Z.1 must\n         have been delayed longer than the RTO time.  This\
+    \ is presumably\n         an unlikely event, or there would be many spurious timeouts\
+    \ and\n         retransmissions.  If B's retransmission was triggered by the\n\
+    \         \"fast retransmit\" algorithm, i.e., by duplicate ACK's, then the\n\
+    \         queued segments that caused these ACK's must have been received\n  \
+    \       already.\n         Even if a segment was delayed past the RTO, the selective\n\
+    \         acknowledgment (SACK) facility of RFC-1072 will cause the\n        \
+    \ delayed packets to be retransmitted at the same time as B.2,\n         avoiding\
+    \ an extra RTT and therefore causing a very small\n         performance penalty.\n\
+    \         We know of no case with a significant probability of occurrence\n  \
+    \       in which timestamps will cause performance degradation by\n         unnecessarily\
+    \ discarding segments.\n      2.3.2  Header Prediction\n         \"Header prediction\"\
+    \ [Jacobson90] is a high-performance\n         transport protocol implementation\
+    \ technique that is is most\n         important for high-speed links.  This technique\
+    \ optimizes the\n         code for the most common case: receiving a segment correctly\n\
+    \         and in order.  Using header prediction, the receiver asks the\n    \
+    \     question, \"Is this segment the next in sequence?\"  This\n         question\
+    \ can be answered in fewer machine instructions than the\n         question, \"\
+    Is this segment within the window?\"\n         Adding header prediction to our\
+    \ timestamp procedure leads to\n         the following sequence for processing\
+    \ an arriving TCP segment:\n         H1)  Check timestamp (same as step R1 above)\n\
+    \         H2)  Do header prediction: if segment is next in sequence and\n    \
+    \          if there are no special conditions requiring additional\n         \
+    \     processing, accept the segment, record its timestamp, and\n            \
+    \  skip H3.\n         H3)  Process the segment normally, as specified in RFC-793.\n\
+    \              This includes dropping segments that are outside the\n        \
+    \      window and possibly sending acknowledgments, and queueing\n           \
+    \   in-window, out-of-sequence segments.\n         However, the timestamp check\
+    \ in step H1 is very unlikely to\n         fail, and it is a relatively expensive\
+    \ operation since it\n         requires interval arithmetic on a finite field.\
+    \  To perform\n         this check on every single segment seems like poor\n \
+    \        implementation engineering, defeating the purpose of header\n       \
+    \  prediction.  Therefore, we suggest that an implementor\n         interchange\
+    \ H1 and H2, i.e., perform header prediction FIRST,\n         performing H1 and\
+    \ H3 only if header prediction fails.  We\n         believe that this change might\
+    \ gain 5-10% in performance on\n         high-speed networks.\n         This reordering\
+    \ does raise a theoretical hazard: a segment from\n         2**32 bytes in the\
+    \ past may arrive at exactly the wrong time\n         and be accepted mistakenly\
+    \ by the header-prediction step.  We\n         make the following argument to\
+    \ show that the probability of\n         this failure is negligible.\n       \
+    \       If all segments are equally likely to show up as old\n              duplicates,\
+    \ then the probability of an old duplicate\n              exactly matching the\
+    \ left window edge is the maximum\n              segment size (MSS) divided by\
+    \ the size of the sequence\n              space.  This ratio must be less than\
+    \ 2**-16, since MSS\n              must be < 2**16; for example, it will be (2**12)/(2**32)\
+    \ =\n              2**-20 for an FDDI link.  However, the older a segment is,\n\
+    \              the less likely it is to be retained in the Internet, and\n   \
+    \           under any reasonable model of segment lifetime the\n             \
+    \ probability of an old duplicate exactly at the left window\n              edge\
+    \ must be much smaller than 2**16.\n              The 16 bit TCP checksum also\
+    \ allows a basic unreliability\n              of one part in 2**16.  A protocol\
+    \ mechanism whose\n              reliability exceeds the reliability of the TCP\
+    \ checksum\n              should be considered \"good enough\", i.e., it won't\n\
+    \              contribute significantly to the overall error rate.  We\n     \
+    \         therefore believe we can ignore the problem of an old\n            \
+    \  duplicate being accepted by doing header prediction before\n              checking\
+    \ the timestamp.\n      2.3.3  Timestamp Frequency\n         It is important to\
+    \ understand that the receiver algorithm for\n         timestamps does not involve\
+    \ clock synchronization with the\n         sender.  The sender's clock is used\
+    \ to stamp the segments, and\n         the sender uses this fact to measure RTT's.\
+    \  However, the\n         receiver treats the timestamp as simply a monotone-increasing\n\
+    \         serial number, without any necessary connection to its clock.\n    \
+    \     From the receiver's viewpoint, the timestamp is acting as a\n         logical\
+    \ extension of the high-order bits of the sequence\n         number.\n       \
+    \  However, the receiver algorithm dpes place some requirements on\n         the\
+    \ frequency of the timestamp \"clock\":\n         (a)  Timestamp clock must not\
+    \ be \"too slow\".\n              It must tick at least once for each 2**31 bytes\
+    \ sent.  In\n              fact, in order to be useful to the sender for round\
+    \ trip\n              timing, the clock should tick at least once per window's\n\
+    \              worth of data, and even with the RFC-1072 window\n            \
+    \  extension, 2**31 bytes must be at least two windows.\n              To make\
+    \ this more quantitative, any clock faster than 1\n              tick/sec will\
+    \ reject old duplicate segments for link\n              speeds of ~2 Gbps;  a\
+    \ 1ms clock will work up to link\n              speeds of 2 Tbps (10**12 bps!).\n\
+    \         (b)  Timestamp clock must not be \"too fast\".\n              Its cycling\
+    \ time must be greater than MSL seconds.  Since\n              the clock (timestamp)\
+    \ is 32 bits and the worst-case MSL is\n              255 seconds, the maximum\
+    \ acceptable clock frequency is one\n              tick every 59 ns.\n       \
+    \       However, since the sender is using the timestamp for RTT\n           \
+    \   calculations, the timestamp doesn't need to have much more\n             \
+    \ resolution than the granularity of the retransmit timer,\n              e.g.,\
+    \ tens or hundreds of milliseconds.\n         Thus, both limits are easily satisfied\
+    \ with a reasonable clock\n         rate in the range 1-100ms per tick.\n    \
+    \     Using the timestamp option relaxes the requirements on MSL for\n       \
+    \  avoiding sequence number wrap-around.  For example, with a 1 ms\n         timestamp\
+    \ clock, the 32-bit timestamp will wrap its sign bit in\n         25 days.  Thus,\
+    \ it will reject old duplicates on the same\n         connection as long as MSL\
+    \ is 25 days or less.  This appears to\n         be a very safe figure.  If the\
+    \ timestamp has 10 ms resolution,\n         the MSL requirement is boosted to\
+    \ 250 days.  An MSL of 25 days\n         or longer can probably be assumed by\
+    \ the gateway system without\n         requiring precise MSL enforcement by the\
+    \ TTL value in the IP\n         layer.\n"
+- title: 3.  DUPLICATES FROM EARLIER INCARNATIONS OF CONNECTION
+  contents:
+  - "3.  DUPLICATES FROM EARLIER INCARNATIONS OF CONNECTION\n   We turn now to the\
+    \ second potential cause of old duplicate packet\n   errors: packets from an earlier\
+    \ incarnation of the same connection.\n   The appendix contains a review the mechanisms\
+    \ currently included in\n   TCP to handle this problem.  These mechanisms depend\
+    \ upon the\n   enforcement of a maximum segment lifetime (MSL) by the Internet\n\
+    \   layer.\n   The MSL required to prevent failures due to an earlier connection\n\
+    \   incarnation does not depend (directly) upon the transfer rate.\n   However,\
+    \ the timestamp option used as described in Section 2 can\n   provide additional\
+    \ security against old duplicates from earlier\n   connections.  Furthermore,\
+    \ we will see that with the universal use of\n   the timestamp option, enforcement\
+    \ of a maximum segment lifetime would\n   no longer be required for reliable TCP\
+    \ operation.\n   There are two cases to be considered (see the appendix for more\n\
+    \   explanation):  (1) a system crashing (and losing connection state)\n   and\
+    \ restarting, and (2) the same connection being closed and reopened\n   without\
+    \ a loss of host state.  These will be described in the\n   following two sections.\n\
+    \   3.1  System Crash with Loss of State\n      TCP's quiet time of one MSL upon\
+    \ system startup handles the loss\n      of connection state in a system crash/restart.\
+    \  For an\n      explanation, see for example \"When to Keep Quiet\" in the TCP\n\
+    \      protocol specification [Postel81].  The MSL that is required here\n   \
+    \   does not depend upon the transfer speed.  The current TCP MSL of 2\n     \
+    \ minutes seems acceptable as an operational compromise, as many\n      host systems\
+    \ take this long to boot after a crash.\n      However, the timestamp option may\
+    \ be used to ease the MSL\n      requirements (or to provide additional security\
+    \ against data\n      corruption).  If timestamps are being used and if the timestamp\n\
+    \      clock can be guaranteed to be monotonic over a system\n      crash/restart,\
+    \ i.e., if the first value of the sender's timestamp\n      clock after a crash/restart\
+    \ can be guaranteed to be greater than\n      the last value before the restart,\
+    \ then a quiet time will be\n      unnecessary.\n      To dispense totally with\
+    \ the quiet time would seem to require that\n      the host clock be synchronized\
+    \ to a time source that is stable\n      over the crash/restart period, with an\
+    \ accuracy of one timestamp\n      clock tick or better.  Fortunately, we can\
+    \ back off from this\n      strict requirement.  Suppose that the clock is always\
+    \ re-\n      synchronized to within N timestamp clock ticks and that booting\n\
+    \      (extended with a quiet time, if necessary) takes more than N\n      ticks.\
+    \  This will guarantee monotonicity of the timestamps, which\n      can then be\
+    \ used to reject old duplicates even without an enforced\n      MSL.\n   3.2 \
+    \ Closing and Reopening a Connection\n      When a TCP connection is closed, a\
+    \ delay of 2*MSL in TIME-WAIT\n      state ties up the socket pair for 4 minutes\
+    \ (see Section 3.5 of\n      [Postel81].  Applications built upon TCP that close\
+    \ one connection\n      and open a new one (e.g., an FTP data transfer connection\
+    \ using\n      Stream mode) must choose a new socket pair each time.  This delay\n\
+    \      serves two different purposes:\n      (a)  Implement the full-duplex reliable\
+    \ close handshake of TCP.\n           The proper time to delay the final close\
+    \ step is not really\n           related to the MSL; it depends instead upon the\
+    \ RTO for the\n           FIN segments and therefore upon the RTT of the path.*\n\
+    \           Although there is no formal upper-bound on RTT, common\n         \
+    \  network engineering practice makes an RTT greater than 1\n           minute\
+    \ very unlikely.  Thus, the 4 minute delay in TIME-WAIT\n           state works\
+    \ satisfactorily to provide a reliable full-duplex\n           TCP close.  Note\
+    \ again that this is independent of MSL\n           enforcement and network speed.\n\
+    \           The TIME-WAIT state could cause an indirect performance\n        \
+    \   problem if an application needed to repeatedly close one\n           connection\
+    \ and open another at a very high frequency, since\n           the number of available\
+    \ TCP ports on a host is less than\n           2**16.  However, high network speeds\
+    \ are not the major\n           contributor to this problem; the RTT is the limiting\
+    \ factor\n           in how quickly connections can be opened and closed.\n  \
+    \         Therefore, this problem will no worse at high transfer\n           speeds.\n\
+    \      (b)  Allow old duplicate segements to expire.\n           Suppose that\
+    \ a host keeps a cache of the last timestamp\n           received from each remote\
+    \ host.  This can be used to reject\n           old duplicate segments from earlier\
+    \ incarnations of the\n"
+- title: _________________________
+  contents:
+  - '_________________________
+
+    '
+- title: '*Note: It could be argued that the side that is sending  a  FIN  knows'
+  contents:
+  - '*Note: It could be argued that the side that is sending  a  FIN  knows
+
+    '
+- title: what  degree  of reliability it needs, and therefore it should be able
+  contents:
+  - 'what  degree  of reliability it needs, and therefore it should be able
+
+    '
+- title: to  determine  the  length  of  the  TIME-WAIT  delay  for  the  FIN's
+  contents:
+  - 'to  determine  the  length  of  the  TIME-WAIT  delay  for  the  FIN''s
+
+    '
+- title: recipient.   This could be accomplished with an appropriate TCP option
+  contents:
+  - 'recipient.   This could be accomplished with an appropriate TCP option
+
+    '
+- title: in FIN segments.
+  contents:
+  - "in FIN segments.\n           connection, if the timestamp clock can be guaranteed\
+    \ to have\n           ticked at least once since the old conennection was open.\n\
+    \           This requires that the TIME-WAIT delay plus the RTT together\n   \
+    \        must be at least one tick of the sender's timestamp clock.\n        \
+    \   Note that this is a variant on the mechanism proposed by\n           Garlick,\
+    \ Rom, and Postel (see the appendix), which required\n           each host to\
+    \ maintain connection records containing the\n           highest sequence numbers\
+    \ on every connection.  Using\n           timestamps instead, it is only necessary\
+    \ to keep one quantity\n           per remote host, regardless of the number of\
+    \ simultaneous\n           connections to that host.\n      We conclude that if\
+    \ all hosts used the TCP timestamp algorithm\n      described in Section 2, enforcement\
+    \ of a maximum segment lifetime\n      would be unnecessary and the quiet time\
+    \ at system startup could be\n      shortened or removed.  In any case, the timestamp\
+    \ mechanism can\n      provide additional security against old duplicates from\
+    \ earlier\n      connection incarnations.   However, a 4 minute TIME-WAIT delay\n\
+    \      (unrelated to MSL enforcement or network speed) must be retained\n    \
+    \  to provide the reliable close handshake of TCP.\n"
+- title: 4. CONCLUSIONS
+  contents:
+  - "4. CONCLUSIONS\n   We have presented a mechanism, based upon the TCP timestamp\
+    \ echo\n   option of RFC-1072, that will allow very high TCP transfer rates\n\
+    \   without reliability problems due to old duplicate segments on the\n   same\
+    \ connection.  This mechanism also provides additional security\n   against intrusion\
+    \ of old duplicates from earlier incarnations of the\n   same connection.  If\
+    \ the timestamp mechanism were used by all hosts,\n   the quiet time at system\
+    \ startup could be eliminated and enforcement\n   of a maximum segment lifetime\
+    \ (MSL) would no longer be necessary.\n"
+- title: REFERENCES
+  contents:
+  - "REFERENCES\n   [Cerf76]  Cerf, V., \"TCP Resynchronization\", Tech Note #79,\
+    \ Digital\n   Systems Lab, Stanford, January 1976.\n   [Dalal74]  Dalal, Y., \"\
+    More on Selecting Sequence Numbers\", INWG\n   Protocol Note #4, October 1974.\n\
+    \   [Garlick77]  Garlick, L., R. Rom, and J. Postel, \"Issues in Reliable\n  \
+    \ Host-to-Host Protocols\", Proc. Second Berkeley Workshop on\n   Distributed\
+    \ Data Management and Computer Networks, May 1977.\n   [Hamming77]  Hamming, R.,\
+    \ \"Digital Filters\", ISBN 0-13-212571-4,\n   Prentice Hall, Englewood Cliffs,\
+    \ N.J., 1977.\n   [Jacobson88]  Jacobson, V., and R. Braden, \"TCP Extensions\
+    \ for\n   Long-Delay Paths\", RFC 1072, LBL and USC/Information Sciences\n   Institute,\
+    \ October 1988.\n   [Jacobson90]  Jacobson, V., \"4BSD Header Prediction\", ACM\
+    \ Computer\n   Communication Review, April 1990.\n   [McKenzie89]  McKenzie, A.,\
+    \ \"A Problem with the TCP Big Window\n   Option\", RFC 1110, BBN STC, August\
+    \ 1989.\n   [Postel81]  Postel, J., \"Transmission Control Protocol\", RFC 793,\n\
+    \   DARPA, September 1981.\n   [Tomlinson74]  Tomlinson, R., \"Selecting Sequence\
+    \ Numbers\", INWG\n   Protocol Note #2, September 1974.\n   [Watson81]  Watson,\
+    \ R., \"Timer-based Mechanisms in Reliable\n   Transport Protocol Connection Management\"\
+    , Computer Networks,\n   Vol. 5, 1981.\n"
+- title: APPENDIX -- Protection against Old Duplicates in TCP
+  contents:
+  - "APPENDIX -- Protection against Old Duplicates in TCP\n   During the development\
+    \ of TCP, a great deal of effort was devoted to\n   the problem of protecting\
+    \ a TCP connection from segments left from\n   earlier incarnations of the same\
+    \ connection.  Several different\n   mechanisms were proposed for this purpose\
+    \ [Tomlinson74] [Dalal74]\n   [Cerf76] [Garlick77].\n   The connection parameters\
+    \ that are required in this discussion are:\n           Tc = Connection duration\
+    \ in seconds.\n           Nc = Total number of bytes sent on connection.\n   \
+    \        B = Effective bandwidth of connection = Nc/Tc.\n   Tomlinson proposed\
+    \ a scheme with two parts: a clock-driven selection\n   of ISN (Initial Sequence\
+    \ Number) for a connection, and a\n   resynchronization procedure [Tomlinson74].\
+    \ The clock-driven scheme\n   chooses:\n      ISN = (integer(R*t)) mod 2**32 \
+    \                [2]\n   where t is the current time relative to an arbitrary\
+    \ origin, and R is\n   a constant.  R was intended to be chosen so that ISN will\
+    \ advance\n   faster than sequence numbers will be used up on the connection.\n\
+    \   However, at high speeds this will not be true; the consequences of\n   this\
+    \ will be discussed below.\n   The clock-driven choice of ISN in formula [2] guarantees\
+    \ freedom from\n   old duplicates matching a reopened connection if the original\n\
+    \   connection was \"short-lived\" and \"slow\".  By \"short-lived\", we mean\
+    \ a\n   connection that stayed open for a time Tc less than the time to cycle\n\
+    \   the ISN, i.e., Tc < 2**32/R seconds.  By \"slow\", we mean that the\n   effective\
+    \ transfer rate B is less than R.\n   This is illustrated in Figure 1, where sequence\
+    \ numbers are plotted\n   against time.  The asterisks show the ISN lines from\
+    \ formula [2],\n   while the circles represent the trajectories of several short-lived\n\
+    \   incarnations of the same connection, each terminating at the \"x\".\n    \
+    \    Note: allowing rapid reuse of connections was believed to be an\n       \
+    \ important goal during the early TCP development.  This\n        requirement\
+    \ was driven by the hope that TCP would serve as a\n        basis for user-level\
+    \ transaction protocols as well as\n        connection-oriented protocols.  The\
+    \ paradigm discussed was the\n        \"Christmas Tree\" or \"Kamikazee\" segment\
+    \ that contained SYN and\n        FIN bits as well as data.  Enthusiasm for this\
+    \ was somewhat\n        dampened when it was observed that the 3-way SYN handshake\
+    \ and\n        the FIN handshake mean that 5 packets are required for a minimum\n\
+    \        exchange. Furthermore, the TIME-WAIT state delay implies that\n     \
+    \   the same connection really cannot be reopened immediately.  No\n        further\
+    \ work has been done in this area, although existing\n        applications (especially\
+    \ SMTP) often generate very short TCP\n        sessions.  The reuse problem is\
+    \ generally avoided by using a\n        different port pair for each connection.\n\
+    \        |- 2**32       ISN             ISN\n        |              *        \
+    \       *\n        |             *               *\n        |            *   \
+    \            *\n        |           *x              *\n        |          o  \
+    \             *\n    ^   |         *               *\n    |   |        *  x  \
+    \          *\n        |       * o             *\n    S   |      *o           \
+    \   *\n    e   |     o               *\n    q   |    *               *\n     \
+    \   |   *               *\n    #   |  * x             *\n        | *o        \
+    \      *\n        |o_______________*____________\n                         ^ \
+    \        Time -->\n                       4.55hrs\n     Figure 1.  Clock-Driven\
+    \ ISN  avoiding duplication on\n                short-Lived, slow connections.\n\
+    \   However, clock-driven ISN selection does not protect against old\n   duplicate\
+    \ packets for a long-lived or fast connection:  the\n   connection may close (or\
+    \ crash) just as the ISN has cycled around and\n   reached the same value again.\
+    \  If the connection is then reopened, a\n   datagram still in transit from the\
+    \ old connection may fall into the\n   current window.  This is illustrated by\
+    \ Figure 2 for a slow, long-\n   lived connection, and by Figures 3 and 4 for\
+    \ fast connections.  In\n   each case, the point \"x\" marks the place at which\
+    \ the original\n   connection closes or crashes.  The arrow in Figure 2 illustrates\
+    \ an\n   old duplicate segment.  Figure 3 shows a connection whose total byte\n\
+    \   count Nc < 2**32, while Figure 4 concerns Nc >= 2**32.\n   To prevent the\
+    \ duplication illustrated in Figure 2, Tomlinson\n   proposed to \"resynchronize\"\
+    \ the connection sequence numbers if they\n   came within an MSL of the ISN. \
+    \ Resynchronization might take the form\n   of a delay (point \"y\") or the choice\
+    \ of a new sequence number (point\n   \"z\").\n        |- 2**32       ISN    \
+    \           ISN\n        |              *                 *\n        |       \
+    \      *                 *\n        |            *                 *\n       \
+    \ |           *                 *\n        |          *                 *\n  \
+    \  ^   |         *                 *\n    |   |        *                 *\n \
+    \       |       *                 *\n    S   |      *                 *\n    e\
+    \   |     *                x* y\n    q   |    *           o     *\n        | \
+    \  *      o          *z\n    #   |  *o                *\n        | *         \
+    \        *\n        |*_________________*____________\n                       \
+    \    ^         Time -->\n                          4.55hrs\n        Figure 2.\
+    \  Resynchronization to Avoid Duplication\n                   on Slow, Long-Lived\
+    \ Connection\n        |- 2**32       ISN               ISN\n        |        \
+    \      *                 *\n        |       x   o *                 *\n      \
+    \  |            *                 *\n        |      o-->o*                 *\n\
+    \        |          *                 *\n    ^   |     o   o                 *\n\
+    \    |   |        *                 *\n        |    o  *                 *\n \
+    \   S   |      *                 *\n    e   |   o *                 *\n    q \
+    \  |    *                 *\n        |  o*                 *\n    #   |  *   \
+    \              *\n        | o                 *\n        |*_________________*____________\n\
+    \                           ^         Time -->\n                          4.55hrs\n\
+    \     Figure 3.  Duplication on Fast Connection: Nc < 2**32 bytes\n        |-\
+    \ 2**32       ISN               ISN\n        |      o       *                \
+    \ *\n        |           x *                 *\n        |            *       \
+    \          *\n        |     o     *                 *\n        |          o  \
+    \               *\n    ^   |         *                 *\n    |   |    o   * \
+    \                *\n        |       * o               *\n    S   |      *    \
+    \            *\n    e   |   o *                 *\n    q   |    *   o        \
+    \     *\n        |   *                 *\n    #   |  o                 *\n   \
+    \     | *     o           *\n        |*_________________*____________\n      \
+    \                     ^         Time -->\n                          4.55hrs\n\
+    \     Figure 4.  Duplication on Fast Connection: Nc > 2**32 bytes\n   In summary,\
+    \ Figures 1-4 illustrated four possible failure modes for\n   old duplicate packets\
+    \ from an earlier incarnation.  We will call\n   these four modes F1 , F2, F3,\
+    \ and F4:\n   F1:  B < R, Tc < 4.55 hrs. (Figure 1)\n   F2:  B < R, Tc >= 4.55\
+    \ hrs. (Figure 2)\n   F3:  B >= R, Nc < 2**32 (Figure 3)\n   F4:  B >= R, Nc >=\
+    \ 2**32 (Figure 4)\n   Another limitation of clock-driven ISN selection should\
+    \ be mentioned.\n   Tomlinson assumed that the current time t in formula [2] is\
+    \ obtained\n   from a clock that is persistent over a system crash.  For his scheme\n\
+    \   to work correctly, the clock must be restarted with an accuracy of\n   1/R\
+    \ seconds (e.g, 4 microseconds in the case of TCP).  While this may\n   be possible\
+    \ for some hosts and some crashes, in most cases there will\n   be an uncertainty\
+    \ in the clock after a crash that ranges from a\n   second to several minutes.\n\
+    \   As a result of this random clock offset after system\n   reinitialization,\
+    \ there is a possibility that old segments sent\n   before the crash may fall\
+    \ into the window of a new connection\n   incarnation.  The solution to this problem\
+    \ that was adopted in the\n   final TCP spec is a \"quiet time\" of MSL seconds\
+    \ when the system is\n   initialized [Postel81, p. 28].  No TCP connection can\
+    \ be opened until\n   the expiration of this quiet time.\n   A different approach\
+    \ was suggested by Garlick, Rom, and Postel\n   [Garlick77].  Rather than using\
+    \ clock-driven ISN selection, they\n   proposed to maintain connection records\
+    \ containing the last ISN used\n   on every connection.  To immediately open a\
+    \ new incarnation of a\n   connection, the ISN is taken to be greater than the\
+    \ last sequence\n   number of the previous incarnation, so that the new incarnation\
+    \ will\n   have unique sequence numbers.  To handle a system crash, they\n   proposed\
+    \ a quiet time, i.e., a delay at system startup time to allow\n   old duplicates\
+    \ to expire.  Note that the connection records need be\n   kept only for MSL seconds;\
+    \ after that, no collision is possible, and\n   a new connection can start with\
+    \ sequence number zero.\n   The scheme finally adopted for TCP combines features\
+    \ of both these\n   proposals.  TCP uses three mechanisms:\n   (A)  ISN selection\
+    \ is clock-driven to handle short-lived connections.\n        The parameter R\
+    \ =  250KBps, so that the ISN value cycles in\n        2**32/R = 4.55 hours.\n\
+    \   (B)  (One end of) a closed connection is left in a \"busy\" state,\n     \
+    \   known as \"TIME-WAIT\" state, for a time of 2*MSL.  TIME-WAIT\n        state\
+    \ handles the proper close of a long-lived connection\n        without resynchronization.\
+    \  It also allows reliable completion\n        of the full-duplex close handshake.\n\
+    \   (C)  There is a quiet time of one MSL at system startup.  This\n        handles\
+    \ a crash of a long-lived connection and avoids time\n        resynchronization\
+    \ problems in (A).\n   Notice that (B) and (C) together are logically sufficient\
+    \ to prevent\n   accidental reuse of sequence numbers from a different incarnation,\n\
+    \   for any of the failure modes F1-F4.  (A) is not logically necessary\n   since\
+    \ the close delay (B) makes it impossible to reopen the same TCP\n   connection\
+    \ immediately.  However, the use of (A) does give additional\n   assurance in\
+    \ a common case, perhaps compensating for a host that has\n   set its TIME-WAIT\
+    \ state delay too short.\n   Some TCP implementations have permitted a connection\
+    \ in the TIME-WAIT\n   state to be reopened immediately by the other side, thus\
+    \ short-\n   circuiting mechanism (B).  Specifically, a new SYN for the same\n\
+    \   socket pair is accepted when the earlier incarnation is still in\n   TIME-WAIT\
+    \ state.  Old duplicates in one direction can be avoided by\n   choosing the ISN\
+    \ to be the next unused sequence number from the\n   preceding connection (i.e.,\
+    \ FIN+1); this is essentially an\n   application of the scheme of Garlick, Rom,\
+    \ and Postel, using the\n   connection block in TIME-WAIT state as the connection\
+    \ record.\n   However, the connection is still vulnerable to old duplicates in\
+    \ the\n   other direction.  Mechanism (A) prevents trouble in mode F1, but\n \
+    \  failures can arise in F2, F3, or F4; of these, F2, on short, fast\n   connections,\
+    \ is the most dangerous.\n   Finally, we note TCP will operate reliably without\
+    \ any MSL-based\n   mechanisms in the following restricted domain:\n   *    Total\
+    \ data sent is less then 2**32 octets, and\n   *    Effective sustained rate less\
+    \ than 250KBps, and\n   *    Connection duration less than 4.55 hours.\n   At\
+    \ the present time, the great majority of current TCP usage falls\n   into this\
+    \ restricted domain.  The third component, connection\n   duration, is the most\
+    \ commonly violated.\n"
+- title: Security Considerations
+  contents:
+  - "Security Considerations\n   Security issues are not discussed in this memo.\n"
+- title: Authors' Addresses
+  contents:
+  - "Authors' Addresses\n   Van Jacobson\n   University of California\n   Lawrence\
+    \ Berkeley Laboratory\n   Mail Stop 46A\n   Berkeley, CA 94720\n   Phone: (415)\
+    \ 486-6411\n   EMail: van@CSAM.LBL.GOV\n   Bob Braden\n   University of Southern\
+    \ California\n   Information Sciences Institute\n   4676 Admiralty Way\n   Marina\
+    \ del Rey, CA 90292\n   Phone: (213) 822-1511\n   EMail: Braden@ISI.EDU\n   Lixia\
+    \ Zhang\n   XEROX Palo Alto Research Center\n   3333 Coyote Hill Road\n   Palo\
+    \ Alto, CA 94304\n   Phone: (415) 494-4415\n   EMail: lixia@PARC.XEROX.COM\n"

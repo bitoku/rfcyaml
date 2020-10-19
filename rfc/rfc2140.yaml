@@ -1,0 +1,344 @@
+- title: __initial_text__
+  contents:
+  - '                   TCP Control Block Interdependence
+
+    '
+- title: Status of this Memo
+  contents:
+  - "Status of this Memo\n   This memo provides information for the Internet community.\
+    \  This memo\n   does not specify an Internet standard of any kind.  Distribution\
+    \ of\n   this memo is unlimited.\n"
+- title: Abstract
+  contents:
+  - "Abstract\n   This memo makes the case for interdependent TCP control blocks,\
+    \ where\n   part of the TCP state is shared among similar concurrent connections,\n\
+    \   or across similar connection instances. TCP state includes a\n   combination\
+    \ of parameters, such as connection state, current round-\n   trip time estimates,\
+    \ congestion control information, and process\n   information.  This state is\
+    \ currently maintained on a per-connection\n   basis in the TCP control block,\
+    \ but should be shared across\n   connections to the same host. The goal is to\
+    \ improve transient\n   transport performance, while maintaining backward-compatibility\
+    \ with\n   existing implementations.\n   This document is a product of the LSAM\
+    \ project at ISI.\n"
+- title: Introduction
+  contents:
+  - "Introduction\n   TCP is a connection-oriented reliable transport protocol layered\
+    \ over\n   IP [9]. Each TCP connection maintains state, usually in a data\n  \
+    \ structure called the TCP Control Block (TCB). The TCB contains\n   information\
+    \ about the connection state, its associated local process,\n   and feedback parameters\
+    \ about the connection's transmission\n   properties. As originally specified\
+    \ and usually implemented, the TCB\n   is maintained on a per-connection basis.\
+    \ This document discusses the\n   implications of that decision, and argues for\
+    \ an alternate\n   implementation that shares some of this state across similar\n\
+    \   connection instances and among similar simultaneous connections. The\n   resulting\
+    \ implementation can have better transient performance,\n   especially for numerous\
+    \ short-lived and simultaneous connections, as\n   often used in the World-Wide\
+    \ Web [1]. These changes affect only the\n   TCB initialization, and so have no\
+    \ effect on the long-term behavior\n   of TCP after a connection has been established.\n"
+- title: The TCP Control Block (TCB)
+  contents:
+  - "The TCP Control Block (TCB)\n   A TCB is associated with each connection, i.e.,\
+    \ with each association\n   of a pair of applications across the network. The\
+    \ TCB can be\n   summarized as containing [9]:\n        Local process state\n\
+    \            pointers to send and receive buffers\n            pointers to retransmission\
+    \ queue and current segment\n            pointers to Internet Protocol (IP) PCB\n\
+    \        Per-connection shared state\n            macro-state\n              \
+    \  connection state\n                timers\n                flags\n         \
+    \       local and remote host numbers and ports\n            micro-state\n   \
+    \             send and receive window state (size*, current number)\n        \
+    \        round-trip time and variance\n                cong. window size*\n  \
+    \              cong. window size threshold*\n                max windows seen*\n\
+    \                MSS#\n                round-trip time and variance#\n   The per-connection\
+    \ information is shown as split into macro-state and\n   micro-state, terminology\
+    \ borrowed from [5]. Macro-state describes the\n   finite state machine; we include\
+    \ the endpoint numbers and components\n   (timers, flags) used to help maintain\
+    \ that state. This includes the\n   protocol for establishing and maintaining\
+    \ shared state about the\n   connection. Micro-state describes the protocol after\
+    \ a connection has\n   been established, to maintain the reliability and congestion\
+    \ control\n   of the data transferred in the connection.\n   We further distinguish\
+    \ two other classes of shared micro-state that\n   are associated more with host-pairs\
+    \ than with application pairs. One\n   class is clearly host-pair dependent (#,\
+    \ e.g., MSS, RTT), and the\n   other is host-pair dependent in its aggregate (*,\
+    \ e.g., cong. window\n   info., curr. window sizes).\n"
+- title: TCB Interdependence
+  contents:
+  - "TCB Interdependence\n   The observation that some TCB state is host-pair specific\
+    \ rather than\n   application-pair dependent is not new, and is a common engineering\n\
+    \   decision in layered protocol implementations. A discussion of sharing\n  \
+    \ RTT information among protocols layered over IP, including UDP and\n   TCP,\
+    \ occurred in [8]. T/TCP uses caches to maintain TCB information\n   across instances,\
+    \ e.g., smoothed RTT, RTT variance, congestion\n   avoidance threshold, and MSS\
+    \ [3].  These values are in addition to\n   connection counts used by T/TCP to\
+    \ accelerate data delivery prior to\n   the full three-way handshake during an\
+    \ OPEN. The goal is to aggregate\n   TCB components where they reflect one association\
+    \ - that of the\n   host-pair, rather than artificially separating those components\
+    \ by\n   connection.\n   At least one current T/TCP implementation saves the MSS\
+    \ and\n   aggregates the RTT parameters across multiple connections, but omits\n\
+    \   caching the congestion window information [4], as originally\n   specified\
+    \ in [2]. There may be other values that may be cached, such\n   as current window\
+    \ size, to permit new connections full access to\n   accumulated channel resources.\n\
+    \   We observe that there are two cases of TCB interdependence. Temporal\n   sharing\
+    \ occurs when the TCB of an earlier (now CLOSED) connection to\n   a host is used\
+    \ to initialize some parameters of a new connection to\n   that same host. Ensemble\
+    \ sharing occurs when a currently active\n   connection to a host is used to initialize\
+    \ another (concurrent)\n   connection to that host. T/TCP documents considered\
+    \ the temporal\n   case; we consider both.\n"
+- title: An Example of Temporal Sharing
+  contents:
+  - "An Example of Temporal Sharing\n   Temporal sharing of cached TCB data has been\
+    \ implemented in the SunOS\n   4.1.3 T/TCP extensions [4] and the FreeBSD port\
+    \ of same [7]. As\n   mentioned before, only the MSS and RTT parameters are cached,\
+    \ as\n   originally specified in [2]. Later discussion of T/TCP suggested\n  \
+    \ including congestion control parameters in this cache [3].\n   The cache is\
+    \ accessed in two ways: it is read to initialize new TCBs,\n   and written when\
+    \ more current per-host state is available. New TCBs\n   are initialized as follows;\
+    \ snd_cwnd reuse is not yet implemented,\n   although discussed in the T/TCP concepts\
+    \ [2]:\n               TEMPORAL SHARING - TCB Initialization\n             Cached\
+    \ TCB           New TCB\n             ----------------------------------------\n\
+    \             old-MSS              old-MSS\n             old-RTT             \
+    \ old-RTT\n             old-RTTvar           old-RTTvar\n             old-snd_cwnd\
+    \         old-snd_cwnd    (not yet impl.)\n   Most cached TCB values are updated\
+    \ when a connection closes.  An\n   exception is MSS, which is updated whenever\
+    \ the MSS option is\n   received in a TCP header.\n                 TEMPORAL SHARING\
+    \ - Cache Updates\n    Cached TCB   Current TCB     when?   New Cached TCB\n \
+    \   ---------------------------------------------------------------\n    old-MSS\
+    \      curr-MSS        MSSopt  curr-MSS\n    old-RTT      curr-RTT        CLOSE\
+    \   old += (curr - old) >> 2\n    old-RTTvar   curr-RTTvar     CLOSE   old +=\
+    \ (curr - old) >> 2\n    old-snd_cwnd curr-snd_cwnd   CLOSE   curr-snd_cwnd  \
+    \ (not yet impl.)\n   MSS caching is trivial; reported values are cached, and\
+    \ the most\n   recent value is used. The cache is updated when the MSS option\
+    \ is\n   received, so the cache always has the most recent MSS value from any\n\
+    \   connection. The cache is consulted only at connection establishment,\n   and\
+    \ not otherwise updated, which means that MSS options do not affect\n   current\
+    \ connections. The default MSS is never saved; only reported\n   MSS values update\
+    \ the cache, so an explicit override is required to\n   reduce the MSS.\n   RTT\
+    \ values are updated by a more complicated mechanism [3], [8].\n   Dynamic RTT\
+    \ estimation requires a sequence of RTT measurements, even\n   though a single\
+    \ T/TCP transaction may not accumulate enough samples.\n   As a result, the cached\
+    \ RTT (and its variance) is an average of its\n   previous value with the contents\
+    \ of the currently active TCB for that\n   host, when a TCB is closed. RTT values\
+    \ are updated only when a\n   connection is closed. Further, the method for averaging\
+    \ the RTT\n   values is not the same as the method for computing the RTT values\n\
+    \   within a connection, so that the cached value may not be appropriate.\n  \
+    \ For temporal sharing, the cache requires updating only when a\n   connection\
+    \ closes, because the cached values will not yet be used to\n   initialize a new\
+    \ TCB. For the ensemble sharing, this is not the case,\n   as discussed below.\n\
+    \   Other TCB variables may also be cached between sequential instances,\n   such\
+    \ as the congestion control window information. Old cache values\n   can be overwritten\
+    \ with the current TCB estimates, or a MAX or MIN\n   function can be used to\
+    \ merge the results, depending on the optimism\n   or pessimism of the reused\
+    \ values. For example, the congestion window\n   can be reused if there are no\
+    \ concurrent connections.\n"
+- title: An Example of Ensemble Sharing
+  contents:
+  - "An Example of Ensemble Sharing\n   Sharing cached TCB data across concurrent\
+    \ connections requires\n   attention to the aggregate nature of some of the shared\
+    \ state.\n   Although MSS and RTT values can be shared by copying, it may not\
+    \ be\n   appropriate to copy congestion window information. At this point, we\n\
+    \   present only the MSS and RTT rules:\n               ENSEMBLE SHARING - TCB\
+    \ Initialization\n               Cached TCB           New TCB\n              \
+    \ ----------------------------------\n               old-MSS              old-MSS\n\
+    \               old-RTT              old-RTT\n               old-RTTvar      \
+    \     old-RTTvar\n                    ENSEMBLE SHARING - Cache Updates\n     \
+    \ Cached TCB   Current TCB     when?   New Cached TCB\n      -----------------------------------------------------------\n\
+    \      old-MSS      curr-MSS        MSSopt  curr-MSS\n      old-RTT      curr-RTT\
+    \        update  rtt_update(old,curr)\n      old-RTTvar   curr-RTTvar     update\
+    \  rtt_update(old,curr)\n   For ensemble sharing, TCB information should be cached\
+    \ as early as\n   possible, sometimes before a connection is closed. Otherwise,\
+    \ opening\n   multiple concurrent connections may not result in TCB data sharing\
+    \ if\n   no connection closes before others open. An optimistic solution would\n\
+    \   be to update cached data as early as possible, rather than only when\n   a\
+    \ connection is closing. Some T/TCP implementations do this for MSS\n   when the\
+    \ TCP MSS header option is received [4], although it is not\n   addressed specifically\
+    \ in the concepts or functional specification\n   [2][3].\n   In current T/TCP,\
+    \ RTT values are updated only after a CLOSE, which\n   does not benefit concurrent\
+    \ sessions. As mentioned in the temporal\n   case, averaging values between concurrent\
+    \ connections requires\n   incorporating new RTT measurements. The amount of work\
+    \ involved in\n   updating the aggregate average should be minimized, but the\
+    \ resulting\n   value should be equivalent to having all values measured within\
+    \ a\n   single connection. The function \"rtt_update\" in the ensemble sharing\n\
+    \   table indicates this operation, which occurs whenever the RTT would\n   have\
+    \ been updated in the individual TCP connection. As a result, the\n   cache contains\
+    \ the shared RTT variables, which no longer need to\n   reside in the TCB [8].\n\
+    \   Congestion window size aggregation is more complicated in the\n   concurrent\
+    \ case.  When there is an ensemble of connections, we need\n   to decide how that\
+    \ ensemble would have shared the congestion window,\n   in order to derive initial\
+    \ values for new TCBs. Because concurrent\n   connections between two hosts share\
+    \ network paths (usually), they\n   also share whatever capacity exists along\
+    \ that path.  With regard to\n   congestion, the set of connections might behave\
+    \ as if it were\n   multiplexed prior to TCP, as if all data were part of a single\n\
+    \   connection. As a result, the current window sizes would maintain a\n   constant\
+    \ sum, presuming sufficient offered load. This would go beyond\n   caching to\
+    \ truly sharing state, as in the RTT case.\n   We pause to note that any assumption\
+    \ of this sharing can be\n   incorrect, including this one. In current implementations,\
+    \ new\n   congestion windows are set at an initial value of one segment, so\n\
+    \   that the sum of the current windows is increased for any new\n   connection.\
+    \ This can have detrimental consequences where several\n   connections share a\
+    \ highly congested link, such as in trans-Atlantic\n   Web access.\n   There are\
+    \ several ways to initialize the congestion window in a new\n   TCB among an ensemble\
+    \ of current connections to a host, as shown\n   below. Current TCP implementations\
+    \ initialize it to one segment [9],\n   and T/TCP hinted that it should be initialized\
+    \ to the old window size\n   [3]. In the former, the assumption is that new connections\
+    \ should\n   behave as conservatively as possible. In the latter, no accommodation\n\
+    \   is made to concurrent aggregate behavior.\n   In either case, the sum of window\
+    \ sizes can increase, rather than\n   remain constant. Another solution is to\
+    \ give each pending connection\n   its \"fair share\" of the available congestion\
+    \ window, and let the\n   connections balance from there. The assumption we make\
+    \ here is that\n   new connections are implicit requests for an equal share of\
+    \ available\n   link bandwidth which should be granted at the expense of current\n\
+    \   connections. This may or may not be the appropriate function; we\n   propose\
+    \ that it be examined further.\n                ENSEMBLE SHARING - TCB Initialization\n\
+    \                Some Options for Sharing Window-size\n    Cached TCB        \
+    \                   New TCB\n    -----------------------------------------------------------------\n\
+    \    old-snd_cwnd         (current)       one segment\n                      \
+    \   (T/TCP hint)    old-snd_cwnd\n                         (proposed)      old-snd_cwnd/(N+1)\n\
+    \                                         subtract old-snd_cwnd/(N+1)/N\n    \
+    \                                     from each concurrent\n                 ENSEMBLE\
+    \ SHARING - Cache Updates\n    Cached TCB   Current TCB     when?   New Cached\
+    \ TCB\n    ----------------------------------------------------------------\n\
+    \    old-snd_cwnd curr-snd_cwnd   update  (adjust sum as appropriate)\n"
+- title: Compatibility Issues
+  contents:
+  - "Compatibility Issues\n   Current TCP implementations do not use TCB caching,\
+    \ with the\n   exception of T/TCP variants [4][7]. New connections use the default\n\
+    \   initial values of all non-instantiated TCB variables. As a result,\n   each\
+    \ connection calculates its own RTT measurements, MSS value, and\n   congestion\
+    \ information. Eventually these values are updated for each\n   connection.\n\
+    \   For the congestion and current window information, the initial values\n  \
+    \ may not be consistent with the long-term aggregate behavior of a set\n   of\
+    \ concurrent connections. If a single connection has a window of 4\n   segments,\
+    \ new connections assume initial windows of 1 segment (the\n   minimum), although\
+    \ the current connection's window doesn't decrease\n   to accommodate this additional\
+    \ load. As a result, connections can\n   mutually interfere. One example of this\
+    \ has been seen on trans-\n   Atlantic links, where concurrent connections supporting\
+    \ Web traffic\n   can collide because their initial windows are too large, even\
+    \ when\n   set at one segment.\n   Because this proposal attempts to anticipate\
+    \ the aggregate steady-\n   state values of TCB state among a group or over time,\
+    \ it should avoid\n   the transient effects of new connections. In addition, because\
+    \ it\n   considers the ensemble and temporal properties of those aggregates,\n\
+    \   it should also prevent the transients of short-lived or multiple\n   concurrent\
+    \ connections from adversely affecting the overall network\n   performance. We\
+    \ are performing analysis and experiments to validate\n   these assumptions.\n"
+- title: Performance Considerations
+  contents:
+  - "Performance Considerations\n   Here we attempt to optimize transient behavior\
+    \ of TCP without\n   modifying its long-term properties. The predominant expense\
+    \ is in\n   maintaining the cached values, or in using per-host state rather than\n\
+    \   per-connection state. In cases where performance is affected,\n   however,\
+    \ we note that the per-host information can be kept in per-\n   connection copies\
+    \ (as done now), because with higher performance\n   should come less interference\
+    \ between concurrent connections.\n   Sharing TCB state can occur only at connection\
+    \ establishment and\n   close (to update the cache), to minimize overhead, optimize\
+    \ transient\n   behavior, and minimize the effect on the steady-state. It is possible\n\
+    \   that sharing state during a connection, as in the RTT or window-size\n   variables,\
+    \ may be of benefit, provided its implementation cost is not\n   high.\n"
+- title: Implications
+  contents:
+  - "Implications\n   There are several implications to incorporating TCB interdependence\n\
+    \   in TCP implementations. First, it may prevent the need for\n   application-layer\
+    \ multiplexing for performance enhancement [6].\n   Protocols like persistent-HTTP\
+    \ avoid connection reestablishment costs\n   by serializing or multiplexing a\
+    \ set of per-host connections across a\n   single TCP connection. This avoids\
+    \ TCP's per-connection OPEN\n   handshake, and also avoids recomputing MSS, RTT,\
+    \ and congestion\n   windows. By avoiding the so-called, \"slow-start restart,\"\
+    \ performance\n   can be optimized. Our proposal provides the MSS, RTT, and OPEN\n\
+    \   handshake avoidance of T/TCP, and the \"slow-start restart avoidance\"\n \
+    \  of multiplexing, without requiring a multiplexing mechanism at the\n   application\
+    \ layer. This multiplexing will be complicated when\n   quality-of-service mechanisms\
+    \ (e.g., \"integrated services\n   scheduling\") are provided later.\n   Second,\
+    \ we are attempting to push some of the TCP implementation from\n   the traditional\
+    \ transport layer (in the ISO model [10]), to the\n   network layer. This acknowledges\
+    \ that some state currently maintained\n   as per-connection is in fact per-path,\
+    \ which we simplify as per-\n   host-pair. Transport protocols typically manage\
+    \ per-application-pair\n   associations (per stream), and network protocols manage\
+    \ per-path\n   associations (routing). Round-trip time, MSS, and congestion\n\
+    \   information is more appropriately handled in a network-layer fashion,\n  \
+    \ aggregated among concurrent connections, and shared across connection\n   instances.\n\
+    \   An earlier version of RTT sharing suggested implementing RTT state at\n  \
+    \ the IP layer, rather than at the TCP layer [8]. Our observations are\n   for\
+    \ sharing state among TCP connections, which avoids some of the\n   difficulties\
+    \ in an IP-layer solution. One such problem is determining\n   the associated\
+    \ prior outgoing packet for an incoming packet, to infer\n   RTT from the exchange.\
+    \ Because RTTs are still determined inside the\n   TCP layer, this is simpler\
+    \ than at the IP layer. This is a case where\n   information should be computed\
+    \ at the transport layer, but shared at\n   the network layer.\n   We also note\
+    \ that per-host-pair associations are not the limit of\n   these techniques. It\
+    \ is possible that TCBs could be similarly shared\n   between hosts on a LAN,\
+    \ because the predominant path can be LAN-LAN,\n   rather than host-host.\n  \
+    \ There may be other information that can be shared between concurrent\n   connections.\
+    \ For example, knowing that another connection has just\n   tried to expand its\
+    \ window size and failed, a connection may not\n   attempt to do the same for\
+    \ some period. The idea is that existing TCP\n   implementations infer the behavior\
+    \ of all competing connections,\n   including those within the same host or LAN.\
+    \ One possible\n   optimization is to make that implicit feedback explicit, via\
+    \ extended\n   information in the per-host TCP area.\n"
+- title: Security Considerations
+  contents:
+  - "Security Considerations\n   These suggested implementation enhancements do not\
+    \ have additional\n   ramifications for direct attacks. These enhancements may\
+    \ be\n   susceptible to denial-of-service attacks if not otherwise secured.\n\
+    \   For example, an application can open a connection and set its window\n   size\
+    \ to 0, denying service to any other subsequent connection between\n   those hosts.\n\
+    \   TCB sharing may be susceptible to denial-of-service attacks, wherever\n  \
+    \ the TCB is shared, between connections in a single host, or between\n   hosts\
+    \ if TCB sharing is implemented on the LAN (see Implications\n   section).  Some\
+    \ shared TCB parameters are used only to create new\n   TCBs, others are shared\
+    \ among the TCBs of ongoing connections. New\n   connections can join the ongoing\
+    \ set, e.g., to optimize send window\n   size among a set of connections to the\
+    \ same host.\n   Attacks on parameters used only for initialization affect only\
+    \ the\n   transient performance of a TCP connection.  For short connections,\n\
+    \   the performance ramification can approach that of a denial-of-service\n  \
+    \ attack.  E.g., if an application changes its TCB to have a false and\n   small\
+    \ window size, subsequent connections would experience\n   performance degradation\
+    \ until their window grew appropriately.\n   The solution is to limit the effect\
+    \ of compromised TCB values.  TCBs\n   are compromised when they are modified\
+    \ directly by an application or\n   transmitted between hosts via unauthenticated\
+    \ means (e.g., by using a\n   dirty flag). TCBs that are not compromised by application\n\
+    \   modification do not have any unique security ramifications. Note that\n  \
+    \ the proposed parameters for TCB sharing are not currently modifiable\n   by\
+    \ an application.\n   All shared TCBs MUST be validated against default minimum\
+    \ parameters\n   before used for new connections. This validation would not impact\n\
+    \   performance, because it occurs only at TCB initialization.  This\n   limits\
+    \ the effect of attacks on new connections, to reducing the\n   benefit of TCB\
+    \ sharing, resulting in the current default TCP\n   performance. For ongoing connections,\
+    \ the effect of incoming packets\n   on shared information should be both limited\
+    \ and validated against\n   constraints before use. This is a beneficial precaution\
+    \ for existing\n   TCP implementations as well.\n   TCBs modified by an application\
+    \ SHOULD not be shared, unless the new\n   connection sharing the compromised\
+    \ information has been given\n   explicit permission to use such information by\
+    \ the connection API. No\n   mechanism for that indication currently exists, but\
+    \ it could be\n   supported by an augmented API. This sharing restriction SHOULD\
+    \ be\n   implemented in both the host and the LAN. Sharing on a LAN SHOULD\n \
+    \  utilize authentication to prevent undetected tampering of shared TCB\n   parameters.\
+    \ These restrictions limit the security impact of modified\n   TCBs both for connection\
+    \ initialization and for ongoing connections.\n   Finally, shared values MUST\
+    \ be limited to performance factors only.\n   Other information, such as TCP sequence\
+    \ numbers, when shared, are\n   already known to compromise security.\n"
+- title: Acknowledgements
+  contents:
+  - "Acknowledgements\n   The author would like to thank the members of the High-Performance\n\
+    \   Computing and Communications Division at ISI, notably Bill Manning,\n   Bob\
+    \ Braden, Jon Postel, Ted Faber, and Cliff Neuman for their\n   assistance in\
+    \ the development of this memo.\n"
+- title: References
+  contents:
+  - "References\n   [1] Berners-Lee, T., et al., \"The World-Wide Web,\" Communications\
+    \ of\n       the ACM, V37, Aug. 1994, pp. 76-82.\n   [2] Braden, R., \"Transaction\
+    \ TCP -- Concepts,\" RFC-1379,\n       USC/Information Sciences Institute, September\
+    \ 1992.\n   [3] Braden, R., \"T/TCP -- TCP Extensions for Transactions Functional\n\
+    \       Specification,\" RFC-1644, USC/Information Sciences Institute,\n     \
+    \  July 1994.\n   [4] Braden, B., \"T/TCP -- Transaction TCP: Source Changes for\
+    \ Sun OS\n       4.1.3,\", Release 1.0, USC/ISI, September 14, 1994.\n   [5] Comer,\
+    \ D., and Stevens, D., Internetworking with TCP/IP, V2,\n       Prentice-Hall,\
+    \ NJ, 1991.\n   [6] Fielding, R., et al., \"Hypertext Transfer Protocol -- HTTP/1.1,\"\
+    \n       Work in Progress.\n   [7] FreeBSD source code, Release 2.10, <http://www.freebsd.org/>.\n\
+    \   [8] Jacobson, V., (mail to public list \"tcp-ip\", no archive found),\n  \
+    \     1986.\n   [9] Postel, Jon, \"Transmission Control Protocol,\" Network Working\n\
+    \       Group RFC-793/STD-7, ISI, Sept. 1981.\n   [10] Tannenbaum, A., Computer\
+    \ Networks, Prentice-Hall, NJ, 1988.\n"
+- title: Author's Address
+  contents:
+  - "Author's Address\n   Joe Touch\n   University of Southern California/Information\
+    \ Sciences Institute\n   4676 Admiralty Way\n   Marina del Rey, CA 90292-6695\n\
+    \   USA\n   Phone: +1 310-822-1511 x151\n   Fax:   +1 310-823-6714\n   URL:  \
+    \ http://www.isi.edu/~touch\n   Email: touch@isi.edu\n"

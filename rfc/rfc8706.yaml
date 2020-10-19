@@ -1,0 +1,814 @@
+- title: __initial_text__
+  contents:
+  - '                      Restart Signaling for IS-IS
+
+    '
+- title: Abstract
+  contents:
+  - "Abstract\n   This document describes a mechanism for a restarting router to signal\n\
+    \   to its neighbors that it is restarting, allowing them to reestablish\n   their\
+    \ adjacencies without cycling through the DOWN state while still\n   correctly\
+    \ initiating database synchronization.\n   This document additionally describes\
+    \ a mechanism for a router to\n   signal its neighbors that it is preparing to\
+    \ initiate a restart while\n   maintaining forwarding-plane state.  This allows\
+    \ the neighbors to\n   maintain their adjacencies until the router has restarted\
+    \ but also\n   allows the neighbors to bring the adjacencies down in the event\
+    \ of\n   other topology changes.\n   This document additionally describes a mechanism\
+    \ for a restarting\n   router to determine when it has achieved Link State Protocol\
+    \ Data\n   Unit (LSP) database synchronization with its neighbors and a\n   mechanism\
+    \ to optimize LSP database synchronization while minimizing\n   transient routing\
+    \ disruption when a router starts.\n   This document obsoletes RFC 5306.\n"
+- title: Status of This Memo
+  contents:
+  - "Status of This Memo\n   This is an Internet Standards Track document.\n   This\
+    \ document is a product of the Internet Engineering Task Force\n   (IETF).  It\
+    \ represents the consensus of the IETF community.  It has\n   received public\
+    \ review and has been approved for publication by the\n   Internet Engineering\
+    \ Steering Group (IESG).  Further information on\n   Internet Standards is available\
+    \ in Section 2 of RFC 7841.\n   Information about the current status of this document,\
+    \ any errata,\n   and how to provide feedback on it may be obtained at\n   https://www.rfc-editor.org/info/rfc8706.\n"
+- title: Copyright Notice
+  contents:
+  - "Copyright Notice\n   Copyright (c) 2020 IETF Trust and the persons identified\
+    \ as the\n   document authors.  All rights reserved.\n   This document is subject\
+    \ to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n\
+    \   (https://trustee.ietf.org/license-info) in effect on the date of\n   publication\
+    \ of this document.  Please review these documents\n   carefully, as they describe\
+    \ your rights and restrictions with respect\n   to this document.  Code Components\
+    \ extracted from this document must\n   include Simplified BSD License text as\
+    \ described in Section 4.e of\n   the Trust Legal Provisions and are provided\
+    \ without warranty as\n   described in the Simplified BSD License.\n"
+- title: Table of Contents
+  contents:
+  - "Table of Contents\n   1.  Overview\n   2.  Conventions Used in This Document\n\
+    \     2.1.  Requirements Language\n   3.  Approach\n     3.1.  Timers\n     3.2.\
+    \  Restart TLV\n       3.2.1.  Use of RR and RA Bits\n       3.2.2.  Use of the\
+    \ SA Bit\n       3.2.3.  Use of PR and PA Bits\n     3.3.  Adjacency (Re)Acquisition\n\
+    \       3.3.1.  Adjacency Reacquisition during Restart\n       3.3.2.  Adjacency\
+    \ Acquisition during Start\n       3.3.3.  Multiple Levels\n     3.4.  Database\
+    \ Synchronization\n       3.4.1.  LSP Generation and Flooding and SPF Computation\n\
+    \   4.  State Tables\n     4.1.  Running Router\n     4.2.  Restarting Router\n\
+    \     4.3.  Starting Router\n   5.  IANA Considerations\n   6.  Security Considerations\n\
+    \   7.  Manageability Considerations\n   8.  Normative References\n   Appendix\
+    \ A.  Summary of Changes from RFC 5306\n   Acknowledgements\n   Authors' Addresses\n"
+- title: 1.  Overview
+  contents:
+  - "1.  Overview\n   The Intermediate System to Intermediate System (IS-IS) routing\n\
+    \   protocol [RFC1195] [ISO10589] is a link state intra-domain routing\n   protocol.\
+    \  Normally, when an IS-IS router is restarted, temporary\n   disruption of routing\
+    \ occurs due to events in both the restarting\n   router and the neighbors of\
+    \ the restarting router.\n   The router that has been restarted computes its own\
+    \ routes before\n   achieving database synchronization with its neighbors.  The\
+    \ results\n   of this computation are likely to be non-convergent with the routes\n\
+    \   computed by other routers in the area/domain.\n   Neighbors of the restarting\
+    \ router detect the restart event and cycle\n   their adjacencies with the restarting\
+    \ router through the DOWN state.\n   The cycling of the adjacency state causes\
+    \ the neighbors to regenerate\n   their LSPs describing the adjacency concerned.\
+    \  This in turn causes a\n   temporary disruption of routes passing through the\
+    \ restarting router.\n   In certain scenarios, the temporary disruption of the\
+    \ routes is\n   highly undesirable.  This document describes mechanisms to avoid\
+    \ or\n   minimize the disruption due to both of these causes.\n   When an adjacency\
+    \ is reinitialized as a result of a neighbor\n   restarting, a router does three\
+    \ things:\n   1.  It causes its own LSP(s) to be regenerated, thus triggering\n\
+    \       Shortest Path First (SPF) runs throughout the area (or in the\n      \
+    \ case of Level 2, throughout the domain).\n   2.  It sets SRMflags on its own\
+    \ LSP database on the adjacency\n       concerned.\n   3.  In the case of a Point-to-Point\
+    \ link, it transmits a complete set\n       of Complete Sequence Number PDUs (CSNPs),\
+    \ over the adjacency.\n   In the case of a restarting router process, the first\
+    \ of these is\n   highly undesirable, but the second is essential in order to\
+    \ ensure\n   synchronization of the LSP database.\n   The third action above minimizes\
+    \ the number of LSPs that must be\n   exchanged and, if made reliable, provides\
+    \ a means of determining when\n   the LSP databases of the neighboring routers\
+    \ have been synchronized.\n   This is desirable whether or not the router is being\
+    \ restarted (so\n   that the overload bit can be cleared in the router's own LSP,\
+    \ for\n   example).\n   This document describes a mechanism for a restarting router\
+    \ to signal\n   to its neighbors that it is restarting.  The mechanism further\
+    \ allows\n   the neighbors to reestablish their adjacencies with the restarting\n\
+    \   router without cycling through the DOWN state while still correctly\n   initiating\
+    \ database synchronization.\n   This document additionally describes a mechanism\
+    \ for a restarting\n   router to determine when it has achieved LSP database synchronization\n\
+    \   with its neighbors and a mechanism to optimize LSP database\n   synchronization\
+    \ and minimize transient routing disruption when a\n   router starts.\n   It is\
+    \ assumed that the three-way handshake [RFC5303] is being used on\n   Point-to-Point\
+    \ circuits.\n"
+- title: 2.  Conventions Used in This Document
+  contents:
+  - "2.  Conventions Used in This Document\n   If the control and forwarding functions\
+    \ in a router can be maintained\n   independently, it is possible for the forwarding\
+    \ function state to be\n   maintained across a resumption of control function\
+    \ operations.  This\n   functionality is assumed when the terms \"restart/restarting\"\
+    \ are used\n   in this document.\n   The terms \"start/starting\" are used to\
+    \ refer to a router in which the\n   control function has either commenced operations\
+    \ for the first time\n   or has resumed operations, but the forwarding functions\
+    \ have not been\n   maintained in a prior state.\n   The terms \"(re)start/(re)starting\"\
+    \ are used when the text is\n   applicable to both a \"starting\" and a \"restarting\"\
+    \ router.\n   The terms \"normal IIH\" or \"IIH normal\" refer to IS-IS Hellos\
+    \ (IIHs)\n   in which the Restart TLV (defined later in this document) has no\n\
+    \   flags set.\n"
+- title: 2.1.  Requirements Language
+  contents:
+  - "2.1.  Requirements Language\n   The key words \"MUST\", \"MUST NOT\", \"REQUIRED\"\
+    , \"SHALL\", \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\", \"\
+    NOT RECOMMENDED\", \"MAY\", and\n   \"OPTIONAL\" in this document are to be interpreted\
+    \ as described in\n   BCP 14 [RFC2119] [RFC8174] when, and only when, they appear\
+    \ in all\n   capitals, as shown here.\n"
+- title: 3.  Approach
+  contents:
+  - '3.  Approach
+
+    '
+- title: 3.1.  Timers
+  contents:
+  - "3.1.  Timers\n   Three additional timers (T1, T2, and T3) are required to support\
+    \ the\n   mechanisms defined in this document.  Timers T1 and T2 are used both\n\
+    \   by a restarting router and a starting router.  Timer T3 is used only\n   by\
+    \ a restarting router.\n   NOTE: These timers are NOT applicable to a router that\
+    \ is preparing\n   to do a planned restart.\n   An instance of the timer T1 is\
+    \ maintained per interface and indicates\n   the time after which an unacknowledged\
+    \ (re)start attempt will be\n   repeated.  A typical value is 3 seconds.\n   An\
+    \ instance of the timer T2 is maintained for each LSP database\n   (LSPDB) present\
+    \ in the system.  For example, for a Level 1/2 system,\n   there will be an instance\
+    \ of the timer T2 for Level 1 and an instance\n   for Level 2.  This is the maximum\
+    \ time that the system will wait for\n   LSPDB synchronization.  A typical value\
+    \ is 60 seconds.\n   A single instance of the timer T3 is maintained for the entire\n\
+    \   system.  It indicates the time after which the router will declare\n   that\
+    \ it has failed to achieve database synchronization (by setting\n   the overload\
+    \ bit in its own LSP).  This is initialized to 65535\n   seconds but is set to\
+    \ the minimum of the remaining times of received\n   IIHs containing a Restart\
+    \ TLV with the Restart Acknowledgement (RA)\n   set and an indication that the\
+    \ neighbor has an adjacency in the UP\n   state to the restarting router.  (See\
+    \ item a in Section 3.2.1.)\n"
+- title: 3.2.  Restart TLV
+  contents:
+  - "3.2.  Restart TLV\n   A new TLV is defined to be included in IIH PDUs.  The TLV\
+    \ includes\n   flags that are used to convey information during a (re)start. \
+    \ The\n   absence of this TLV indicates that the sender supports none of the\n\
+    \   functionality defined in this document.  Therefore, if a router\n   supports\
+    \ any of the functionality defined in this document it MUST\n   include this TLV\
+    \ in all transmitted IIHs.\n   Type:\n      211\n   Length:\n      Number of octets\
+    \ in the Value field (1 to (3 + ID Length))\n   Value:\n              |   Flags\
+    \               |     1\n              | Remaining Time        |     2\n     \
+    \         | Restarting Neighbor ID|     ID Length\n      Flags (1 octet)\n   \
+    \            0  1  2  3  4  5  6  7\n              |Reserved|PA|PR|SA|RA|RR|\n\
+    \         RR -  Restart Request\n         RA -  Restart Acknowledgement\n    \
+    \     SA -  Suppress adjacency advertisement\n         PR -  Restart is planned\n\
+    \         PA -  Planned restart acknowledgement\n      Remaining Time (2 octets)\n\
+    \         Remaining Holding Time (in seconds).\n         Required when the RA,\
+    \ PR, or PA bit is set.  Otherwise, this\n         field SHOULD be omitted when\
+    \ sent and MUST be ignored when\n         received.\n      Restarting Neighbor\
+    \ System ID (ID Length octets)\n         The System ID of the neighbor to which\
+    \ an RA/PA refers.\n         Required when the RA or PA bit is set.  Otherwise,\
+    \ this field\n         SHOULD be omitted when sent and MUST be ignored when received.\n\
+    \         Note: Very early draft versions of the restart functionality\n     \
+    \    did not include the Restarting Neighbor System ID in the TLV.\n         RFC\
+    \ 5306 allowed for the possibility of interoperating with\n         legacy implementations\
+    \ by stating that a router that is\n         expecting an RA on a LAN circuit\
+    \ should assume that the\n         acknowledgement is directed at the local system\
+    \ if the TLV is\n         received with RA set and Restarting Neighbor System\
+    \ ID is not\n         present.  It is an implementation choice whether to continue\
+    \ to\n         accept (on a LAN) a TLV with RA set and Restarting Neighbor\n \
+    \        System ID absent.  Note that the omission of the Restarting\n       \
+    \  Neighbor System ID only introduces ambiguity in the case where\n         there\
+    \ are multiple systems on a LAN simultaneously performing\n         restart.\n\
+    \   The RR and SA flags may both be set in the TLV under the conditions\n   described\
+    \ in Section 3.3.2.  All other combinations where multiple\n   flags are set are\
+    \ invalid and MUST NOT be transmitted.  Received TLVs\n   that have invalid flag\
+    \ combinations set MUST be ignored.\n"
+- title: 3.2.1.  Use of RR and RA Bits
+  contents:
+  - "3.2.1.  Use of RR and RA Bits\n   The RR bit is used by a (re)starting router\
+    \ to signal to its\n   neighbors that a (re)start is in progress, that an existing\
+    \ adjacency\n   SHOULD be maintained even under circumstances when the normal\n\
+    \   operation of the adjacency state machine would require the adjacency\n   to\
+    \ be reinitialized, to request a set of CSNPs, and to request\n   setting of the\
+    \ SRMflags.\n   The RA bit is sent by the neighbor of a (re)starting router to\n\
+    \   acknowledge the receipt of a Restart TLV with the RR bit set.\n   When the\
+    \ neighbor of a (re)starting router receives an IIH with the\n   Restart TLV having\
+    \ the RR bit set, if there exists on this interface\n   an adjacency in the UP\
+    \ state with the same System ID and, in the case\n   of a LAN circuit, with the\
+    \ same source LAN address, then irrespective\n   of the other contents of the\
+    \ \"Intermediate System Neighbors\" option\n   (LAN circuits) or the \"Point-to-Point\
+    \ Three-Way Adjacency\" option\n   (Point-to-Point circuits):\n   a.  the state\
+    \ of the adjacency is not changed.  If this is the first\n       IIH with the\
+    \ RR bit set that this system has received associated\n       with this adjacency,\
+    \ then the adjacency is marked as being in\n       \"Restart mode\" and the adjacency\
+    \ Holding Time is refreshed --\n       otherwise, the Holding Time is not refreshed.\
+    \  The Remaining Time\n       transmitted according to (b) below MUST reflect\
+    \ the actual time\n       after which the adjacency will now expire.  Receipt\
+    \ of an IIH\n       with the RR bit reset will clear the \"Restart mode\" state.\
+    \  This\n       procedure allows the restarting router to cause the neighbor to\n\
+    \       maintain the adjacency long enough for restart to successfully\n     \
+    \  complete while also preventing repetitive restarts from\n       maintaining\
+    \ an adjacency indefinitely.  Whether or not an\n       adjacency is marked as\
+    \ being in \"Restart mode\" has no effect on\n       adjacency state transitions.\n\
+    \   b.  immediately (i.e., without waiting for any currently running\n       timer\
+    \ interval to expire but with a small random delay of a few\n       tens of milliseconds\
+    \ on LANs to avoid \"storms\") transmit over the\n       corresponding interface\
+    \ an IIH including the Restart TLV with the\n       RR bit clear and the RA bit\
+    \ set, in the case of Point-to-Point\n       adjacencies having updated the \"\
+    Point-to-Point Three-Way\n       Adjacency\" option to reflect any new values\
+    \ received from the\n       (re)starting router.  (This allows a restarting router\
+    \ to quickly\n       acquire the correct information to place in its hellos.)\
+    \  The\n       Remaining Time MUST be set to the current time (in seconds)\n \
+    \      before the holding timer on this adjacency is due to expire.  If\n    \
+    \   the corresponding interface is a LAN interface, then the\n       Restarting\
+    \ Neighbor System ID SHOULD be set to the System ID of\n       the router from\
+    \ which the IIH with the RR bit set was received.\n       This is required to\
+    \ correctly associate the acknowledgement and\n       Holding Time in the case\
+    \ where multiple systems on a LAN restart\n       at approximately the same time.\
+    \  This IIH SHOULD be transmitted\n       before any LSPs or SNPs are transmitted\
+    \ as a result of the\n       receipt of the original IIH.\n   c.  if the corresponding\
+    \ interface is a Point-to-Point interface, or\n       if the receiving router\
+    \ has the highest LnRouterPriority (with\n       the highest source Media Access\
+    \ Control (MAC) address breaking\n       ties) among those routers to which the\
+    \ receiving router has an\n       adjacency in the UP state on this interface\
+    \ whose IIHs contain\n       the Restart TLV, excluding adjacencies to all routers\
+    \ that are\n       considered in \"Restart mode\" (note the actual Designated\n\
+    \       Intermediate System (DIS) is NOT changed by this process),\n       initiate\
+    \ the transmission over the corresponding interface of a\n       complete set\
+    \ of CSNPs, and set SRMflags on the corresponding\n       interface for all LSPs\
+    \ in the local LSP database.\n   Otherwise (i.e., if there was no adjacency in\
+    \ the UP state to the\n   System ID in question), process the IIH as normal by\
+    \ reinitializing\n   the adjacency and setting the RA bit in the returned IIH.\n"
+- title: 3.2.2.  Use of the SA Bit
+  contents:
+  - "3.2.2.  Use of the SA Bit\n   The SA bit is used by a starting router to request\
+    \ that its neighbor\n   suppress advertisement of the adjacency to the starting\
+    \ router in the\n   neighbor's LSPs.\n   A router that is starting has no maintained\
+    \ forwarding function\n   state.  This may or may not be the first time the router\
+    \ has started.\n   If this is not the first time the router has started, copies\
+    \ of LSPs\n   generated by this router in its previous incarnation may exist in\
+    \ the\n   LSP databases of other routers in the network.  These copies are\n \
+    \  likely to appear \"newer\" than LSPs initially generated by the\n   starting\
+    \ router due to the reinitialization of LSP fragment sequence\n   numbers by the\
+    \ starting router.  This may cause temporary blackholes\n   to occur until the\
+    \ normal operation of the update process causes the\n   starting router to regenerate\
+    \ and flood copies of its own LSPs with\n   higher sequence numbers.  The temporary\
+    \ blackholes can be avoided if\n   the starting router's neighbors suppress advertising\
+    \ an adjacency to\n   the starting router until the starting router has been able\
+    \ to\n   propagate newer versions of LSPs generated by previous incarnations.\n\
+    \   When a router receives an IIH with the Restart TLV having the SA bit\n   set,\
+    \ if there exists on this interface an adjacency in the UP state\n   with the\
+    \ same System ID and, in the case of a LAN circuit, with the\n   same source LAN\
+    \ address, then the router MUST suppress advertisement\n   of the adjacency to\
+    \ the neighbor in its own LSPs.  Until an IIH with\n   the SA bit clear has been\
+    \ received, the neighbor advertisement MUST\n   continue to be suppressed.  If\
+    \ the adjacency transitions to the UP\n   state, the new adjacency MUST NOT be\
+    \ advertised until an IIH with the\n   SA bit clear has been received.\n   Note\
+    \ that a router that suppresses advertisement of an adjacency MUST\n   NOT use\
+    \ this adjacency when performing its SPF calculation.  In\n   particular, if an\
+    \ implementation follows the example guidelines\n   presented in [ISO10589], Annex\
+    \ C.2.5, Step 0:b) \"pre-load TENT with\n   the local adjacency database\", the\
+    \ suppressed adjacency MUST NOT be\n   loaded into TENT.\n"
+- title: 3.2.3.  Use of PR and PA Bits
+  contents:
+  - "3.2.3.  Use of PR and PA Bits\n   The PR bit is used by a router that is planning\
+    \ to initiate a restart\n   to signal to its neighbors that it will be restarting.\
+    \  The router\n   sending an IIH with PR bit set SHOULD set the Remaining Time\
+    \ to a\n   value greater than the expected control-plane restart time.  The PR\n\
+    \   bit SHOULD remain set in IIHs until the restart is initiated.\n   The PA bit\
+    \ is sent by the neighbor of a router planning to restart to\n   acknowledge receipt\
+    \ of a Restart TLV with the PR bit set.\n   When the neighbor of a router planning\
+    \ a restart receives an IIH with\n   the Restart TLV having the PR bit set, if\
+    \ there exists on this\n   interface an adjacency in the UP state with the same\
+    \ System ID and,\n   in the case of a LAN circuit, with the same source LAN address,\
+    \ then:\n   a.  if this is the first IIH with the PR bit set that this system\
+    \ has\n       received associated with this adjacency, then the adjacency is\n\
+    \       marked as being in Planned Restart State and the adjacency\n       Holding\
+    \ Time is refreshed -- otherwise, the Holding Time is not\n       refreshed. \
+    \ The Holding Time SHOULD be set to the Remaining Time\n       specified in the\
+    \ received IIH with PR set.  The Remaining Time\n       transmitted according\
+    \ to (b) below MUST reflect the actual time\n       after which the adjacency\
+    \ will now expire.  Receipt of an IIH\n       with the PR bit reset will clear\
+    \ the Planned Restart State and\n       cause the receiving router to set the\
+    \ adjacency Holding Time to\n       the locally configured value.  This procedure\
+    \ allows the router\n       planning a restart to cause the neighbor to maintain\
+    \ the\n       adjacency long enough for restart to successfully complete.\n  \
+    \     Whether or not an adjacency is marked as being in Planned Restart\n    \
+    \   State has no effect on adjacency state transitions.\n   b.  immediately (i.e.,\
+    \ without waiting for any currently running\n       timer interval to expire,\
+    \ but with a small random delay of a few\n       tens of milliseconds on LANs\
+    \ to avoid \"storms\") transmit over the\n       corresponding interface an IIH\
+    \ including the Restart TLV with the\n       PR bit clear and the PA bit set.\
+    \  The Remaining Time MUST be set\n       to the current time (in seconds) before\
+    \ the holding timer on this\n       adjacency is due to expire.  If the corresponding\
+    \ interface is a\n       LAN interface, then the Restarting Neighbor System ID\
+    \ SHOULD be\n       set to the System ID of the router from which the IIH with\
+    \ the PR\n       bit set was received.  This is required to correctly associate\n\
+    \       the acknowledgement and Holding Time in the case where multiple\n    \
+    \   systems on a LAN are planning a restart at approximately the same\n      \
+    \ time.\n   NOTE: Receipt of an IIH with PA bit set indicates to the router\n\
+    \   planning a restart that the neighbor is aware of the planned restart\n   and\
+    \ -- in the absence of topology changes as described below -- will\n   maintain\
+    \ the adjacency for the Remaining Time included in the IIH\n   with PA set.\n\
+    \   By definition, a restarting router maintains forwarding state across\n   the\
+    \ control-plane restart (see Section 2).  But while a control-plane\n   restart\
+    \ is in progress, it is expected that the restarting router\n   will be unable\
+    \ to respond to topology changes.  It is therefore\n   useful to signal a planned\
+    \ restart so that the neighbors of the\n   restarting router can determine whether\
+    \ it is safe to maintain the\n   adjacency if other topology changes occur prior\
+    \ to the completion of\n   the restart.  Signaling a planned restart in the absence\
+    \ of\n   maintained forwarding-plane state is likely to lead to significant\n\
+    \   traffic loss and MUST NOT be done.\n   Neighbors of the router that have signaled\
+    \ planned restart SHOULD\n   maintain the adjacency in a Planned Restart State\
+    \ until it receives\n   an IIH with the RR bit set, it receives an IIH with both\
+    \ PR and RR\n   bits clear, or the adjacency Holding Time expires -- whichever\
+    \ occurs\n   first.  Neighbors that choose not to follow the recommended behavior\n\
+    \   need to consider the impact on traffic delivery of not using the\n   restarting\
+    \ router for forwarding traffic during the restart period.\n   While the adjacency\
+    \ is in Planned Restart State, some or all of the\n   following actions MAY be\
+    \ taken:\n   a.  If additional topology changes occur, the adjacency that is in\n\
+    \       Planned Restart State MAY be brought down even though the Holding\n  \
+    \     Time has not yet expired.  Given that the neighbor that has\n       signaled\
+    \ a planned restart is not expected to update its\n       forwarding plane in\
+    \ response to signaling of the topology changes\n       (since it is restarting)\
+    \ traffic that transits that node is at\n       risk of being improperly forwarded.\
+    \  On a LAN circuit, if the\n       router in Planned Restart State is the DIS\
+    \ at any supported\n       level, the adjacency or adjacencies SHOULD be brought\
+    \ down\n       whenever any LSP update is either generated or received so as to\n\
+    \       trigger a new DIS election.  Failure to do so will compromise the\n  \
+    \     reliability of the update process on that circuit.  What other\n       criteria\
+    \ are used to determine what topology changes will trigger\n       bringing the\
+    \ adjacency down is a local implementation decision.\n   b.  If a Bidirectional\
+    \ Forwarding Detection (BFD) [RFC5880] Session\n       to the neighbor that signals\
+    \ a planned restart is in the UP state\n       and subsequently goes down, the\
+    \ event MAY be ignored since it is\n       possible this is an expected side effect\
+    \ of the restart.  Use of\n       the Control-Plane Independent state as signaled\
+    \ in BFD control\n       packets SHOULD be considered in the decision to ignore\
+    \ a BFD\n       Session DOWN event.\n   c.  On a Point-to-Point circuit, transmission\
+    \ of LSPs, CSNPs, and\n       Partial Sequence Number PDU (PSNPs) MAY be suppressed.\
+    \  It is\n       expected that the PDUs will not be received.\n   Use of the PR\
+    \ bit provides a means to safely support restart periods\n   that are significantly\
+    \ longer than standard Holding Times.\n"
+- title: 3.3.  Adjacency (Re)Acquisition
+  contents:
+  - "3.3.  Adjacency (Re)Acquisition\n   Adjacency (re)acquisition is the first step\
+    \ in (re)initialization.\n   Restarting and starting routers will make use of\
+    \ the RR bit in the\n   Restart TLV, though each will use it at different stages\
+    \ of the\n   (re)start procedure.\n"
+- title: 3.3.1.  Adjacency Reacquisition during Restart
+  contents:
+  - "3.3.1.  Adjacency Reacquisition during Restart\n   The restarting router explicitly\
+    \ notifies its neighbor that the\n   adjacency is being reacquired and, hence,\
+    \ that it SHOULD NOT\n   reinitialize the adjacency.  This is achieved by setting\
+    \ the RR bit\n   in the Restart TLV.  When the neighbor of a restarting router\n\
+    \   receives an IIH with the Restart TLV having the RR bit set, if there\n   exists\
+    \ on this interface an adjacency in the UP state with the same\n   System ID and,\
+    \ in the case of a LAN circuit, with the same source LAN\n   address, then the\
+    \ procedures described in Section 3.2.1 are followed.\n   A router that does not\
+    \ support the restart capability will ignore the\n   Restart TLV and reinitialize\
+    \ the adjacency as normal, returning an\n   IIH without the Restart TLV.\n   On\
+    \ restarting, a router initializes the timer T3, starts the timer T2\n   for each\
+    \ LSPDB, and for each interface (and in the case of a LAN\n   circuit, for each\
+    \ level) starts the timer T1 and transmits an IIH\n   containing the Restart TLV\
+    \ with the RR bit set.\n   On a Point-to-Point circuit, the restarting router\
+    \ SHOULD set the\n   \"Adjacency Three-Way State\" to \"Init\", because the receipt\
+    \ of the\n   acknowledging IIH (with RA set) MUST cause the adjacency to enter\
+    \ the\n   UP state immediately.\n   On a LAN circuit, the LAN-ID assigned to the\
+    \ circuit SHOULD be the\n   same as that used prior to the restart.  In particular,\
+    \ for any\n   circuits for which the restarting router was previously DIS, the\
+    \ use\n   of a different LAN-ID would necessitate the generation of a new set\n\
+    \   of pseudonode LSPs and corresponding changes in all the LSPs\n   referencing\
+    \ them from other routers on the LAN.  By preserving the\n   LAN-ID across the\
+    \ restart, this churn can be prevented.  To enable a\n   restarting router to\
+    \ learn the LAN-ID used prior to restart, the LAN-\n   ID specified in an IIH\
+    \ with RR set MUST be ignored.\n   Transmission of \"normal IIHs\" is inhibited\
+    \ until the conditions\n   described below are met (in order to avoid causing\
+    \ an unnecessary\n   adjacency initialization).  Upon expiry of the timer T1,\
+    \ it is\n   restarted and the IIH is retransmitted as above.\n   When a restarting\
+    \ router receives an IIH a local adjacency is\n   established as usual, and if\
+    \ the IIH contains a Restart TLV with the\n   RA bit set (and on LAN circuits\
+    \ with a Restart Neighbor System ID\n   that matches that of the local system),\
+    \ the receipt of the\n   acknowledgement over that interface is noted.  When the\
+    \ RA bit is set\n   and the state of the remote adjacency is UP, then the timer\
+    \ T3 is set\n   to the minimum of its current value and the value of the Remaining\n\
+    \   Time field in the received IIH.\n   On a Point-to-Point link, receipt of an\
+    \ IIH not containing the\n   Restart TLV is also treated as an acknowledgement,\
+    \ since it indicates\n   that the neighbor is not restart capable.  However, since\
+    \ no CSNP is\n   guaranteed to be received over this interface, the timer T1 is\n\
+    \   canceled immediately without waiting for a complete set of CSNPs.\n   Synchronization\
+    \ may therefore be deemed complete even though there\n   are some LSPs that are\
+    \ held (only) by this neighbor (see\n   Section 3.4).  In this case, we also want\
+    \ to be certain that the\n   neighbor will reinitialize the adjacency in order\
+    \ to guarantee that\n   the SRMflags have been set on its database, thus ensuring\
+    \ eventual\n   LSPDB synchronization.  This is guaranteed to happen except in\
+    \ the\n   case where the Adjacency Three-Way State in the received IIH is UP\n\
+    \   and the Neighbor Extended Local Circuit ID matches the Extended Local\n  \
+    \ Circuit ID assigned by the restarting router.  In this case, the\n   restarting\
+    \ router MUST force the adjacency to reinitialize by setting\n   the local Adjacency\
+    \ Three-Way State to DOWN and sending a normal IIH.\n   In the case of a LAN interface,\
+    \ receipt of an IIH not containing the\n   Restart TLV is unremarkable since synchronization\
+    \ can still occur so\n   long as at least one of the non-restarting neighboring\
+    \ routers on the\n   LAN supports restart.  Therefore, T1 continues to run in\
+    \ this case.\n   If none of the neighbors on the LAN are restart capable, T1 will\n\
+    \   eventually expire after the locally defined number of retries.\n   In the\
+    \ case of a Point-to-Point circuit, the LocalCircuitID and\n   Extended Local\
+    \ Circuit ID information contained in the IIH can be\n   used immediately to generate\
+    \ an IIH containing the correct three-way\n   handshake information.  The presence\
+    \ of Neighbor Extended Local\n   Circuit ID information that does not match the\
+    \ value currently in use\n   by the local system is ignored (since the IIH may\
+    \ have been\n   transmitted before the neighbor had received the new value from\
+    \ the\n   restarting router), but the adjacency remains in the initializing\n\
+    \   state until the correct information is received.\n   In the case of a LAN\
+    \ circuit, the source neighbor information (e.g.,\n   SNPAAddress) is recorded\
+    \ and used for adjacency establishment and\n   maintenance as normal.\n   When\
+    \ BOTH a complete set of CSNPs (for each active level, in the case\n   of a Point-to-Point\
+    \ circuit) and an acknowledgement have been\n   received over the interface, the\
+    \ timer T1 is canceled.\n   Once the timer T1 has been canceled, subsequent IIHs\
+    \ are transmitted\n   according to the normal algorithms but including the Restart\
+    \ TLV with\n   both RR and RA clear.\n   If a LAN contains a mixture of systems,\
+    \ only some of which support\n   the new algorithm, database synchronization is\
+    \ still guaranteed, but\n   the \"old\" systems will have reinitialized their\
+    \ adjacencies.\n   If an interface is active but does not have any neighboring\
+    \ router\n   reachable over that interface, the timer T1 would never be canceled,\n\
+    \   and according to Section 3.4.1.1, the SPF would never be run.\n   Therefore,\
+    \ timer T1 is canceled after some predetermined number of\n   expirations (which\
+    \ MAY be 1).\n"
+- title: 3.3.2.  Adjacency Acquisition during Start
+  contents:
+  - "3.3.2.  Adjacency Acquisition during Start\n   The starting router wants to ensure\
+    \ that in the event that a\n   neighboring router has an adjacency to the starting\
+    \ router in the UP\n   state (from a previous incarnation of the starting router),\
+    \ this\n   adjacency is reinitialized.  The starting router also wants\n   neighboring\
+    \ routers to suppress advertisement of an adjacency to the\n   starting router\
+    \ until LSP database synchronization is achieved.  This\n   is achieved by sending\
+    \ IIHs with the RR bit clear and the SA bit set\n   in the Restart TLV.  The RR\
+    \ bit remains clear and the SA bit remains\n   set in subsequent transmissions\
+    \ of IIHs until the adjacency has\n   reached the UP state and the initial T1\
+    \ timer interval (see below)\n   has expired.\n   Receipt of an IIH with the RR\
+    \ bit clear will result in the\n   neighboring router utilizing normal operation\
+    \ of the adjacency state\n   machine.  This will ensure that any old adjacency\
+    \ on the neighboring\n   router will be reinitialized.\n   Upon receipt of an\
+    \ IIH with the SA bit set, the behavior described in\n   Section 3.2.2 is followed.\n\
+    \   Upon starting, a router starts timer T2 for each LSPDB.\n   For each interface\
+    \ (and in the case of a LAN circuit, for each\n   level), when an adjacency reaches\
+    \ the UP state, the starting router\n   starts a timer T1 and transmits an IIH\
+    \ containing the restart TLV\n   with the RR bit clear and SA bit set.  Upon expiry\
+    \ of the timer T1,\n   it is restarted and the IIH is retransmitted with both\
+    \ RR and SA bits\n   set (only the RR bit has changed state from earlier IIHs).\n\
+    \   Upon receipt of an IIH with the RR bit set (regardless of whether or\n   not\
+    \ the SA bit is set), the behavior described in Section 3.2.1 is\n   followed.\n\
+    \   When an IIH is received by the starting router and the IIH contains a\n  \
+    \ Restart TLV with the RA bit set (and on LAN circuits with a Restart\n   Neighbor\
+    \ System ID that matches that of the local system), the\n   receipt of the acknowledgement\
+    \ over that interface is noted.\n   On a Point-to-Point link, receipt of an IIH\
+    \ not containing the\n   Restart TLV is also treated as an acknowledgement, since\
+    \ it indicates\n   that the neighbor is not restart capable.  Since the neighbor\
+    \ will\n   have reinitialized the adjacency, this guarantees that SRMflags have\n\
+    \   been set on its database, thus ensuring eventual LSPDB\n   synchronization.\
+    \  However, since no CSNP is guaranteed to be received\n   over this interface,\
+    \ the timer T1 is canceled immediately without\n   waiting for a complete set\
+    \ of CSNPs.  Synchronization may therefore\n   be deemed complete even though\
+    \ there are some LSPs that are held\n   (only) by this neighbor (see Section 3.4).\n\
+    \   In the case of a LAN interface, receipt of an IIH not containing the\n   Restart\
+    \ TLV is unremarkable since synchronization can still occur so\n   long as at\
+    \ least one of the non-restarting neighboring routers on the\n   LAN supports\
+    \ restart.  Therefore, T1 continues to run in this case.\n   If none of the neighbors\
+    \ on the LAN are restart capable, T1 will\n   eventually expire after the locally\
+    \ defined number of retries.  The\n   usual operation of the update process will\
+    \ ensure that\n   synchronization is eventually achieved.\n   When BOTH a complete\
+    \ set of CSNPs (for each active level, in the case\n   of a Point-to-Point circuit)\
+    \ and an acknowledgement have been\n   received over the interface, the timer\
+    \ T1 is canceled.  Subsequent\n   IIHs sent by the starting router have the RR\
+    \ and RA bits clear and\n   the SA bit set in the Restart TLV.\n   Timer T1 is\
+    \ canceled after some predetermined number of expirations\n   (which MAY be 1).\n\
+    \   When the T2 timer(s) are canceled or expire, transmission of \"normal\n  \
+    \ IIHs\" will begin.\n"
+- title: 3.3.3.  Multiple Levels
+  contents:
+  - "3.3.3.  Multiple Levels\n   A router that is operating as both a Level 1 and\
+    \ a Level 2 router on\n   a particular interface MUST perform the above operations\
+    \ for each\n   level.\n   On a LAN interface, it MUST send and receive both Level\
+    \ 1 and Level 2\n   IIHs and perform the CSNP synchronizations independently for\
+    \ each\n   level.\n   On a Point-to-Point interface, only a single IIH (indicating\
+    \ support\n   for both levels) is required, but it MUST perform the CSNP\n   synchronizations\
+    \ independently for each level.\n"
+- title: 3.4.  Database Synchronization
+  contents:
+  - "3.4.  Database Synchronization\n   When a router is started or restarted, it\
+    \ can expect to receive a\n   complete set of CSNPs over each interface.  The\
+    \ arrival of the\n   CSNP(s) is now guaranteed, since an IIH with the RR bit set\
+    \ will be\n   retransmitted until the CSNP(s) are correctly received.\n   The\
+    \ CSNPs describe the set of LSPs that are currently held by each\n   neighbor.\
+    \  Synchronization will be complete when all these LSPs have\n   been received.\n\
+    \   When (re)starting, a router starts an instance of timer T2 for each\n   LSPDB,\
+    \ as described in Section 3.3.1 or Section 3.3.2.  In addition\n   to normal processing\
+    \ of the CSNPs, the set of LSPIDs contained in the\n   first complete set of CSNPs\
+    \ received over each interface is recorded,\n   together with their remaining\
+    \ lifetime.  In the case of a LAN\n   interface, a complete set of CSNPs MUST\
+    \ consist of CSNPs received\n   from neighbors that are not restarting.  If there\
+    \ are multiple\n   interfaces on the (re)starting router, the recorded set of\
+    \ LSPIDs is\n   the union of those received over each interface.  LSPs with a\n\
+    \   remaining lifetime of zero are NOT so recorded.\n   As LSPs are received (by\
+    \ the normal operation of the update process)\n   over any interface, the corresponding\
+    \ LSPID entry is removed (it is\n   also removed if an LSP arrives before the\
+    \ CSNP containing the\n   reference).  When an LSPID has been held in the list\
+    \ for its\n   indicated remaining lifetime, it is removed from the list.  When\
+    \ the\n   list of LSPIDs is empty and the timer T1 has been canceled for all\n\
+    \   the interfaces that have an adjacency at this level, the timer T2 is\n   canceled.\n\
+    \   At this point, the local database is guaranteed to contain all the\n   LSP(s)\
+    \ (either the same sequence number or a more recent sequence\n   number) that\
+    \ were present in the neighbors' databases at the time of\n   (re)starting.  LSPs\
+    \ that arrived in a neighbor's database after the\n   time of (re)starting may\
+    \ or may not be present, but the normal\n   operation of the update process will\
+    \ guarantee that they will\n   eventually be received.  At this point, the local\
+    \ database is deemed\n   to be \"synchronized\".\n   Since LSPs mentioned in the\
+    \ CSNP(s) with a zero remaining lifetime\n   are not recorded and those with a\
+    \ short remaining lifetime are\n   deleted from the list when the lifetime expires,\
+    \ cancellation of the\n   timer T2 will not be prevented by waiting for an LSP\
+    \ that will never\n   arrive.\n"
+- title: 3.4.1.  LSP Generation and Flooding and SPF Computation
+  contents:
+  - "3.4.1.  LSP Generation and Flooding and SPF Computation\n   The operation of\
+    \ a router starting, as opposed to restarting, is\n   somewhat different.  These\
+    \ two cases are dealt with separately below.\n"
+- title: 3.4.1.1.  Restarting
+  contents:
+  - "3.4.1.1.  Restarting\n   In order to avoid causing unnecessary routing churn\
+    \ in other routers,\n   it is highly desirable that the router's own LSPs generated\
+    \ by the\n   restarting system are the same as those previously present in the\n\
+    \   network (assuming no other changes have taken place).  It is\n   important\
+    \ therefore not to regenerate and flood the LSPs until all\n   the adjacencies\
+    \ have been reestablished and any information required\n   for propagation into\
+    \ the local LSPs is fully available.  Ideally, the\n   information is loaded into\
+    \ the LSPs in a deterministic way, such that\n   the same information occurs in\
+    \ the same place in the same LSP (and\n   hence the LSPs are identical to their\
+    \ previous versions).  If this\n   can be achieved, the new versions may not even\
+    \ cause SPF to be run in\n   other systems.  However, provided the same information\
+    \ is included in\n   the set of LSPs (albeit in a different order, and possibly\
+    \ different\n   LSPs), the result of running the SPF will be the same and will\
+    \ not\n   cause churn to the forwarding tables.\n   In the case of a restarting\
+    \ router, none of the router's own LSPs are\n   transmitted, nor are the router's\
+    \ own forwarding tables updated while\n   the timer T3 is running.\n   Redistribution\
+    \ of inter-level information MUST be regenerated before\n   this router's LSP\
+    \ is flooded to other nodes.  Therefore, the Level-n\n   non-pseudonode LSP(s)\
+    \ MUST NOT be flooded until the other level's T2\n   timer has expired and its\
+    \ SPF has been run.  This ensures that any\n   inter-level information that is\
+    \ to be propagated can be included in\n   the Level-n LSP(s).\n   During this\
+    \ period, if one of the router's own (including\n   pseudonodes) LSPs is received,\
+    \ which the local router does not\n   currently have in its own database, it is\
+    \ NOT purged.  Under normal\n   operation, such an LSP would be purged, since\
+    \ the LSP clearly should\n   not be present in the global LSP database.  However,\
+    \ in the present\n   circumstances, this would be highly undesirable, because\
+    \ it could\n   cause premature removal of a router's own LSP -- and hence churn\
+    \ in\n   remote routers.  Even if the local system has one or more of the\n  \
+    \ router's own LSPs (which it has generated but not yet transmitted),\n   it is\
+    \ still not valid to compare the received LSP against this set,\n   since it may\
+    \ be that as a result of propagation between Level 1 and\n   Level 2 (or vice\
+    \ versa), a further router's own LSP will need to be\n   generated when the LSP\
+    \ databases have synchronized.\n   During this period, a restarting router SHOULD\
+    \ send CSNPs as it\n   normally would.  Information about the router's own LSPs\
+    \ MAY be\n   included, but if it is included, it MUST be based on LSPs that have\n\
+    \   been received, not on versions that have been generated (but not yet\n   transmitted).\
+    \  This restriction is necessary to prevent premature\n   removal of an LSP from\
+    \ the global LSP database.\n   When the timer T2 expires or is canceled, indicating\
+    \ that\n   synchronization for that level is complete, the SPF for that level\
+    \ is\n   run in order to derive any information that is required to be\n   propagated\
+    \ to another level, but the forwarding tables are not yet\n   updated.\n   Once\
+    \ the other level's SPF has run and any inter-level propagation\n   has been resolved,\
+    \ the router's own LSPs can be generated and\n   flooded.  Any own LSPs that were\
+    \ previously ignored, but that are not\n   part of the current set of own LSPs\
+    \ (including pseudonodes), MUST\n   then be purged.  Note that it is possible\
+    \ that a Designated Router\n   change may have taken place and, consequently,\
+    \ the router SHOULD\n   purge those pseudonode LSPs that it previously owned but\
+    \ that are now\n   no longer part of its set of pseudonode LSPs.\n   When all\
+    \ the T2 timers have expired or been canceled, the timer T3 is\n   canceled, and\
+    \ the local forwarding tables are updated.\n   If the timer T3 expires before\
+    \ all the T2 timers have expired or been\n   canceled, this indicates that the\
+    \ synchronization process is taking\n   longer than the minimum Holding Time of\
+    \ the neighbors.  The router's\n   own LSP(s) for levels that have not yet completed\
+    \ their first SPF\n   computation are then flooded with the overload bit set to\
+    \ indicate\n   that the router's LSPDB is not yet synchronized (and therefore\
+    \ other\n   routers MUST NOT compute routes through this router).  Normal\n  \
+    \ operation of the update process resumes, and the local forwarding\n   tables\
+    \ are updated.  In order to prevent the neighbor's adjacencies\n   from expiring,\
+    \ IIHs with the normal interface value for the Holding\n   Time are transmitted\
+    \ over all interfaces with neither RR nor RA set\n   in the Restart TLV.  This\
+    \ will cause the neighbors to refresh their\n   adjacencies.  The router's own\
+    \ LSP(s) will continue to have the\n   overload bit set until timer T2 has expired\
+    \ or been canceled.\n"
+- title: 3.4.1.2.  Starting
+  contents:
+  - "3.4.1.2.  Starting\n   In the case of a starting router, as soon as each adjacency\
+    \ is\n   established, and before any CSNP exchanges, the router's own zeroth\n\
+    \   LSP is transmitted with the overload bit set.  This prevents other\n   routers\
+    \ from computing routes through the router until it has\n   reliably acquired\
+    \ the complete set of LSPs.  The overload bit remains\n   set in subsequent transmissions\
+    \ of the zeroth LSP (such as will occur\n   if a previous copy of the router's\
+    \ own zeroth LSP is still present in\n   the network) while any timer T2 is running.\n\
+    \   When all the T2 timers have been canceled, the router's own LSP(s)\n   MAY\
+    \ be regenerated with the overload bit clear (assuming the router\n   is not in\
+    \ fact overloaded, and there is no other reason, such as\n   incomplete BGP convergence,\
+    \ to keep the overload bit set) and flooded\n   as normal.\n   Other LSPs owned\
+    \ by this router (including pseudonodes) are generated\n   and flooded as normal,\
+    \ irrespective of the timer T2.  The SPF is also\n   run as normal and the Routing\
+    \ Information Base (RIB) and Forwarding\n   Information Base (FIB) updated as\
+    \ routes become available.\n   To avoid the possible formation of temporary blackholes,\
+    \ the starting\n   router sets the SA bit in the Restart TLV (as described in\n\
+    \   Section 3.3.2) in all IIHs that it sends.\n   When all T2 timers have been\
+    \ canceled, the starting router MUST\n   transmit IIHs with the SA bit clear.\n"
+- title: 4.  State Tables
+  contents:
+  - "4.  State Tables\n   This section presents state tables that summarize the behaviors\n\
+    \   described in this document.  Other behaviors, in particular adjacency\n  \
+    \ state transitions and LSP database update operations, are NOT\n   included in\
+    \ the state tables except where this document modifies the\n   behaviors described\
+    \ in [ISO10589] and [RFC5303].\n   The states named in the columns of the tables\
+    \ below are a mixture of\n   states that are specific to a single adjacency (ADJ\
+    \ suppressed, ADJ\n   Seen RA, ADJ Seen CSNP) and states that are indicative of\
+    \ the state\n   of the protocol instance (Running, Restarting, Starting, SPF Wait).\n\
+    \   Three state tables are presented from the point of view of a running\n   router,\
+    \ a restarting router, and a starting router.\n"
+- title: 4.1.  Running Router
+  contents:
+  - "4.1.  Running Router\n   | Event  | Running                                 \
+    \  | ADJ          |\n   | RX PR  | Set Planned Restart State                 |\
+    \              |\n   |        | Update Holding Time                       |  \
+    \            |\n   |        | Send PA                                   |    \
+    \          |\n   | RX PR  | Clear Planned Restart State               |      \
+    \        |\n   | clr    | Restore Holding Time to local value       |        \
+    \      |\n   | and RR |                                           |          \
+    \    |\n   | clr    |                                           |            \
+    \  |\n   | RX RR  | Maintain ADJ State                        |              |\n\
+    \   |        | Send RA                                   |              |\n  \
+    \ |        | Set SRM, send CSNP (Note 1)               |              |\n   |\
+    \        | Update Holding Time,                      |              |\n   |  \
+    \      | set Restart Mode (Note 2)                 |              |\n   | RX RR\
+    \  | Clr Restart mode                          |              |\n   | clr    |\
+    \                                           |              |\n   | RX SA  | Suppress\
+    \ IS neighbor TLV in LSP(s)        |              |\n   |        | Goto ADJ Suppressed\
+    \                       |              |\n   | RX SA  |                      \
+    \                     | Unsuppress   |\n   | clr    |                        \
+    \                   | IS neighbor  |\n                          Table 1: Running\
+    \ Router\n   Note 1:  CSNPs are sent by routers in accordance with item c in\n\
+    \            Section 3.2.1\n   Note 2:  If Restart Mode clear\n"
+- title: 4.2.  Restarting Router
+  contents:
+  - "4.2.  Restarting Router\n   | Event    | Restarting      | ADJ     | ADJ    \
+    \ | SPF Wait         |\n   | Restart  | Send PR         |         |         |\
+    \                  |\n   | planned  |                 |         |         |  \
+    \                |\n   | Planned  | Send PR clr     |         |         |    \
+    \              |\n   | restart  |                 |         |         |      \
+    \            |\n   | canceled |                 |         |         |        \
+    \          |\n   | RX PA    | Proceed with    |         |         |          \
+    \        |\n   |          | planned restart |         |         |            \
+    \      |\n   | Router   | Send IIH/RR     |         |         |              \
+    \    |\n   | restarts | ADJ Init        |         |         |                \
+    \  |\n   |          | Start T1, T2,   |         |         |                  |\n\
+    \   |          | T3              |         |         |                  |\n  \
+    \ | RX RR    | Send RA         |         |         |                  |\n   |\
+    \ RX RA    | Adjust T3       |         | Cancel  |                  |\n   |  \
+    \        | Goto ADJ Seen   |         | T1      |                  |\n   |    \
+    \      | RA              |         | Adjust  |                  |\n   | RX CSNP\
+    \  | Goto ADJ Seen   | Cancel  |         |                  |\n   | set      |\
+    \ CSNP            | T1      |         |                  |\n   | RX IIH   | Cancel\
+    \ T1       |         |         |                  |\n   | w/o      | (Point-to-point\
+    \ |         |         |                  |\n   | Restart  | only)           |\
+    \         |         |                  |\n   | TLV      |                 |  \
+    \       |         |                  |\n   | T1       | Send IIH/RR     | Send\
+    \    | Send    |                  |\n   | expires  | Restart T1      | IIH/RR\
+    \  | IIH/RR  |                  |\n   | T1       | Send IIH/normal | Send    |\
+    \ Send    |                  |\n   | expires  |                 | IIH/    | IIH/\
+    \    |                  |\n   | nth time |                 | normal  | normal\
+    \  |                  |\n   | T2       | Trigger SPF     |         |         |\
+    \                  |\n   | expires  | Goto SPF Wait   |         |         |  \
+    \                |\n   | T3       | Set overload    |         |         |    \
+    \              |\n   | expires  | bit             |         |         |      \
+    \            |\n   |          | Flood local     |         |         |        \
+    \          |\n   |          | LSPs            |         |         |          \
+    \        |\n   |          | Update fwd      |         |         |            \
+    \      |\n   |          | plane           |         |         |              \
+    \    |\n   | LSP DB   | Cancel T2 and   |         |         |                \
+    \  |\n   | Sync     | T3              |         |         |                  |\n\
+    \   |          | Trigger SPF     |         |         |                  |\n  \
+    \ |          | Goto SPF wait   |         |         |                  |\n   |\
+    \ All SPF  |                 |         |         | Clear overload   |\n   | done\
+    \     |                 |         |         | bit              |\n           \
+    \              Table 2: Restarting Router\n"
+- title: 4.3.  Starting Router
+  contents:
+  - "4.3.  Starting Router\n   | Event       | Starting                  | ADJ Seen\
+    \   | ADJ Seen   |\n   | Router      | Send IIH/SA               |           \
+    \ |            |\n   | starts      | Start T1 and T2           |            |\
+    \            |\n   | RX RR       | Send RA                   |            |  \
+    \          |\n   | RX RA       | Goto ADJ Seen RA          |            | Cancel\
+    \ T1  |\n   | RX CSNP Set | Goto ADJ Seen CSNP        | Cancel T1  |         \
+    \   |\n   | RX IIH w no | Cancel T1 (Point-to-      |            |           \
+    \ |\n   | Restart TLV | Point only)               |            |            |\n\
+    \   | ADJ UP      | Start T1                  |            |            |\n  \
+    \ |             | Send local LSPs with      |            |            |\n   |\
+    \             | overload bit set          |            |            |\n   | T1\
+    \ expires  | Send IIH/RR and SA        | Send IIH/  | Send IIH/  |\n   |     \
+    \        | Restart T1                | RR and SA  | RR and SA  |\n   | T1 expires\
+    \  | Send IIH/SA               | Send IIH/  | Send IIH/  |\n   | nth time    |\
+    \                           | SA         | SA         |\n   | T2 expires  | Clear\
+    \ overload bit        |            |            |\n   |             | Send IIH\
+    \ normal           |            |            |\n   |             | Goto Running\
+    \              |            |            |\n   | LSP DB Sync | Cancel T2     \
+    \            |            |            |\n   |             | Clear overload bit\
+    \        |            |            |\n   |             | Send IIH normal     \
+    \      |            |            |\n                          Table 3: Starting\
+    \ Router\n"
+- title: 5.  IANA Considerations
+  contents:
+  - "5.  IANA Considerations\n   This document defines the following IS-IS TLV that\
+    \ is listed in the\n   \"IS-IS TLV Codepoints\" registry.\n   | Type | Description\
+    \ | IIH | LSP | SNP | Purge |\n   | 211  | Restart TLV | y   | n   | n   | n \
+    \    |\n                       Table 4\n   IANA has updated the entry in registry\
+    \ to point to this document.\n"
+- title: 6.  Security Considerations
+  contents:
+  - "6.  Security Considerations\n   Any new security issues raised by the procedures\
+    \ in this document\n   depend upon the ability of an attacker to inject a false\
+    \ but\n   apparently valid IIH, the ease/difficulty of which has not been\n  \
+    \ altered.\n   If the RR bit is set in a false IIH, neighbors who receive such\
+    \ an\n   IIH will continue to maintain an existing adjacency in the UP state\n\
+    \   and may (re)send a complete set of CSNPs.  While the latter action is\n  \
+    \ wasteful, neither action causes any disruption in correct protocol\n   operation.\n\
+    \   If the RA bit is set in a false IIH, a (re)starting router that\n   receives\
+    \ such an IIH may falsely believe that there is a neighbor on\n   the corresponding\
+    \ interface that supports the procedures described in\n   this document.  In the\
+    \ absence of receipt of a complete set of CSNPs\n   on that interface, this could\
+    \ delay the completion of (re)start\n   procedures by requiring the timer T1 to\
+    \ time out the locally defined\n   maximum number of retries.  This behavior is\
+    \ the same as would occur\n   on a LAN where none of the (re)starting router's\
+    \ neighbors support\n   the procedures in this document and is covered in Sections\
+    \ 3.3.1 and\n   3.3.2.\n   If the SA bit is set in a false IIH, this could cause\
+    \ suppression of\n   the advertisement of an IS neighbor, which could either continue\
+    \ for\n   an indefinite period or occur intermittently with the result being a\n\
+    \   possible loss of reachability to some destinations in the network\n   and/or\
+    \ increased frequency of LSP flooding and SPF calculation.\n   If the PR bit is\
+    \ set in a false IIH, neighbors who receive such an\n   IIH could modify the Holding\
+    \ Time of an existing adjacency\n   inappropriately.  In the event of topology\
+    \ changes, the neighbor\n   might also choose to not flood the topology updates\
+    \ and/or bring the\n   adjacency down in the false belief that the forwarding\
+    \ plane of the\n   router identified as the source of the false IIH is not currently\n\
+    \   processing announced topology changes.  This would result in\n   unnecessary\
+    \ forwarding disruption.\n   If the PA bit is set in a false IIH, a router that\
+    \ receives such an\n   IIH may falsely believe that the neighbor on the corresponding\n\
+    \   interface supports the planned restart procedures defined in this\n   document.\
+    \  If such a router is planning to restart, it might then\n   proceed to initiate\
+    \ a restart in the false expectation that the\n   neighbor has updated its Holding\
+    \ Time as requested.  This may result\n   in the neighbor bringing down the adjacency\
+    \ while the receiving\n   router is restarting, causing unnecessary disruption\
+    \ to forwarding.\n   The possibility of IS-IS PDU spoofing can be reduced by the\
+    \ use of\n   authentication, as described in [RFC1195] and [ISO10589], and\n \
+    \  especially by the use of cryptographic authentication, as described\n   in\
+    \ [RFC5304] and [RFC5310].\n"
+- title: 7.  Manageability Considerations
+  contents:
+  - "7.  Manageability Considerations\n   These extensions that have been designed,\
+    \ developed, and deployed for\n   many years do not have any new impact on management\
+    \ and operation of\n   the IS-IS protocol via this standardization process.\n"
+- title: 8.  Normative References
+  contents:
+  - "8.  Normative References\n   [ISO10589] International Organization for Standardization,\n\
+    \              \"Information technology -- Telecommunications and\n          \
+    \    information exchange between systems -- Intermediate\n              System\
+    \ to Intermediate System intra-domain routeing\n              information exchange\
+    \ protocol for use in conjunction with\n              the protocol for providing\
+    \ the connectionless-mode network\n              service (ISO 8473)\", ISO/IEC\
+    \ 10589:2002, Second Edition,\n              November 2002.\n   [RFC1195]  Callon,\
+    \ R., \"Use of OSI IS-IS for routing in TCP/IP and\n              dual environments\"\
+    , RFC 1195, DOI 10.17487/RFC1195,\n              December 1990, <https://www.rfc-editor.org/info/rfc1195>.\n\
+    \   [RFC2119]  Bradner, S., \"Key words for use in RFCs to Indicate\n        \
+    \      Requirement Levels\", BCP 14, RFC 2119,\n              DOI 10.17487/RFC2119,\
+    \ March 1997,\n              <https://www.rfc-editor.org/info/rfc2119>.\n   [RFC5303]\
+    \  Katz, D., Saluja, R., and D. Eastlake 3rd, \"Three-Way\n              Handshake\
+    \ for IS-IS Point-to-Point Adjacencies\", RFC 5303,\n              DOI 10.17487/RFC5303,\
+    \ October 2008,\n              <https://www.rfc-editor.org/info/rfc5303>.\n  \
+    \ [RFC5304]  Li, T. and R. Atkinson, \"IS-IS Cryptographic\n              Authentication\"\
+    , RFC 5304, DOI 10.17487/RFC5304, October\n              2008, <https://www.rfc-editor.org/info/rfc5304>.\n\
+    \   [RFC5310]  Bhatia, M., Manral, V., Li, T., Atkinson, R., White, R.,\n    \
+    \          and M. Fanto, \"IS-IS Generic Cryptographic\n              Authentication\"\
+    , RFC 5310, DOI 10.17487/RFC5310, February\n              2009, <https://www.rfc-editor.org/info/rfc5310>.\n\
+    \   [RFC5880]  Katz, D. and D. Ward, \"Bidirectional Forwarding Detection\n  \
+    \            (BFD)\", RFC 5880, DOI 10.17487/RFC5880, June 2010,\n           \
+    \   <https://www.rfc-editor.org/info/rfc5880>.\n   [RFC8174]  Leiba, B., \"Ambiguity\
+    \ of Uppercase vs Lowercase in RFC\n              2119 Key Words\", BCP 14, RFC\
+    \ 8174, DOI 10.17487/RFC8174,\n              May 2017, <https://www.rfc-editor.org/info/rfc8174>.\n"
+- title: Appendix A.  Summary of Changes from RFC 5306
+  contents:
+  - "Appendix A.  Summary of Changes from RFC 5306\n   This document extends RFC 5306\
+    \ by introducing support for signaling\n   the neighbors of a restarting router\
+    \ that a planned restart is about\n   to occur.  This allows the neighbors to\
+    \ be aware of the state of the\n   restarting router so that appropriate action\
+    \ may be taken if other\n   topology changes occur while the planned restart is\
+    \ in progress.\n   Since the forwarding plane of the restarting router is maintained\n\
+    \   based upon the pre-restart state of the network, additional topology\n   changes\
+    \ introduce the possibility that traffic may be lost if paths\n   via the restarting\
+    \ router continue to be used while the restart is in\n   progress.\n   In support\
+    \ of this new functionality, two new flags have been\n   introduced:\n   PR -\
+    \  Restart is planned\n   PA -  Planned restart acknowledgement\n   No changes\
+    \ to the post-restart exchange between the restarting router\n   and its neighbors\
+    \ have been introduced.\n"
+- title: Acknowledgements
+  contents:
+  - "Acknowledgements\n   For RFC 5306, the authors acknowledged contributions made\
+    \ by Jeff\n   Parker, Radia Perlman, Mark Schaefer, Naiming Shen, Nischal Sheth,\n\
+    \   Russ White, and Rena Yang.\n   The authors of this updated document acknowledge\
+    \ the contribution of\n   Mike Shand, coauthor of RFC 5306.\n"
+- title: Authors' Addresses
+  contents:
+  - "Authors' Addresses\n   Les Ginsberg\n   Cisco Systems, Inc.\n   Email: ginsberg@cisco.com\n\
+    \   Paul Wells\n"

@@ -1,0 +1,357 @@
+- title: __initial_text__
+  contents:
+  - '                Associating Time-Codes with RTP Streams
+
+    '
+- title: Status of This Memo
+  contents:
+  - "Status of This Memo\n   This document specifies an Internet standards track protocol\
+    \ for the\n   Internet community, and requests discussion and suggestions for\n\
+    \   improvements.  Please refer to the current edition of the \"Internet\n   Official\
+    \ Protocol Standards\" (STD 1) for the standardization state\n   and status of\
+    \ this protocol.  Distribution of this memo is unlimited.\n"
+- title: Copyright Notice
+  contents:
+  - "Copyright Notice\n   Copyright (c) 2009 IETF Trust and the persons identified\
+    \ as the\n   document authors.  All rights reserved.\n   This document is subject\
+    \ to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\
+    \ in effect on the date of\n   publication of this document (http://trustee.ietf.org/license-info).\n\
+    \   Please review these documents carefully, as they describe your rights\n  \
+    \ and restrictions with respect to this document.\n"
+- title: Abstract
+  contents:
+  - "Abstract\n   This document describes a mechanism for associating time-codes,\
+    \ as\n   defined by the Society of Motion Picture and Television Engineers\n \
+    \  (SMPTE), with media streams in a way that is independent of the RTP\n   payload\
+    \ format of the media stream itself.\n"
+- title: Table of Contents
+  contents:
+  - "Table of Contents\n   1. Introduction ....................................................2\n\
+    \   2. Requirements Notation ...........................................3\n  \
+    \ 3. Design Goals ....................................................3\n   4.\
+    \ Requirements and Constraints ....................................4\n   5. Signaling\
+    \ Information ...........................................4\n   6. In-Stream Information\
+    \ ...........................................6\n      6.1. Compact Format of the\
+    \ Time-Code ............................6\n      6.2. Full Format of the Time-Code\
+    \ ...............................7\n      6.3. Associations in RTCP .......................................8\n\
+    \      6.4. Associations in RTP ........................................9\n  \
+    \ 7. Implementation Note (Informative) ..............................10\n   8.\
+    \ Discussion (Informative) .......................................10\n   9. Security\
+    \ Considerations ........................................11\n   10. IANA Considerations\
+    \ ...........................................11\n   11. Acknowledgments ...............................................12\n\
+    \   12. References ....................................................12\n  \
+    \    12.1. Normative References .....................................12\n    \
+    \  12.2. Informative References ...................................12\n"
+- title: 1.  Introduction
+  contents:
+  - "1.  Introduction\n   First a brief background on time-codes [SMPTE-12M].\n  \
+    \ The time-code system in common use is defined by the Society of\n   Motion Picture\
+    \ and Television Engineers (SMPTE); in it, time-codes\n   count frames.  A common\
+    \ form of the display looks like a normal clock\n   value (hh:mm:ss.frame).  When\
+    \ the frame rate is truly integral, then\n   this can be a normal clock value,\
+    \ in that seconds tick by at the same\n   rate as the seconds we know and love.\n\
+    \   However, NTSC video infamously runs slightly slower than 30 frames\n   per\
+    \ second (fps).  Some people call it 29.97, which isn't quite\n   right; to be\
+    \ accurate, a frame takes 1001 ticks of a 30000 tick/\n   second clock.  Be that\
+    \ as it may, SMPTE time-codes count 30 of these\n   frames and deem that to make\
+    \ a second.\n   This causes an SMPTE time-code display to 'run slow' compared\
+    \ to\n   real-time.  To ameliorate this, sometimes a format called drop-frame\n\
+    \   is used.  Some of the frame numbers are skipped, so that the counter\n   periodically\
+    \ 'catches up' (so some time-code seconds actually only\n   have 28 frames in\
+    \ them).\n   It is worth noting that in neither case is the SMPTE time-code an\n\
+    \   accurate clock; in the first case, it runs slow, and in the second,\n   the\
+    \ adjustments are abrupt and periodic -- and still not quite\n   accurate.  Hence\
+    \ the rest of this document tries to be clear when\n   referring to a second in\
+    \ a time-code as a 'time-code second'.\n   However, SMPTE time-codes do run in\
+    \ real-time when used with systems\n   with integral fps (e.g., film content at\
+    \ 24 fps or PAL video).\n   This specification defines how to carry time-codes\
+    \ in RTP and RTCP\n   (RTP Control Protocol), associate them with a media stream,\
+    \ and\n   synchronize them with the RTP timestamps.  It uses the general RTP\n\
+    \   header extension mechanism [RFC5285].\n"
+- title: 2.  Requirements Notation
+  contents:
+  - "2.  Requirements Notation\n   The key words \"MUST\", \"MUST NOT\", \"REQUIRED\"\
+    , \"SHALL\", \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\", \"\
+    MAY\", and \"OPTIONAL\" in this\n   document are to be interpreted as described\
+    \ in [RFC2119].\n"
+- title: 3.  Design Goals
+  contents:
+  - "3.  Design Goals\n   What we desire is a system that allows us to associate an\
+    \ SMPTE time-\n   code with some media in an RTP [RFC3550] stream.  Since in RTP\
+    \ all\n   media has a clock already, we can often leverage that fact.  If we\n\
+    \   treat the media as having 'segments' of time in which the time-code\n   is\
+    \ simply counting up, then the time-code anywhere within a segment\n   can be\
+    \ calculated if you know:\n   o  the RTP timestamp of the start of the segment;\n\
+    \   o  the time-code of the start of the segment;\n   o  the counting rate and\
+    \ other parameters of the time-code;\n   o  the RTP timestamp where you want to\
+    \ know the time-code.\n   There are two cases to consider:\n   1.  the time-codes\
+    \ are piece-wise continuous with only occasional\n       discontinuities;\n  \
+    \ 2.  the continuity of the time-codes is not certain (or not known).\n   The\
+    \ first can be handled by providing details of the time-code axis\n   and an initial\
+    \ mapping from RTP time to time-code time as well as\n   periodic mappings in\
+    \ RTCP packets.  This is defined in Section 6.3.\n   The second requires in-band\
+    \ signaling within the RTP packets\n   themselves.  This is defined in Section\
+    \ 6.4.\n   There are applications where the transport of all 8 bytes of the\n\
+    \   SMPTE 12M time-code are important (e.g., when the date of the time-\n   code\
+    \ must be known or when the RTP transport is used as a transparent\n   pipe).\
+    \  On the other hand, there are cases (e.g., when time-codes are\n   used with\
+    \ compressed audio) when bandwidth is also important.  To\n   support both use\
+    \ cases, provision is made for both compact and full\n   forms of the time-code.\n"
+- title: 4.  Requirements and Constraints
+  contents:
+  - "4.  Requirements and Constraints\n   Receivers MUST support time-codes in both\
+    \ RTCP and RTP as well as\n   both forms (compact and full) of the time-code.\
+    \  Senders, of course,\n   are free to choose.\n   Note that the compact form\
+    \ allows frame numbers greater than the full\n   form (a field of 6 bits vs. a\
+    \ full binary-coded decimal (BCD) digit\n   and a 2-bit BCD digit, which gives\
+    \ a maximum transmitted value of\n   29).  In some cases, the color frame flag\
+    \ (bit 11) is used to\n   'extend' the \"tens of frames\" field from 2 to 3 bits;\
+    \ however, such\n   practices are outside the scope of this specification.\n \
+    \  In the case that a presentation contains more than one stream,\n   senders\
+    \ MUST continue to send the standard RTP synchronization\n   information in RTCP,\
+    \ even if the streams carry SMPTE time-codes that\n   could be used for synchronization.\
+    \  In fact, when time-codes are\n   carried by more than one stream, this document\
+    \ does not constrain the\n   time-codes: at a given point in time, they may be\
+    \ the same, or they\n   may differ (e.g., if they carry the original time-codes\
+    \ of different\n   source material that was edited together).\n"
+- title: 5.  Signaling Information
+  contents:
+  - "5.  Signaling Information\n   If the recipient must ever calculate time-codes\
+    \ based on the RTP\n   times, then some setup information is needed.  This MUST\
+    \ be sent out-\n   of-band -- for example, in a SIP offer/answer exchange [RFC3264].\n\
+    \   Since this specification is a general header extension [RFC5285],\n   when\
+    \ the Session Description Protocol (SDP) is used, the 'extmap'\n   attribute defined\
+    \ by the extension mechanism is also used.\n   The setup information should include:\n\
+    \   1.  the duration, in the RTP timescale, of a single frame-count in\n     \
+    \  the 'frames' portion of the time-code (frame_duration)\n   2.  the number of\
+    \ those frames that make a time-code second\n       (frames_per_tc_second); framecounter\
+    \ values may be between 0 and\n       (frames_per_tc_second - 1)\n   3.  the drop-frame\
+    \ indication, is-NTSC-drop-frame, which indicates\n       whether the usual drop-frame\
+    \ behavior should be applied or not\n   Note that other information we need to\
+    \ do the calculation (e.g., the\n   clock rate of the RTP timestamp) is supplied\
+    \ already and assumed to\n   be available.\n   For example, if associated with\
+    \ a video stream with the common time-\n   scale of 90000 ticks per second, then\
+    \ a frame_duration of 3003 and\n   frames-per-tc-second of 30 would yield a 'normal'\
+    \ SMPTE time-code for\n   NTSC video.  Similarly, values of 3750 and 24 yield\
+    \ a time-code for\n   24 fps film content, and so on.\n   Note also that we supply\
+    \ explicitly the frame duration and fps, even\n   though they are obviously closely\
+    \ related.  This removes any\n   ambiguity of what the counter values should be\
+    \ in the case of drop-\n   frame counting.  These three values MUST correspond\
+    \ with each other.\n   When the SDP is used, these three parameters are transmitted\
+    \ as\n   extensionattributes, as defined in the header extension specification\n\
+    \   [RFC5285], with the following ABNF syntax [RFC5234].  The form of the\n  \
+    \ extension attributes is 'owned' by the extension name.  These\n   parameters\
+    \ to the extension do not need registration action beyond\n   their documentation\
+    \ here.  Note that the parameters are supplied as\n   extension attributes, suitable\
+    \ for in-line use in RTP, even if in a\n   given stream only the RTCP mapping\
+    \ is used.\n    digit = \"0\"/\"1\"/\"2\"/\"3\"/\"4\"/\"5\"/\"6\"/\"7\"/\"8\"\
+    /\"9\"\n    integer = 1*digit\n    frame-duration-length = integer\n    timestamp-rate\
+    \ = integer\n    frame-duration = frame-duration-length \"@\" timestamp-rate\n\
+    \    frames-per-tc-second = integer\n    drop = \"/drop\"\n    extensionattributes\
+    \ = frame-duration \"/\" frames-per-tc-second [drop]\n   The frame duration is\
+    \ specified as a count of ticks of a clock that\n   has timestamp-rate ticks per\
+    \ second.  It is recommended that the\n   timestamp-rate be the same as the clock\
+    \ rate of the RTP stream in\n   which the extension is embedded, to avoid the\
+    \ loss of accuracy in\n   conversion of timestamps.  If the payload type changes\
+    \ during a\n   stream, especially between payloads with different clock rates,\
+    \ it is\n   strongly recommended that the header extension be included on the\n\
+    \   first packet(s) of the new payload, to set the mapping for the new\n   clock\
+    \ rate explicitly.\n   If '/drop' is specified, then the first two frame numbers\
+    \ are omitted\n   from the count of each minute, except for minutes 00, 10, 20,\
+    \ 30, 40,\n   and 50, as documented in Section 4.2.2 of SMPTE specification\n\
+    \   [SMPTE-12M].  (Note that this usually only applies to NTSC video.)\n   The\
+    \ URI used for the signaling is\n      \"urn:ietf:params:rtp-hdrext:smpte-tc\"\
+    .\n   This URI signals the possible presence of associations in RTCP or\n   RTP,\
+    \ as defined below.\n   An example in the SDP, for film material, on a stream\
+    \ with a\n   timescale of 600, might be:\n     a=extmap:4 urn:ietf:params:rtp-hdrext:smpte-tc\
+    \ 25@600/24\n   Another example, for drop-frame NTSC, on a stream with a timescale\
+    \ of\n   600, might be:\n     a=extmap:4 urn:ietf:params:rtp-hdrext:smpte-tc 20@600/30/drop\n"
+- title: 6.  In-Stream Information
+  contents:
+  - '6.  In-Stream Information
+
+    '
+- title: 6.1.  Compact Format of the Time-Code
+  contents:
+  - "6.1.  Compact Format of the Time-Code\n   A compact binary SMPTE time-code in\
+    \ this design occupies 24 bits.  It\n   is NOT formatted in the BCD system, but\
+    \ uses binary fixed-width\n   fields.  It has the following structure:\n   sign(1)\
+    \  -- 1 for negative, 0 for positive\n   hours (5 bits)  -- 0 to 23; the values\
+    \ 24-31 are reserved\n   minutes (6 bits)  -- 0 to 59; 60-63 are reserved\n  \
+    \ seconds (6 bits)  -- 0 to 59; 60-63 are reserved\n   frames(6 bits)  -- 0 to\
+    \ (frames-per-tc-second - 1)\n   Note that these fields are larger than the provision\
+    \ in SMPTE 12M,\n   where BCD (binary-coded decimal) is used (and notably, where\
+    \ only two\n   bits are provided for the tens digit of the frame-count, so frame\n\
+    \   numbers above 39 cannot be represented).\n"
+- title: 6.2.  Full Format of the Time-Code
+  contents:
+  - "6.2.  Full Format of the Time-Code\n   A full SMPTE time-code occupies 64 bits.\
+    \  It is formatted exactly as\n   defined in Sections 7 and 8 of SMPTE 12M [SMPTE-12M],\
+    \ without the\n   16-bit syncword.  The value of the \"drop frame flag\" MUST\
+    \ agree with\n   the use of the \"drop\" indicator in the signaling.\n   Here\
+    \ are the bit assignments from SMPTE 12M, for information:\n   0--3    Units of\
+    \ frames\n   4--7    First binary group\n   8--9    Tens of frames\n   10    \
+    \  Drop frame flag\n   11      Color frame flag\n   12--15  Second binary group\n\
+    \   16--19  Units of seconds\n   20--23  Third binary group\n   24--26  Tens of\
+    \ seconds\n   27      Polarity correction\n   28--31  Fourth binary group\n  \
+    \ 32--35  Units of minutes\n   36--39  Fifth binary group\n   40--42  Tens of\
+    \ minutes\n   43      Binary group flag BGF0\n   44--47  Sixth binary group\n\
+    \   48--51  Units of hours\n   52--55  Seventh binary group\n   56--57  Tens of\
+    \ hours\n   58      Binary group flag BGF1\n   59      Binary group flag BGF2\n\
+    \   60--63  Eighth binary group\n"
+- title: 6.3.  Associations in RTCP
+  contents:
+  - "6.3.  Associations in RTCP\n   When the time-codes are piece-wise continuous,\
+    \ we then supply in RTCP\n   packets an RTP timestamp and an SMPTE time-code for\
+    \ the start of each\n   run of calculable time-codes.  This establishes the time-code\
+    \ for all\n   RTP times greater than or equal to the one given, until a subsequent\n\
+    \   RTCP packet reestablishes the mapping.\n   Note that the RTP timestamp in\
+    \ the RTCP mapping may not match the\n   timestamp of any frame in the media stream.\
+    \  For video, it normally\n   would; but a timestamp transition may happen part-way\
+    \ through a\n   decoded audio frame.  Since they share the same clock, the timing\
+    \ of\n   that transition and the timing of the audio stream itself have the\n\
+    \   same accuracy.\n   The RTCP packets need not use the same RTP timestamp as\
+    \ the sender\n   report (or transmission time) in the same RTCP packet.  They\
+    \ can be\n   sent 'ahead of need' if possible (e.g., for stored content, when\
+    \ the\n   server can look ahead) or 'just-in-time'.  For example, packets sent\n\
+    \   'just-in-time' may be sent as early feedback packets, following the\n   rules\
+    \ in [RFC4585], after a discontinuity in the time-code is\n   detected.  Such\
+    \ packets allow media-buffering in the client the\n   chance to 'catch' the RTCP\
+    \ before the matching RTP packet is\n   processed and displayed.\n   The association\
+    \ is a new RTCP Control Packet Type, using the value\n   194 (see Section 10).\
+    \  This control packet has one of the two\n   following forms, differentiated\
+    \ by its length.\n       0                   1                   2           \
+    \        3\n       0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9\
+    \ 0 1\n      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \      |V=2|P|    SC   |PT=SMPTETC=194 |             length=3          |\n   \
+    \   +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+\n      |\
+    \                     SSRC of packet sender                     |\n      +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+\n\
+    \      |                         RTP timestamp                         |\n   \
+    \   +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+\n      |S|\
+    \  hours  |  minutes  |  seconds  |  frames   |  reserved=0   |\n      +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+\n\
+    \                     Figure 1: RTCP Short Form Packet\n   The fields S (sign),\
+    \ hours, minutes, seconds, and frames are defined\n   in Section 6.1.\n   For\
+    \ this short form, the length takes the fixed value 3, indicating a\n   control\
+    \ packet of 4 32-bit words.\n       0                   1                   2\
+    \                   3\n       0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3\
+    \ 4 5 6 7 8 9 0 1\n      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \      |V=2|P|    SC   |PT=SMPTETC=194 |             length=4          |\n   \
+    \   +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+\n      |\
+    \                     SSRC of packet sender                     |\n      +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+\n\
+    \      |                         RTP timestamp                         |\n   \
+    \   +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+\n      |\
+    \                          Full 8-byte                          |\n      |   \
+    \                   SMPTE 12M time-code                      |\n      +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+\n\
+    \                      Figure 2: RTCP Full Form Packet\n   For this full time-code\
+    \ (long form), the length takes the fixed value\n   4, indicating a control packet\
+    \ of 5 32-bit words.\n"
+- title: 6.4.  Associations in RTP
+  contents:
+  - "6.4.  Associations in RTP\n   When the time-codes are not known to be piece-wise\
+    \ continuous, or\n   absolute surety of mapping is desired, then the mapping can\
+    \ be placed\n   into some or all of the RTP packets.  This is a less desirable\
+    \ route;\n   it uses the RTP header extension [RFC5285], which some terminals\
+    \ may\n   find problematic.  And clearly placing mapping information in every\n\
+    \   packet uses more bandwidth.\n   In as many RTP packets as needed (possibly\
+    \ all), an RTP header\n   extension is used [RFC5285] to associate an RTP time\
+    \ to an SMPTE\n   time-code.\n   There are two forms of this header extension,\
+    \ again differentiated by\n   their length.  The short form associates a compact\
+    \ time-code with the\n   RTP timestamp of the packet.  The long form allows associates\
+    \ a full\n   time-code with a timestamp offset from the RTP timestamp of the\n\
+    \   packet.\n   The short form has a length of 3 bytes (24 bits).  The long form\
+    \ has\n   a length of 12 bytes (96 bits) and consists of a full SMPTE 12M time-\n\
+    \   code, followed by a signed 32-bit offset D from the RTP timestamp.\n   If\
+    \ the packet has timestamp T, this establishes an RTP to time-code\n   association\
+    \ for the RTP time T+D.\n"
+- title: 7.  Implementation Note (Informative)
+  contents:
+  - "7.  Implementation Note (Informative)\n   This section contains a suggestion\
+    \ on how to calculate both a time-\n   code for a time T2, given an initial code\
+    \ at time T1, and the frame\n   duration.\n   It might seem that when drop-frame\
+    \ is used, there is a 'fence post'\n   problem: how many minutes in which frame-numbers\
+    \ are dropped have\n   passed since the initial time-code?  However, this can\
+    \ be avoided if\n   all calculations are 'zero-based'; then the number of 'fence\
+    \ posts'\n   is known.\n     framesSinceTCzero := TimeCodeToFrameCount( initialTimeCode\
+    \ );\n     framesSinceMapping := floor( (T2-T1)/frameDuration );\n     totalFrames\
+    \ := framesSinceTCzero + framesSinceMapping;\n     timeCode := FrameCountToTimeCode(\
+    \ totalFrames );\n   The SMPTE engineering guideline [SMPTE-EG40] contains all\
+    \ the\n   appropriate equations, constants, etc. for performing these and other\n\
+    \   conversions.\n"
+- title: 8.  Discussion (Informative)
+  contents:
+  - "8.  Discussion (Informative)\n   This design has the advantage of not requiring\
+    \ the introduction of\n   new IP packets into the sessions or new data into the\
+    \ main data\n   channel by using low-bandwidth (vanishingly low in the case of\n\
+    \   streams with no discontinuities), and it is independent of the design\n  \
+    \ of the RTP packets themselves: the RTP profile (including possibly\n   encryption)\
+    \ and the RTP payload format.  SMPTE time-codes can be\n   associated with any\
+    \ RTP stream, including those with existing payload\n   formats.\n   It might\
+    \ be argued that we could set the initial mapping also in the\n   SDP, since RTCP\
+    \ packets might get lost.  But this means that the SDP\n   now has to have knowledge\
+    \ of the RTP random offset, which is nasty;\n   also, if one puts this RTCP packet\
+    \ into all sender reports, that's\n   probably good enough.  Then if you don't\
+    \ have time-codes, you don't\n   have audio-video-sync either.\n   This specification\
+    \ associates the time-code with a particular media\n   stream.  An alternative\
+    \ would be to make it an RTP stream in its own\n   right; however, the data rate\
+    \ is so low, this seems egregious.  By\n   packing it inline, we can do this backwards-compatible\
+    \ for gateways,\n   etc., that already handle dual-stream.\n   There is no way\
+    \ described in this document to detect that an RTCP\n   packet has been lost and\
+    \ that a mapping may be being used outside its\n   intended range.\n   The design\
+    \ assumes that clients will hold mappings until they are\n   superseded, and that\
+    \ a client may need to buffer some number of\n   upcoming mappings.\n"
+- title: 9.  Security Considerations
+  contents:
+  - "9.  Security Considerations\n   SMPTE time-codes are only informative and there\
+    \ are no known security\n   considerations from associating them with media streams.\n"
+- title: 10.  IANA Considerations
+  contents:
+  - "10.  IANA Considerations\n   The RTCP packet type used for SMPTE time-codes has\
+    \ been registered,\n   in accordance with Section 15 of [RFC3550].  IANA has added\
+    \ a new\n   value to the RTCP Control Packet types sub-registry of the Real-Time\n\
+    \   Transport Protocol (RTP) Parameters registry, according to the\n   following\
+    \ data:\n   abbrev.    name                     value   Reference\n   ---------\
+    \  -----------------------  ------  ---------\n   SMPTETC    SMPTE time-code mapping\
+    \  194     RFC 5484\n   Additionally, IANA has registered a new extension URI\
+    \ to the RTP\n   Compact Header Extensions sub-registry of the Real-Time Transport\n\
+    \   Protocol (RTP) Parameters registry, according to the following data:\n   \
+    \   Extension URI: urn:ietf:params:rtp-hdrext:smpte-tc\n      Description:   SMPTE\
+    \ time-code mapping\n      Contact:       singer@apple.com\n      Reference: \
+    \    RFC 5484\n"
+- title: 11.  Acknowledgments
+  contents:
+  - "11.  Acknowledgments\n   Both Brian Link and John Lazzaro provided helpful comments\
+    \ on an\n   initial draft.  Colin Perkins was helpful in reviewing and dealing\n\
+    \   with the details.  Ladan Gharai provided a thoughtful final review.\n"
+- title: 12.  References
+  contents:
+  - '12.  References
+
+    '
+- title: 12.1.  Normative References
+  contents:
+  - "12.1.  Normative References\n   [RFC2119]     Bradner, S., \"Key words for use\
+    \ in RFCs to Indicate\n                 Requirement Levels\", BCP 14, RFC 2119,\
+    \ March 1997.\n   [RFC3264]     Rosenberg, J. and H. Schulzrinne, \"An Offer/Answer\n\
+    \                 Model with Session Description Protocol (SDP)\",\n         \
+    \        RFC 3264, June 2002.\n   [RFC3550]     Schulzrinne, H., Casner, S., Frederick,\
+    \ R., and V.\n                 Jacobson, \"RTP: A Transport Protocol for Real-Time\n\
+    \                 Applications\", STD 64, RFC 3550, July 2003.\n   [RFC4585] \
+    \    Ott, J., Wenger, S., Sato, N., Burmeister, C., and J.\n                 Rey,\
+    \ \"Extended RTP Profile for Real-time Transport\n                 Control Protocol\
+    \ (RTCP)-Based Feedback (RTP/AVPF)\",\n                 RFC 4585, July 2006.\n\
+    \   [RFC5234]     Crocker, D. and P. Overell, \"Augmented BNF for Syntax\n   \
+    \              Specifications: ABNF\", STD 68, RFC 5234, January 2008.\n   [RFC5285]\
+    \     Singer, D. and H. Desineni, \"A General Mechanism for\n                \
+    \ RTP Header Extensions\", RFC 5285, July 2008.\n"
+- title: 12.2.  Informative References
+  contents:
+  - "12.2.  Informative References\n   [SMPTE-12M]   Society of Motion Picture and\
+    \ Television Engineers,\n                 \"SMPTE Standard for Television -- Time\
+    \ and Control\n                 Code\", SMPTE 12M-1-2008.\n   [SMPTE-EG40]  SMPTE,\
+    \ \"Conversion of Time Values Between SMPTE 12M\n                 Time Code, MPEG-2\
+    \ PCR Time Base and Absolute Time\",\n                 SMPTE EG40-2002, August\
+    \ 2002.\n"
+- title: Author's Address
+  contents:
+  - "Author's Address\n   David Singer\n   Apple Computer Inc.\n   1 Infinite Loop\n\
+    \   Cupertino, CA  95014\n   US\n   Phone: +1 408 996 1010\n   EMail: singer@apple.com\n"

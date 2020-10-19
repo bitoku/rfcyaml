@@ -1,0 +1,473 @@
+- title: __initial_text__
+  contents:
+  - '    TCP and Stream Control Transmission Protocol (SCTP) RTO Restart
+
+    '
+- title: Abstract
+  contents:
+  - "Abstract\n   This document describes a modified sender-side algorithm for managing\n\
+    \   the TCP and Stream Control Transmission Protocol (SCTP)\n   retransmission\
+    \ timers that provides faster loss recovery when there\n   is a small amount of\
+    \ outstanding data for a connection.  The\n   modification, RTO Restart (RTOR),\
+    \ allows the transport to restart its\n   retransmission timer using a smaller\
+    \ timeout duration, so that the\n   effective retransmission timeout (RTO) becomes\
+    \ more aggressive in\n   situations where fast retransmit cannot be used.  This\
+    \ enables faster\n   loss detection and recovery for connections that are short\
+    \ lived or\n   application limited.\n"
+- title: Status of This Memo
+  contents:
+  - "Status of This Memo\n   This document is not an Internet Standards Track specification;\
+    \ it is\n   published for examination, experimental implementation, and\n   evaluation.\n\
+    \   This document defines an Experimental Protocol for the Internet\n   community.\
+    \  This document is a product of the Internet Engineering\n   Task Force (IETF).\
+    \  It represents the consensus of the IETF\n   community.  It has received public\
+    \ review and has been approved for\n   publication by the Internet Engineering\
+    \ Steering Group (IESG).  Not\n   all documents approved by the IESG are a candidate\
+    \ for any level of\n   Internet Standard; see Section 2 of RFC 5741.\n   Information\
+    \ about the current status of this document, any errata,\n   and how to provide\
+    \ feedback on it may be obtained at\n   http://www.rfc-editor.org/info/rfc7765.\n"
+- title: Copyright Notice
+  contents:
+  - "Copyright Notice\n   Copyright (c) 2016 IETF Trust and the persons identified\
+    \ as the\n   document authors.  All rights reserved.\n   This document is subject\
+    \ to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n\
+    \   (http://trustee.ietf.org/license-info) in effect on the date of\n   publication\
+    \ of this document.  Please review these documents\n   carefully, as they describe\
+    \ your rights and restrictions with respect\n   to this document.  Code Components\
+    \ extracted from this document must\n   include Simplified BSD License text as\
+    \ described in Section 4.e of\n   the Trust Legal Provisions and are provided\
+    \ without warranty as\n   described in the Simplified BSD License.\n"
+- title: Table of Contents
+  contents:
+  - "Table of Contents\n   1.  Introduction  . . . . . . . . . . . . . . . . . . .\
+    \ . . . . .   3\n   2.  Terminology . . . . . . . . . . . . . . . . . . . . .\
+    \ . . . .   4\n   3.  RTO Overview and Rationale for RTOR . . . . . . . . . .\
+    \ . . .   4\n   4.  RTOR Algorithm  . . . . . . . . . . . . . . . . . . . . .\
+    \ . .   6\n   5.  Discussion  . . . . . . . . . . . . . . . . . . . . . . . .\
+    \ .   7\n     5.1.  Applicability . . . . . . . . . . . . . . . . . . . . . .\
+    \   7\n     5.2.  Spurious Timeouts . . . . . . . . . . . . . . . . . . . .  \
+    \ 7\n     5.3.  Tracking Outstanding and Previously Unsent Segments . . .   8\n\
+    \   6.  Related Work  . . . . . . . . . . . . . . . . . . . . . . . .   9\n  \
+    \ 7.  SCTP Socket API Considerations  . . . . . . . . . . . . . . .  10\n    \
+    \ 7.1.  Data Types  . . . . . . . . . . . . . . . . . . . . . . .  10\n     7.2.\
+    \  Socket Option for Controlling the RTO Restart Support\n           (SCTP_RTO_RESTART)\
+    \  . . . . . . . . . . . . . . . . . . .  10\n   8.  Security Considerations .\
+    \ . . . . . . . . . . . . . . . . . .  11\n   9.  References  . . . . . . . .\
+    \ . . . . . . . . . . . . . . . . .  11\n     9.1.  Normative References  . .\
+    \ . . . . . . . . . . . . . . . .  11\n     9.2.  Informative References  . .\
+    \ . . . . . . . . . . . . . . .  13\n   Acknowledgements  . . . . . . . . . .\
+    \ . . . . . . . . . . . . . .  14\n   Authors' Addresses  . . . . . . . . . .\
+    \ . . . . . . . . . . . . .  15\n"
+- title: 1.  Introduction
+  contents:
+  - "1.  Introduction\n   TCP and SCTP use two almost identical mechanisms to detect\
+    \ and\n   recover from data loss, specified in [RFC6298] and [RFC5681] for TCP\n\
+    \   and [RFC4960] for SCTP.  First, if transmitted data is not\n   acknowledged\
+    \ within a certain amount of time, a retransmission\n   timeout (RTO) occurs and\
+    \ the data is retransmitted.  While the RTO is\n   based on measured round-trip\
+    \ times (RTTs) between the sender and\n   receiver, it also has a conservative\
+    \ lower bound of 1 second to\n   ensure that delayed data are not mistaken as\
+    \ lost.  Second, when a\n   sender receives duplicate acknowledgments or similar\
+    \ information via\n   selective acknowledgments, the fast retransmit algorithm\
+    \ suspects\n   data loss and can trigger a retransmission.  Duplicate (and\n \
+    \  selective) acknowledgments are generated by a receiver when data\n   arrives\
+    \ out of order.  As both data loss and data reordering cause\n   out-of-order\
+    \ arrival, fast retransmit waits for three out-of-order\n   notifications before\
+    \ considering the corresponding data as lost.  In\n   some situations, however,\
+    \ the amount of outstanding data is not\n   enough to trigger three such acknowledgments,\
+    \ and the sender must\n   rely on lengthy RTOs for loss recovery.\n   The amount\
+    \ of outstanding data can be small for several reasons:\n   (1)  The connection\
+    \ is limited by congestion control when the path\n        has a low total capacity\
+    \ (bandwidth-delay product) or the\n        connection's share of the capacity\
+    \ is small.  It is also limited\n        by congestion control in the first few\
+    \ RTTs of a connection or\n        after an RTO when the available capacity is\
+    \ probed using\n        slow-start.\n   (2)  The connection is limited by the\
+    \ receiver's available buffer\n        space.\n   (3)  The connection is limited\
+    \ by the application if the available\n        capacity of the path is not fully\
+    \ utilized (e.g., interactive\n        applications) or is at the end of a transfer.\n\
+    \   While the reasons listed above are valid for any flow, the third\n   reason\
+    \ is most common for applications that transmit short flows or\n   use a bursty\
+    \ transmission pattern.  A typical example of applications\n   that produce short\
+    \ flows are web-based applications.  [RJ10] shows\n   that 70% of all web objects,\
+    \ found at the top 500 sites, are too\n   small for fast retransmit to work. \
+    \ [FDT13] shows that about 77% of\n   all retransmissions sent by a major web\
+    \ service are sent after RTO\n   expiry.  Applications with bursty transmission\
+    \ patterns often send\n   data in response to actions or as a reaction to real\
+    \ life events.\n   Typical examples of such applications are stock-trading systems,\n\
+    \   remote computer operations, online games, and web-based applications\n   using\
+    \ persistent connections.  What is special about this class of\n   applications\
+    \ is that they are often time dependent, and extra latency\n   can reduce the\
+    \ application service level [P09].\n   The RTO Restart (RTOR) mechanism described\
+    \ in this document makes the\n   effective RTO slightly more aggressive when the\
+    \ amount of outstanding\n   data is too small for fast retransmit to work, in\
+    \ an attempt to\n   enable faster loss recovery while being robust to reordering.\
+    \  While\n   RTOR still conforms to the requirement for when a segment can be\n\
+    \   retransmitted, specified in [RFC6298] for TCP and [RFC4960] for SCTP,\n  \
+    \ it could increase the risk of spurious timeouts.  To determine\n   whether this\
+    \ modification is safe to deploy and enable by default,\n   further experimentation\
+    \ is required.  Section 5 discusses experiments\n   still needed, including evaluations\
+    \ in environments where the risk of\n   spurious retransmissions are increased,\
+    \ e.g., mobile networks with\n   highly varying RTTs.\n   The remainder of this\
+    \ document describes RTOR and its implementation\n   for TCP only, to make the\
+    \ document easier to read.  However, the RTOR\n   algorithm described in Section\
+    \ 4 is applicable also for SCTP.\n   Furthermore, Section 7 details the SCTP socket\
+    \ API needed to control\n   RTOR.\n"
+- title: 2.  Terminology
+  contents:
+  - "2.  Terminology\n   The key words \"MUST\", \"MUST NOT\", \"REQUIRED\", \"SHALL\"\
+    , \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\", \"MAY\", and\
+    \ \"OPTIONAL\" in this\n   document are to be interpreted as described in RFC\
+    \ 2119 [RFC2119].\n   This document introduces the following variables:\n   o\
+    \  The number of previously unsent segments (prevunsnt): The number\n      of\
+    \ segments that a sender has queued for transmission, but has not\n      yet sent.\n\
+    \   o  RTO Restart threshold (rrthresh): RTOR is enabled whenever the sum\n  \
+    \    of the number of outstanding and previously unsent segments\n      (prevunsnt)\
+    \ is below this threshold.\n"
+- title: 3.  RTO Overview and Rationale for RTOR
+  contents:
+  - "3.  RTO Overview and Rationale for RTOR\n   The RTO management algorithm described\
+    \ in [RFC6298] recommends that\n   the retransmission timer be restarted when\
+    \ an acknowledgment (ACK)\n   that acknowledges new data is received and there\
+    \ is still outstanding\n   data.  The restart is conducted to guarantee that unacknowledged\n\
+    \   segments will be retransmitted after approximately RTO seconds.  The\n   standardized\
+    \ RTO timer management is illustrated in Figure 1, where a\n   TCP sender transmits\
+    \ three segments to a receiver.  The arrival of\n   the first and second segment\
+    \ triggers a delayed ACK (delACK)\n   [RFC1122], which restarts the RTO timer\
+    \ at the sender.  The RTO is\n   restarted approximately one RTT after the transmission\
+    \ of the third\n   segment.  Thus, if the third segment is lost, as indicated\
+    \ in\n   Figure 1, the effective loss detection time becomes \"RTO + RTT\"\n \
+    \  seconds.  In some situations, the effective loss detection time\n   becomes\
+    \ even longer.  Consider a scenario where only two segments are\n   outstanding.\
+    \  If the second segment is lost, the time to expire the\n   delACK timer will\
+    \ also be included in the effective loss detection\n   time.\n            Sender\
+    \                               Receiver\n                          ...\n    \
+    \        DATA [SEG 1] ----------------------> (ack delayed)\n            DATA\
+    \ [SEG 2] ----------------------> (send ack)\n            DATA [SEG 3] ----X \
+    \        /-------- ACK\n            (restart RTO)  <----------/\n            \
+    \              ...\n            (RTO expiry)\n            DATA [SEG 3] ---------------------->\n\
+    \                       Figure 1: RTO Restart Example\n   For bulk traffic, the\
+    \ current approach is beneficial -- it is\n   described in [EL04] to act as a\
+    \ \"safety margin\" that compensates for\n   some of the problems that the authors\
+    \ have identified with the\n   standard RTO calculation.  Notably, the authors\
+    \ of [EL04] also state\n   that \"this safety margin does not exist for highly\
+    \ interactive\n   applications where often only a single packet is in flight.\"\
+    \  In\n   general, however, as long as enough segments arrive at a receiver to\n\
+    \   enable fast retransmit, RTO-based loss recovery should be avoided.\n   RTOs\
+    \ should only be used as a last resort, as they drastically lower\n   the congestion\
+    \ window as compared to fast retransmit.\n   Although fast retransmit is preferable,\
+    \ there are situations where\n   timeouts are appropriate or are the only choice.\
+    \  For example, if the\n   network is severely congested and no segments arrive,\
+    \ RTO-based\n   recovery should be used.  In this situation, the time to recover\
+    \ from\n   the loss(es) will not be the performance bottleneck.  However, for\n\
+    \   connections that do not utilize enough capacity to enable fast\n   retransmit,\
+    \ RTO-based loss detection is the only choice, and the time\n   required for this\
+    \ can become a performance bottleneck.\n"
+- title: 4.  RTOR Algorithm
+  contents:
+  - "4.  RTOR Algorithm\n   To enable faster loss recovery for connections that are\
+    \ unable to use\n   fast retransmit, RTOR can be used.  This section specifies\
+    \ the\n   modifications required to use RTOR.  By resetting the timer to \"RTO\
+    \ -\n   T_earliest\", where T_earliest is the time elapsed since the earliest\n\
+    \   outstanding segment was transmitted, retransmissions will always\n   occur\
+    \ after exactly RTO seconds.\n   This document specifies an OPTIONAL sender-only\
+    \ modification to TCP\n   and SCTP, which updates step 5.3 in Section 5 of [RFC6298]\
+    \ (and a\n   similar update in Section 6.3.2 of [RFC4960] for SCTP).  A sender\n\
+    \   that implements this method MUST follow the algorithm below:\n      When an\
+    \ ACK is received that acknowledges new data:\n      (1)  Set T_earliest = 0.\n\
+    \      (2)  If the sum of the number of outstanding and previously unsent\n  \
+    \         segments (prevunsnt) is less than an RTOR threshold\n           (rrthresh),\
+    \ set T_earliest to the time elapsed since the\n           earliest outstanding\
+    \ segment was sent.\n      (3)  Restart the retransmission timer so that it will\
+    \ expire after\n           (for the current value of RTO):\n           (a)  RTO\
+    \ - T_earliest, if RTO - T_earliest > 0.\n           (b)  RTO, otherwise.\n  \
+    \ The RECOMMENDED value of rrthresh is four, as this value will ensure\n   that\
+    \ RTOR is only used when fast retransmit cannot be triggered.\n   With this update,\
+    \ TCP implementations MUST track the time elapsed\n   since the transmission of\
+    \ the earliest outstanding segment\n   (T_earliest).  As RTOR is only used when\
+    \ the amount of outstanding\n   and previously unsent data is less than rrthresh\
+    \ segments, TCP\n   implementations also need to track whether the amount of outstanding\n\
+    \   and previously unsent data is more, equal, or less than rrthresh\n   segments.\
+    \  Although some packet-based TCP implementations (e.g.,\n   Linux TCP) already\
+    \ track both the transmission times of all segments\n   and also the number of\
+    \ outstanding segments, not all implementations\n   do.  Section 5.3 describes\
+    \ how to implement segment tracking for a\n   general TCP implementation.  To\
+    \ use RTOR, the calculated expiration\n   time MUST be positive (step 3(a) in\
+    \ the list above); this is required\n   to ensure that RTOR does not trigger retransmissions\
+    \ prematurely when\n   previously retransmitted segments are acknowledged.\n"
+- title: 5.  Discussion
+  contents:
+  - "5.  Discussion\n   Although RTOR conforms to the requirement in [RFC6298] that\
+    \ segments\n   must not be retransmitted earlier than RTO seconds after their\n\
+    \   original transmission, RTOR makes the effective RTO more aggressive.\n   In\
+    \ this section, we discuss the applicability and the issues related\n   to RTOR.\n"
+- title: 5.1.  Applicability
+  contents:
+  - "5.1.  Applicability\n   The currently standardized algorithm has been shown to\
+    \ add at least\n   one RTT to the loss recovery process in TCP [LS00] and SCTP\
+    \ [HB11]\n   [PBP09].  For applications that have strict timing requirements\n\
+    \   (e.g., interactive web) rather than throughput requirements, using\n   RTOR\
+    \ could be beneficial because the RTT and the delACK timer of\n   receivers are\
+    \ often large components of the effective loss recovery\n   time.  Measurements\
+    \ in [HB11] have shown that the total transfer time\n   of a lost segment (including\
+    \ the original transmission time and the\n   loss recovery time) can be reduced\
+    \ by 35% using RTOR.  These results\n   match those presented in [PGH06] and [PBP09],\
+    \ where RTOR is shown to\n   significantly reduce retransmission latency.\n  \
+    \ There are also traffic types that do not benefit from RTOR.  One\n   example\
+    \ of such traffic is bulk transmission.  The reason why bulk\n   traffic does\
+    \ not benefit from RTOR is that such traffic flows mostly\n   have four or more\
+    \ segments outstanding, allowing loss recovery by\n   fast retransmit.  However,\
+    \ there is no harm in using RTOR for such\n   traffic as the algorithm is only\
+    \ active when the amount of\n   outstanding and unsent segments are less than\
+    \ rrthresh (default 4).\n   Given that RTOR is a mostly conservative algorithm,\
+    \ it is suitable\n   for experimentation as a system-wide default for TCP traffic.\n"
+- title: 5.2.  Spurious Timeouts
+  contents:
+  - "5.2.  Spurious Timeouts\n   RTOR can in some situations reduce the loss detection\
+    \ time and\n   thereby increase the risk of spurious timeouts.  In theory, the\n\
+    \   retransmission timer has a lower bound of 1 second [RFC6298], which\n   limits\
+    \ the risk of having spurious timeouts.  However, in practice,\n   most implementations\
+    \ use a significantly lower value.  Initial\n   measurements show slight increases\
+    \ in the number of spurious timeouts\n   when such lower values are used [RHB15].\
+    \  However, further\n   experiments, in different environments and with different\
+    \ types of\n   traffic, are encouraged to quantify such increases more reliably.\n\
+    \   Does a slightly increased risk matter?  Generally, spurious timeouts\n   have\
+    \ a negative effect on the network as segments are transmitted\n   needlessly.\
+    \  However, recent experiments do not show a significant\n   increase in network\
+    \ load for a number of realistic scenarios [RHB15].\n   Another problem with spurious\
+    \ retransmissions is related to the\n   performance of TCP/SCTP, as the congestion\
+    \ window is reduced to one\n   segment when timeouts occur [RFC5681].  This could\
+    \ be a potential\n   problem for applications transmitting multiple bursts of\
+    \ data within\n   a single flow, e.g., web-based HTTP/1.1 and HTTP/2.0 applications.\n\
+    \   However, results from recent experiments involving persistent web\n   traffic\
+    \ [RHB15] revealed a net gain using RTOR.  Other types of\n   flows, e.g., long-lived\
+    \ bulk flows, are not affected as the algorithm\n   is only applied when the amount\
+    \ of outstanding and unsent segments is\n   less than rrthresh.  Furthermore,\
+    \ short-lived and application-limited\n   flows are typically not affected as\
+    \ they are too short to experience\n   the effect of congestion control or have\
+    \ a transmission rate that is\n   quickly attainable.\n   While a slight increase\
+    \ in spurious timeouts has been observed using\n   RTOR, it is not clear whether\
+    \ or not the effects of this increase\n   mandate any future algorithmic changes\
+    \ -- especially since most\n   modern operating systems already include mechanisms\
+    \ to detect\n   [RFC3522] [RFC3708] [RFC5682] and resolve [RFC4015] possible problems\n\
+    \   with spurious retransmissions.  Further experimentation is needed to\n   determine\
+    \ this and thereby move this specification from Experimental\n   to the Standards\
+    \ Track.  For instance, RTOR has not been evaluated in\n   the context of mobile\
+    \ networks.  Mobile networks often incur highly\n   variable RTTs (delay spikes),\
+    \ due to e.g., handovers, and would\n   therefore be a useful scenario for further\
+    \ experimentation.\n"
+- title: 5.3.  Tracking Outstanding and Previously Unsent Segments
+  contents:
+  - "5.3.  Tracking Outstanding and Previously Unsent Segments\n   The method of tracking\
+    \ outstanding and previously unsent segments\n   will probably differ depending\
+    \ on the actual TCP implementation.  For\n   packet-based TCP implementations,\
+    \ tracking outstanding segments is\n   often straightforward and can be implemented\
+    \ using a simple counter.\n   For byte-based TCP stacks, it is a more complex\
+    \ task.  Section 3.2 of\n   [RFC5827] outlines a general method of tracking the\
+    \ number of\n   outstanding segments.  The same method can be used for RTOR. \
+    \ The\n   implementation will have to track segment boundaries to form an\n  \
+    \ understanding as to how many actual segments have been transmitted\n   but not\
+    \ acknowledged.  This can be done by the sender tracking the\n   boundaries of\
+    \ the rrthresh segments on the right side of the current\n   window (which involves\
+    \ tracking rrthresh + 1 sequence numbers in\n   TCP).  This could be done by keeping\
+    \ a circular list of the segment\n   boundaries, for instance.  Cumulative ACKs\
+    \ that do not fall within\n   this region indicate that at least rrthresh segments\
+    \ are outstanding,\n   and therefore RTOR is not enabled.  When the outstanding\
+    \ window\n   becomes small enough that RTOR can be invoked, a full understanding\n\
+    \   of the number of outstanding segments will be available from the\n   rrthresh\
+    \ + 1 sequence numbers retained.  (Note: the implicit sequence\n   number consumed\
+    \ by the TCP FIN bit can also be included in the\n   tracking of segment boundaries.)\n\
+    \   Tracking the number of previously unsent segments depends on the\n   segmentation\
+    \ strategy used by the TCP implementation, not whether it\n   is packet based\
+    \ or byte based.  In the case where segments are formed\n   directly on socket\
+    \ writes, the process of determining the number of\n   previously unsent segments\
+    \ should be trivial.  In the case that\n   unsent data can be segmented (or resegmented)\
+    \ as long as it is still\n   unsent, a straightforward strategy could be to divide\
+    \ the amount of\n   unsent data (in bytes) with the Sender Maximum Segment Size\
+    \ (SMSS) to\n   obtain an estimate.  In some cases, such an estimation could be\
+    \ too\n   simplistic, depending on the segmentation strategy of the TCP\n   implementation.\
+    \  However, this estimation is not critical to RTOR.\n   The tracking of prevunsnt\
+    \ is only made to optimize a corner case in\n   which RTOR was unnecessarily disabled.\
+    \  Implementations can use a\n   simplified method by setting prevunsnt to rrthresh\
+    \ whenever\n   previously unsent data is available, and set prevunsnt to zero\
+    \ when\n   no new data is available.  This will disable RTOR in the presence of\n\
+    \   unsent data and only use the number of outstanding segments to\n   enable/disable\
+    \ RTOR.\n"
+- title: 6.  Related Work
+  contents:
+  - "6.  Related Work\n   There are several proposals that address the problem of\
+    \ not having\n   enough ACKs for loss recovery.  In what follows, we explain why\
+    \ the\n   mechanism described here is complementary to these approaches:\n   The\
+    \ limited transmit mechanism [RFC3042] allows a TCP sender to\n   transmit a previously\
+    \ unsent segment for each of the first two\n   duplicate acknowledgements (dupACKs).\
+    \  By transmitting new segments,\n   the sender attempts to generate additional\
+    \ dupACKs to enable fast\n   retransmit.  However, limited transmit does not help\
+    \ if no previously\n   unsent data is ready for transmission.  [RFC5827] specifies\
+    \ an early\n   retransmit algorithm to enable fast loss recovery in such situations.\n\
+    \   By dynamically lowering the number of dupACKs needed for fast\n   retransmit\
+    \ (dupthresh), based on the number of outstanding segments,\n   a smaller number\
+    \ of dupACKs is needed to trigger a retransmission.\n   In some situations, however,\
+    \ the algorithm is of no use or might not\n   work properly.  First, if a single\
+    \ segment is outstanding and lost,\n   it is impossible to use early retransmit.\
+    \  Second, if ACKs are lost,\n   early retransmit cannot help.  Third, if the\
+    \ network path reorders\n   segments, the algorithm might cause more spurious\
+    \ retransmissions\n   than fast retransmit.  The recommended value of RTOR's rrthresh\n\
+    \   variable is based on the dupthresh, but it is possible to adapt to\n   allow\
+    \ tighter integration with other experimental algorithms such as\n   early retransmit.\n\
+    \   Tail Loss Probe [TLP] is a proposal to send up to two \"probe\n   segments\"\
+    \ when a timer fires that is set to a value smaller than the\n   RTO.  A \"probe\
+    \ segment\" is a new segment if new data is available,\n   else it is a retransmission.\
+    \  The intention is to compensate for\n   sluggish RTO behavior in situations\
+    \ where the RTO greatly exceeds the\n   RTT, which, according to measurements\
+    \ reported in [TLP], is not\n   uncommon.  Furthermore, TLP also tries to circumvent\
+    \ the congestion\n   window reset to one segment by instead enabling fast recovery.\
+    \  The\n   probe timeout (PTO) is normally two RTTs, and a spurious PTO is less\n\
+    \   risky than a spurious RTO because it would not have the same negative\n  \
+    \ effects (clearing the scoreboard and restarting with slow-start).\n   TLP is\
+    \ a more advanced mechanism than RTOR, requiring e.g., SACK to\n   work, and is\
+    \ often able to further reduce loss recovery times.\n   However, it also noticeably\
+    \ increases the amount of spurious\n   retransmissions, as compared to RTOR [RHB15].\n\
+    \   TLP is applicable in situations where RTOR does not apply, and it\n   could\
+    \ overrule (yielding a similar general behavior, but with a lower\n   timeout)\
+    \ RTOR in cases where the number of outstanding segments is\n   smaller than four\
+    \ and no new segments are available for transmission.\n   The PTO has the same\
+    \ inherent problem of restarting the timer on an\n   incoming ACK and could be\
+    \ combined with a strategy similar to RTOR's\n   to offer more consistent timeouts.\n"
+- title: 7.  SCTP Socket API Considerations
+  contents:
+  - "7.  SCTP Socket API Considerations\n   This section describes how the socket\
+    \ API for SCTP defined in\n   [RFC6458] is extended to control the usage of RTO\
+    \ restart for SCTP.\n   Please note that this section is informational only.\n"
+- title: 7.1.  Data Types
+  contents:
+  - "7.1.  Data Types\n   This section uses data types from [IEEE.9945]: uintN_t means\
+    \ an\n   unsigned integer of exactly N bits (e.g., uint16_t).  This is the\n \
+    \  same as in [RFC6458].\n"
+- title: 7.2.  Socket Option for Controlling the RTO Restart Support
+  contents:
+  - "7.2.  Socket Option for Controlling the RTO Restart Support\n      (SCTP_RTO_RESTART)\n\
+    \   This socket option allows the enabling or disabling of RTO Restart\n   for\
+    \ SCTP associations.\n   Whether or not RTO restart is enabled per default is\
+    \ implementation\n   specific.\n   This socket option uses IPPROTO_SCTP as its\
+    \ level and\n   SCTP_RTO_RESTART as its name.  It can be used with getsockopt()\
+    \ and\n   setsockopt().  The socket option value uses the following structure\n\
+    \   defined in [RFC6458]:\n   struct sctp_assoc_value {\n     sctp_assoc_t assoc_id;\n\
+    \     uint32_t assoc_value;\n   };\n   assoc_id:  This parameter is ignored for\
+    \ one-to-one style sockets.\n      For one-to-many style sockets, this parameter\
+    \ indicates upon which\n      association the user is performing an action.  The\
+    \ special\n      sctp_assoc_t SCTP_{FUTURE|CURRENT|ALL}_ASSOC can also be used\
+    \ in\n      assoc_id for setsockopt().  For getsockopt(), the special value\n\
+    \      SCTP_FUTURE_ASSOC can be used in assoc_id, but it is an error to\n    \
+    \  use SCTP_{CURRENT|ALL}_ASSOC in assoc_id.\n   assoc_value:  A non-zero value\
+    \ encodes the enabling of RTO restart\n      whereas a value of 0 encodes the\
+    \ disabling of RTO restart.\n   sctp_opt_info() needs to be extended to support\
+    \ SCTP_RTO_RESTART.\n"
+- title: 8.  Security Considerations
+  contents:
+  - "8.  Security Considerations\n   This document specifies an experimental sender-only\
+    \ modification to\n   TCP and SCTP.  The modification introduces a change in how\
+    \ to set the\n   retransmission timer's value when restarted.  Therefore, the\
+    \ security\n   considerations found in [RFC6298] apply to this document.  No\n\
+    \   additional security problems have been identified with RTO Restart at\n  \
+    \ this time.\n"
+- title: 9.  References
+  contents:
+  - '9.  References
+
+    '
+- title: 9.1.  Normative References
+  contents:
+  - "9.1.  Normative References\n   [RFC1122]  Braden, R., Ed., \"Requirements for\
+    \ Internet Hosts -\n              Communication Layers\", STD 3, RFC 1122,\n \
+    \             DOI 10.17487/RFC1122, October 1989,\n              <http://www.rfc-editor.org/info/rfc1122>.\n\
+    \   [RFC2119]  Bradner, S., \"Key words for use in RFCs to Indicate\n        \
+    \      Requirement Levels\", BCP 14, RFC 2119,\n              DOI 10.17487/RFC2119,\
+    \ March 1997,\n              <http://www.rfc-editor.org/info/rfc2119>.\n   [RFC3042]\
+    \  Allman, M., Balakrishnan, H., and S. Floyd, \"Enhancing\n              TCP's\
+    \ Loss Recovery Using Limited Transmit\", RFC 3042,\n              DOI 10.17487/RFC3042,\
+    \ January 2001,\n              <http://www.rfc-editor.org/info/rfc3042>.\n   [RFC3522]\
+    \  Ludwig, R. and M. Meyer, \"The Eifel Detection Algorithm\n              for\
+    \ TCP\", RFC 3522, DOI 10.17487/RFC3522, April 2003,\n              <http://www.rfc-editor.org/info/rfc3522>.\n\
+    \   [RFC3708]  Blanton, E. and M. Allman, \"Using TCP Duplicate Selective\n  \
+    \            Acknowledgement (DSACKs) and Stream Control Transmission\n      \
+    \        Protocol (SCTP) Duplicate Transmission Sequence Numbers\n           \
+    \   (TSNs) to Detect Spurious Retransmissions\", RFC 3708,\n              DOI\
+    \ 10.17487/RFC3708, February 2004,\n              <http://www.rfc-editor.org/info/rfc3708>.\n\
+    \   [RFC4015]  Ludwig, R. and A. Gurtov, \"The Eifel Response Algorithm\n    \
+    \          for TCP\", RFC 4015, DOI 10.17487/RFC4015, February 2005,\n       \
+    \       <http://www.rfc-editor.org/info/rfc4015>.\n   [RFC4960]  Stewart, R.,\
+    \ Ed., \"Stream Control Transmission Protocol\",\n              RFC 4960, DOI\
+    \ 10.17487/RFC4960, September 2007,\n              <http://www.rfc-editor.org/info/rfc4960>.\n\
+    \   [RFC5681]  Allman, M., Paxson, V., and E. Blanton, \"TCP Congestion\n    \
+    \          Control\", RFC 5681, DOI 10.17487/RFC5681, September 2009,\n      \
+    \        <http://www.rfc-editor.org/info/rfc5681>.\n   [RFC5682]  Sarolahti, P.,\
+    \ Kojo, M., Yamamoto, K., and M. Hata,\n              \"Forward RTO-Recovery (F-RTO):\
+    \ An Algorithm for Detecting\n              Spurious Retransmission Timeouts with\
+    \ TCP\", RFC 5682,\n              DOI 10.17487/RFC5682, September 2009,\n    \
+    \          <http://www.rfc-editor.org/info/rfc5682>.\n   [RFC5827]  Allman, M.,\
+    \ Avrachenkov, K., Ayesta, U., Blanton, J., and\n              P. Hurtig, \"Early\
+    \ Retransmit for TCP and Stream Control\n              Transmission Protocol (SCTP)\"\
+    , RFC 5827,\n              DOI 10.17487/RFC5827, May 2010,\n              <http://www.rfc-editor.org/info/rfc5827>.\n\
+    \   [RFC6298]  Paxson, V., Allman, M., Chu, J., and M. Sargent,\n            \
+    \  \"Computing TCP's Retransmission Timer\", RFC 6298,\n              DOI 10.17487/RFC6298,\
+    \ June 2011,\n              <http://www.rfc-editor.org/info/rfc6298>.\n"
+- title: 9.2.  Informative References
+  contents:
+  - "9.2.  Informative References\n   [EL04]     Ekstroem, H. and R. Ludwig, \"The\
+    \ Peak-Hopper: A New End-\n              to-End Retransmission Timer for Reliable\
+    \ Unicast\n              Transport\", IEEE INFOCOM 2004,\n              DOI 10.1109/INFCOM.2004.1354671,\
+    \ March 2004.\n   [FDT13]    Flach, T., Dukkipati, N., Terzis, A., Raghavan, B.,\n\
+    \              Cardwell, N., Cheng, Y., Jain, A., Hao, S., Katz-Bassett,\n   \
+    \           E., and R. Govindan, \"Reducing Web Latency: the Virtue of\n     \
+    \         Gentle Aggression\", Proc. ACM SIGCOMM Conf.,\n              DOI 10.1145/2486001.2486014,\
+    \ August 2013.\n   [HB11]     Hurtig, P. and A. Brunstrom, \"SCTP: designed for\
+    \ timely\n              message delivery?\", Springer Telecommunication Systems\
+    \ 47\n              (3-4), DOI 10.1007/s11235-010-9321-3, August 2011.\n   [IEEE.9945]\n\
+    \              IEEE/ISO/IEC, \"International Standard - Information\n        \
+    \      technology Portable Operating System Interface (POSIX)\n              Base\
+    \ Specifications, Issue 7\", IEEE 9945-2009,\n              <http://standards.ieee.org/findstds/\n\
+    \              standard/9945-2009.html>.\n   [LS00]     Ludwig, R. and K. Sklower,\
+    \ \"The Eifel retransmission\n              timer\", ACM SIGCOMM Comput. Commun.\
+    \ Rev., 30(3),\n              DOI 10.1145/382179.383014, July 2000.\n   [P09]\
+    \      Petlund, A., \"Improving latency for interactive, thin-\n             \
+    \ stream applications over reliable transport\", Unipub PhD\n              Thesis,\
+    \ Oct 2009.\n   [PBP09]    Petlund, A., Beskow, P., Pedersen, J., Paaby, E., Griwodz,\n\
+    \              C., and P. Halvorsen, \"Improving SCTP retransmission\n       \
+    \       delays for time-dependent thin streams\", Springer\n              Multimedia\
+    \ Tools and Applications, 45(1-3),\n              DOI 10.1007/s11042-009-0286-8,\
+    \ October 2009.\n   [PGH06]    Pedersen, J., Griwodz, C., and P. Halvorsen,\n\
+    \              \"Considerations of SCTP Retransmission Delays for Thin\n     \
+    \         Streams\", IEEE LCN 2006, DOI 10.1109/LCN.2006.322082,\n           \
+    \   November 2006.\n   [RFC6458]  Stewart, R., Tuexen, M., Poon, K., Lei, P.,\
+    \ and V.\n              Yasevich, \"Sockets API Extensions for the Stream Control\n\
+    \              Transmission Protocol (SCTP)\", RFC 6458,\n              DOI 10.17487/RFC6458,\
+    \ December 2011,\n              <http://www.rfc-editor.org/info/rfc6458>.\n  \
+    \ [RHB15]    Rajiullah, M., Hurtig, P., Brunstrom, A., Petlund, A., and\n    \
+    \          M. Welzl, \"An Evaluation of Tail Loss Recovery Mechanisms\n      \
+    \        for TCP\", ACM SIGCOMM CCR 45 (1),\n              DOI 10.1145/2717646.2717648,\
+    \ January 2015.\n   [RJ10]     Ramachandran, S., \"Web metrics: Size and number\
+    \ of\n              resources\", May 2010, <https://goo.gl/0a6Q9A>.\n   [TLP]\
+    \      Dukkipati, N., Cardwell, N., Cheng, Y., and M. Mathis,\n              \"\
+    Tail Loss Probe (TLP): An Algorithm for Fast Recovery of\n              Tail Losses\"\
+    , Work in Progress, draft-dukkipati-tcpm-tcp-\n              loss-probe-01, February\
+    \ 2013.\n"
+- title: Acknowledgements
+  contents:
+  - "Acknowledgements\n   The authors wish to thank Michael Tuexen for contributing\
+    \ the SCTP\n   Socket API considerations and Godred Fairhurst, Yuchung Cheng,\
+    \ Mark\n   Allman, Anantha Ramaiah, Richard Scheffenegger, Nicolas Kuhn,\n   Alexander\
+    \ Zimmermann, and Michael Scharf for commenting on the\n   document and the ideas\
+    \ behind it.\n   All the authors are supported by RITE (http://riteproject.eu/),\
+    \ a\n   research project (ICT-317700) funded by the European Community under\n\
+    \   its Seventh Framework Program.  The views expressed here are those of\n  \
+    \ the author(s) only.  The European Commission is not liable for any\n   use that\
+    \ may be made of the information in this document.\n"
+- title: Authors' Addresses
+  contents:
+  - "Authors' Addresses\n   Per Hurtig\n   Karlstad University\n   Universitetsgatan\
+    \ 2\n   Karlstad  651 88\n   Sweden\n   Phone: +46 54 700 23 35\n   Email: per.hurtig@kau.se\n\
+    \   Anna Brunstrom\n   Karlstad University\n   Universitetsgatan 2\n   Karlstad\
+    \  651 88\n   Sweden\n   Phone: +46 54 700 17 95\n   Email: anna.brunstrom@kau.se\n\
+    \   Andreas Petlund\n   Simula Research Laboratory AS\n   P.O. Box 134\n   Lysaker\
+    \  1325\n   Norway\n   Phone: +47 67 82 82 00\n   Email: apetlund@simula.no\n\
+    \   Michael Welzl\n   University of Oslo\n   PO Box 1080 Blindern\n   Oslo  N-0316\n\
+    \   Norway\n   Phone: +47 22 85 24 20\n   Email: michawe@ifi.uio.no\n"

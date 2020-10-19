@@ -1,0 +1,526 @@
+- title: __initial_text__
+  contents:
+  - " RIPE NCC's Implementation of Resource Public Key Infrastructure (RPKI)\n   \
+    \                   Certificate Tree Validation\n"
+- title: Abstract
+  contents:
+  - "Abstract\n   This document describes an approach to validating the content of\
+    \ the\n   Resource Public Key Infrastructure (RPKI) certificate tree, as it is\n\
+    \   implemented in the RIPE NCC RPKI Validator.  This approach is\n   independent\
+    \ of a particular object retrieval mechanism, which allows\n   it to be used with\
+    \ repositories available over the rsync protocol,\n   the RPKI Repository Delta\
+    \ Protocol (RRDP), and repositories that use\n   a mix of both.\n"
+- title: Status of This Memo
+  contents:
+  - "Status of This Memo\n   This document is not an Internet Standards Track specification;\
+    \ it is\n   published for informational purposes.\n   This document is a product\
+    \ of the Internet Engineering Task Force\n   (IETF).  It represents the consensus\
+    \ of the IETF community.  It has\n   received public review and has been approved\
+    \ for publication by the\n   Internet Engineering Steering Group (IESG).  Not\
+    \ all documents\n   approved by the IESG are candidates for any level of Internet\n\
+    \   Standard; see Section 2 of RFC 7841.\n   Information about the current status\
+    \ of this document, any errata,\n   and how to provide feedback on it may be obtained\
+    \ at\n   https://www.rfc-editor.org/info/rfc8488.\n"
+- title: Copyright Notice
+  contents:
+  - "Copyright Notice\n   Copyright (c) 2018 IETF Trust and the persons identified\
+    \ as the\n   document authors.  All rights reserved.\n   This document is subject\
+    \ to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n\
+    \   (https://trustee.ietf.org/license-info) in effect on the date of\n   publication\
+    \ of this document.  Please review these documents\n   carefully, as they describe\
+    \ your rights and restrictions with respect\n   to this document.  Code Components\
+    \ extracted from this document must\n   include Simplified BSD License text as\
+    \ described in Section 4.e of\n   the Trust Legal Provisions and are provided\
+    \ without warranty as\n   described in the Simplified BSD License.\n"
+- title: Table of Contents
+  contents:
+  - "Table of Contents\n   1.  Introduction  . . . . . . . . . . . . . . . . . . .\
+    \ . . . . .   4\n   2.  General Considerations  . . . . . . . . . . . . . . .\
+    \ . . . .   4\n     2.1.  Hash Comparisons  . . . . . . . . . . . . . . . . .\
+    \ . . .   4\n     2.2.  Discovery of RPKI Objects Issued by a CA  . . . . . .\
+    \ . .   5\n     2.3.  Manifest Entries versus Repository Content  . . . . . .\
+    \ .   5\n   3.  Top-Down Validation of a Single Trust Anchor Certificate Tree\
+    \   6\n     3.1.  Fetching the Trust Anchor Certificate Using the Trust\n    \
+    \       Anchor Locator  . . . . . . . . . . . . . . . . . . . . .   6\n     3.2.\
+    \  CA Certificate Validation . . . . . . . . . . . . . . . .   7\n       3.2.1.\
+    \  Finding the Most Recent Valid Manifest and CRL  . . .   8\n       3.2.2.  Validating\
+    \ Manifest Entries . . . . . . . . . . . . .   9\n     3.3.  Object Store Cleanup\
+    \  . . . . . . . . . . . . . . . . . .  10\n   4.  Remote Objects Fetcher  . .\
+    \ . . . . . . . . . . . . . . . . .  11\n     4.1.  Fetcher Operations  . . .\
+    \ . . . . . . . . . . . . . . . .  11\n       4.1.1.  Fetch Repository Objects\
+    \  . . . . . . . . . . . . . .  12\n       4.1.2.  Fetch Single Repository Object\
+    \  . . . . . . . . . . .  12\n   5.  Local Object Store  . . . . . . . . . . .\
+    \ . . . . . . . . . .  12\n     5.1.  Store Operations  . . . . . . . . . . .\
+    \ . . . . . . . . .  12\n       5.1.1.  Store Repository Object . . . . . . .\
+    \ . . . . . . . .  12\n       5.1.2.  Get Objects by Hash . . . . . . . . . .\
+    \ . . . . . . .  12\n       5.1.3.  Get Certificate Objects by URI  . . . . .\
+    \ . . . . . .  13\n       5.1.4.  Get Manifest Objects by AKI . . . . . . . .\
+    \ . . . . .  13\n       5.1.5.  Delete Objects for a URI  . . . . . . . . . .\
+    \ . . . .  13\n       5.1.6.  Delete Outdated Objects . . . . . . . . . . . .\
+    \ . . .  13\n       5.1.7.  Update Object's Validation Time . . . . . . . . .\
+    \ . .  13\n   6.  IANA Considerations . . . . . . . . . . . . . . . . . . . .\
+    \ .  13\n   7.  Security Considerations . . . . . . . . . . . . . . . . . . .\
+    \  13\n     7.1.  Hash Collisions . . . . . . . . . . . . . . . . . . . . .  13\n\
+    \     7.2.  Algorithm Agility . . . . . . . . . . . . . . . . . . . .  13\n  \
+    \   7.3.  Mismatch between the Expected and Actual Location of an\n          \
+    \ Object in the Repository  . . . . . . . . . . . . . . . .  14\n     7.4.  Manifest\
+    \ Content versus Publication Point Content . . . .  14\n     7.5.  Possible Denial\
+    \ of Service  . . . . . . . . . . . . . . .  15\n   8.  References  . . . . .\
+    \ . . . . . . . . . . . . . . . . . . . .  15\n     8.1.  Normative References\
+    \  . . . . . . . . . . . . . . . . . .  15\n     8.2.  Informative References\
+    \  . . . . . . . . . . . . . . . . .  16\n   Acknowledgements  . . . . . . . .\
+    \ . . . . . . . . . . . . . . . .  16\n   Authors' Addresses  . . . . . . . .\
+    \ . . . . . . . . . . . . . . .  17\n"
+- title: 1.  Introduction
+  contents:
+  - "1.  Introduction\n   This document describes how the RIPE NCC RPKI Validator\
+    \ version 2.25\n   has been implemented.  Source code for this software can be\
+    \ found at\n   [rpki-validator].  The purpose of this document is to provide\n\
+    \   transparency to users of (and contributors to) this software tool.\n   In\
+    \ order to use information published in RPKI repositories, Relying\n   Parties\
+    \ (RPs) need to retrieve and validate the content of\n   certificates, Certificate\
+    \ Revocation Lists (CRLs), and other RPKI\n   signed objects.  To validate a particular\
+    \ object, one must ensure\n   that all certificates in the certificate chain up\
+    \ to the Trust Anchor\n   (TA) are valid.  Therefore, the validation of a certificate\
+    \ tree is\n   performed top-down, starting from the TA certificate and descending\n\
+    \   the certificate chain, validating every encountered certificate and\n   its\
+    \ products.  The result of this process is a list of all\n   encountered RPKI\
+    \ objects with a validity status attached to each of\n   them.  These results\
+    \ may later be used by an RP in making routing\n   decisions, etc.\n   Traditionally,\
+    \ RPKI data is made available to RPs through the\n   repositories [RFC6481] accessible\
+    \ over the rsync protocol [rsync].\n   RPs are advised to keep a local copy of\
+    \ repository data and perform\n   regular updates of this copy from the repository\
+    \ (see Section 5 of\n   [RFC6481]).  The RRDP [RFC8182] introduces another method\
+    \ to fetch\n   repository data and keep the local copy up to date with the\n \
+    \  repository.\n   This document describes how the RIPE NCC RPKI Validator discovers\n\
+    \   RPKI objects to download, builds certificate paths, and validates\n   RPKI\
+    \ objects, independently of what repository access protocol is\n   used.  To achieve\
+    \ this, it puts downloaded RPKI objects in an object\n   store, where each RPKI\
+    \ object can be found by its URI, the hash of\n   its content, the value of its\
+    \ Authority Key Identifier (AKI)\n   extension, or a combination of these.  It\
+    \ also keeps track of the\n   download and validation time for every object, to\
+    \ decide which\n   locally stored objects are not used in the RPKI tree validation\
+    \ and\n   could be removed.\n"
+- title: 2.  General Considerations
+  contents:
+  - '2.  General Considerations
+
+    '
+- title: 2.1.  Hash Comparisons
+  contents:
+  - "2.1.  Hash Comparisons\n   This algorithm relies on the collision resistance\
+    \ properties of the\n   hash algorithm (defined in [RFC7935]) to compute the hash\
+    \ of\n   repository objects.  It assumes that any two objects for which the\n\
+    \   hash value is the same are identical.\n   The hash comparison is used when\
+    \ matching objects in the repository\n   with entries on the manifest (Section\
+    \ 3.2.2) and when looking up\n   objects in the object store (Section 5).\n"
+- title: 2.2.  Discovery of RPKI Objects Issued by a CA
+  contents:
+  - "2.2.  Discovery of RPKI Objects Issued by a CA\n   There are several possible\
+    \ ways of discovering potential products of\n   a Certification Authority (CA)\
+    \ certificate: one could 1) use all\n   objects located in a repository directory\
+    \ designated as a publication\n   point for a CA, 2) only use objects mentioned\
+    \ on the manifest located\n   at that publication point (see Section 6 of [RFC6486]),\
+    \ or 3) use all\n   known repository objects whose AKI extension matches the Subject\
+    \ Key\n   Identifier (SKI) extension (Section 4.2.1 of [RFC5280]) of a CA\n  \
+    \ certificate.\n   For publication points whose content is consistent with the\
+    \ manifest\n   and issuing certificate, all of these approaches should produce\
+    \ the\n   same result.  For inconsistent publication points, the results might\n\
+    \   be different.  Section 6 of [RFC6486] leaves the decision on how to\n   deal\
+    \ with inconsistencies to a local policy.\n   The implementation described here\
+    \ does not rely on content of\n   repository directories but uses the Authority\
+    \ Key Identifier (AKI)\n   extension of a manifest and a CRL to find in an object\
+    \ store\n   (Section 5) a manifest and a CRL issued by a particular CA (see\n\
+    \   Section 3.2.1).  It further uses the hashes of the manifest's\n   fileList\
+    \ entries (Section 4.2.1 of [RFC6486]) to find other objects\n   issued by the\
+    \ CA, as described in Section 3.2.2.\n"
+- title: 2.3.  Manifest Entries versus Repository Content
+  contents:
+  - "2.3.  Manifest Entries versus Repository Content\n   Since the current set of\
+    \ RPKI standards (see [RFC6481], [RFC6486],\n   and [RFC6487]) requires use of\
+    \ the manifest [RFC6486] to describe the\n   content of a publication point, this\
+    \ implementation requires strict\n   consistency between the publication point\
+    \ content and manifest\n   content.  (This is a more stringent requirement than\
+    \ established in\n   [RFC6486].)  Therefore, it will not process objects that\
+    \ are found in\n   the publication point but do not match any of the entries of\
+    \ that\n   publication point's manifest (see Section 3.2.2).  It will also issue\n\
+    \   warnings for all found mismatches, so that the responsible operators\n   could\
+    \ be made aware of inconsistencies and fix them.\n"
+- title: 3.  Top-Down Validation of a Single Trust Anchor Certificate Tree
+  contents:
+  - "3.  Top-Down Validation of a Single Trust Anchor Certificate Tree\n   When several\
+    \ Trust Anchors are configured, validation of their\n   corresponding certificate\
+    \ trees is performed concurrently and\n   independently from each other.  For\
+    \ every configured Trust Anchor,\n   the following steps are performed:\n   1.\
+    \  The validation of a TA certificate tree starts from its TA\n       certificate.\
+    \  To retrieve the TA certificate, a Trust Anchor\n       Locator (TAL) object\
+    \ is used, as described in Section 3.1.\n   2.  If the TA certificate is retrieved,\
+    \ it is validated according to\n       Section 7 of [RFC6487] and Section 2.2\
+    \ of [RFC7730].  Otherwise,\n       the validation of the certificate tree is\
+    \ aborted and an error is\n       issued.\n   3.  If the TA certificate is valid,\
+    \ then all its subordinate objects\n       are validated as described in Section\
+    \ 3.2.  Otherwise, the\n       validation of the certificate tree is aborted and\
+    \ an error is\n       issued.\n   4.  For each repository object that was validated\
+    \ during this\n       validation run, the validation timestamp is updated in the\
+    \ object\n       store (see Section 5.1.7).\n   5.  Outdated objects are removed\
+    \ from the store as described in\n       Section 3.3.  This completes the validation\
+    \ of the TA certificate\n       tree.\n"
+- title: 3.1.  Fetching the Trust Anchor Certificate Using the Trust Anchor
+  contents:
+  - "3.1.  Fetching the Trust Anchor Certificate Using the Trust Anchor\n      Locator\n\
+    \   The following steps are performed in order to fetch a Trust Anchor\n   certificate:\n\
+    \   1.  (Optional) If the TAL contains a prefetch.uris field, pass the\n     \
+    \  URIs contained in that field to the fetcher (see Section 4.1.1).\n       (This\
+    \ field is a non-standard addition to the TAL format.  It\n       helps with fetching\
+    \ non-hierarchical rsync repositories more\n       efficiently.)\n   2.  Extract\
+    \ the first TA certificate URI from the TAL's URI section\n       (see Section\
+    \ 2.1 of [RFC7730]) and pass it to the object fetcher\n       (Section 4.1.2).\
+    \  If the fetcher returns an error, repeat this\n       step for every URI in\
+    \ the URI section until no error is\n       encountered or no more URIs are left.\n\
+    \   3.  From the object store (see Section 5.1.3), retrieve all\n       certificate\
+    \ objects for which the URI matches the URI extracted\n       from the TAL in\
+    \ the previous step and the public key matches the\n       subjectPublicKeyInfo\
+    \ extension of the TAL (see Section 2.1 of\n       [RFC7730]).\n   4.  If no such\
+    \ objects are found or if more than one such objects are\n       found, issue\
+    \ an error and abort the certificate tree validation\n       process with an error.\
+    \  Otherwise, use the single found object as\n       the TA certificate.\n"
+- title: 3.2.  CA Certificate Validation
+  contents:
+  - "3.2.  CA Certificate Validation\n   The following steps describe the validation\
+    \ of a single CA resource\n   certificate:\n   1.  If both the caRepository (Section\
+    \ 4.8.8.1 of [RFC6487]) and the\n       id-ad-rpkiNotify (Section 3.2 of [RFC8182])\
+    \ instances of an\n       accessMethod are present in the Subject Information\
+    \ Access\n       extension of the CA certificate, use a local policy to determine\n\
+    \       which pointer to use.  Extract the URI from the selected pointer\n   \
+    \    and pass it to the object fetcher (that will then fetch all\n       objects\
+    \ available from that repository; see Section 4.1.1).\n   2.  For the CA certificate,\
+    \ find the current manifest and certificate\n       revocation list (CRL) using\
+    \ the procedure described in\n       Section 3.2.1.  If no such manifest and CRL\
+    \ could be found, stop\n       validation of this certificate, consider it invalid,\
+    \ and issue an\n       error.\n   3.  Compare the URI found in the id-ad-rpkiManifest\
+    \ field\n       (Section 4.8.8.1 of [RFC6487]) of the SIA extension of the\n \
+    \      certificate with the URI of the manifest found in the previous\n      \
+    \ step.  If they are different, issue a warning but continue the\n       validation\
+    \ process using the manifest found in the previous step.\n       (This warning\
+    \ indicates that there is a mismatch between the\n       expected and the actual\
+    \ location of an object in a repository.\n       See Section 7.3 for the explanation\
+    \ of this mismatch and the\n       decision made.)\n   4.  Perform discovery and\
+    \ validation of manifest entries as described\n       in Section 3.2.2.\n   5.\
+    \  Validate all resource certificate objects found on the manifest\n       using\
+    \ the CRL object:\n       *  If the strict validation option is enabled by the\
+    \ operator,\n          the validation is performed according to Section 7 of\n\
+    \          [RFC6487].\n       *  Otherwise, the validation is performed according\
+    \ to Section 7\n          of [RFC6487] but with the exception of the resource\n\
+    \          certification path validation, which is performed according to\n  \
+    \        Section 4.2.4.4 of [RFC8360].\n       (Note that this implementation\
+    \ uses the operator configuration to\n       decide which algorithm to use for\
+    \ path validation.  It applies\n       the selected algorithm to all resource\
+    \ certificates, rather than\n       applying an appropriate algorithm per resource\
+    \ certificate based\n       on the object identifier (OID) for the Certificate\
+    \ Policy found\n       in that certificate, as specified in [RFC8360].)\n   6.\
+    \  Validate all Route Origin Authorization (ROA) objects found on\n       the\
+    \ manifest using the CRL object found on the manifest,\n       according to Section\
+    \ 4 of [RFC6482].\n   7.  Validate all Ghostbusters Record objects found on the\
+    \ manifest\n       using the CRL object found on the manifest, according to\n\
+    \       Section 7 of [RFC6493].\n   8.  For every valid CA certificate object\
+    \ found on the manifest,\n       apply the procedure described in this section,\
+    \ recursively,\n       provided that this CA certificate (identified by its SKI)\
+    \ has not\n       yet been validated during current tree validation run.\n"
+- title: 3.2.1.  Finding the Most Recent Valid Manifest and CRL
+  contents:
+  - "3.2.1.  Finding the Most Recent Valid Manifest and CRL\n   To find the most recent\
+    \ issued manifest and CRL objects of a\n   particular CA certificate, the following\
+    \ steps are performed:\n   1.  From the store (see Section 5.1.4), fetch all objects\
+    \ of type\n       manifest whose certificate's AKI extension matches the SKI of\
+    \ the\n       current CA certificate.  If no such objects are found, stop\n  \
+    \     processing the current CA certificate and issue an error.\n   2.  Among\
+    \ found objects, find the manifest object with the highest\n       manifestNumber\
+    \ field (Section 4.2.1 of [RFC6486]) for which all\n       following conditions\
+    \ are met:\n       *  There is only one entry in the manifest for which the store\n\
+    \          contains exactly one object of type CRL, the hash of which\n      \
+    \    matches the hash of the entry.\n       *  The manifest's certificate AKI\
+    \ equals the above CRL's AKI.\n       *  The above CRL is a valid object according\
+    \ to Section 6.3 of\n          [RFC5280].\n       *  The manifest is a valid object\
+    \ according to Section 4.4 of\n          [RFC6486], and its EE certificate is\
+    \ not in the CRL found\n          above.\n   3.  If there is an object that matches\
+    \ the above criteria, consider\n       this object to be the valid manifest, and\
+    \ consider the CRL found\n       at the previous step to be the valid CRL for\
+    \ the current CA\n       certificate's publication point.\n   4.  Report an error\
+    \ for every other manifest with a number higher\n       than the number of the\
+    \ valid manifest.\n"
+- title: 3.2.2.  Validating Manifest Entries
+  contents:
+  - "3.2.2.  Validating Manifest Entries\n   For every entry in the manifest object:\n\
+    \   1.  Construct an entry's URI by appending the entry name to the\n       current\
+    \ CA's publication point URI.\n   2.  Get all objects from the store whose hash\
+    \ attribute equals the\n       entry's hash (see Section 5.1.2).\n   3.  If no\
+    \ such objects are found, issue an error for this manifest\n       entry and progress\
+    \ to the next entry.  This case indicates that\n       the repository does not\
+    \ have an object at the location listed in\n       the manifest or that the object's\
+    \ hash does not match the hash\n       listed in the manifest.\n   4.  For every\
+    \ found object, compare its URI with the URI of the\n       manifest entry.\n\
+    \       *  For every object with a non-matching URI, issue a warning.\n      \
+    \    This case indicates that the object from the manifest entry is\n        \
+    \  (also) found at a different location in a (possibly different)\n          repository.\n\
+    \       *  If no objects with a matching URI are found, issue a warning.\n   \
+    \       This case indicates that there is no object found in the\n          repository\
+    \ at the location listed in the manifest entry (but\n          there is at least\
+    \ one matching object found at a different\n          location).\n   5.  Use all\
+    \ found objects for further validation as per Section 3.2.\n   Please note that\
+    \ the above steps will not reject objects whose hash\n   matches the hash listed\
+    \ in the manifest but whose URI does not.  See\n   Section 7.3 for additional\
+    \ information.\n"
+- title: 3.3.  Object Store Cleanup
+  contents:
+  - "3.3.  Object Store Cleanup\n   At the end of every TA tree validation, some objects\
+    \ are removed from\n   the store using the following rules:\n   1.  Given all\
+    \ objects that were encountered during the current\n       validation run, remove\
+    \ from the store (Section 5.1.6) all objects\n       whose URI attribute matches\
+    \ the URI of one of the encountered\n       objects but whose content's hash does\
+    \ not match the hash of any\n       of the encountered objects.  This removes\
+    \ from the store objects\n       that were replaced in the repository by their\
+    \ newer versions with\n       the same URIs.\n   2.  Remove from the store all\
+    \ objects that were last encountered\n       during validation a long time ago\
+    \ (as specified by the local\n       policy).  This removes objects that do not\
+    \ appear on any valid\n       manifest anymore (but possibly are still published\
+    \ in a\n       repository).\n   3.  Remove from the store all objects that were\
+    \ downloaded recently\n       (as specified by the local policy) but that have\
+    \ never been used\n       in the validation process.  This removes objects that\
+    \ have never\n       appeared on any valid manifest.\n   Shortening the time interval\
+    \ used in step 2 will free more disk space\n   used by the store, at the expense\
+    \ of downloading removed objects\n   again if they are still published in the\
+    \ repository.\n   Extending the time interval used in step 3 will prevent repeated\n\
+    \   downloads of unused repository objects.  However, it will also extend\n  \
+    \ the interval at which unused objects are removed.  This creates a\n   risk that\
+    \ such objects will fill up all available disk space if a\n   large enough amount\
+    \ of such objects is published in the repository\n   (either by mistake or with\
+    \ a malicious intent).\n"
+- title: 4.  Remote Objects Fetcher
+  contents:
+  - "4.  Remote Objects Fetcher\n   The fetcher is responsible for downloading objects\
+    \ from remote\n   repositories (described in Section 3 of [RFC6481]) using the\
+    \ rsync\n   protocol [rsync] or RRDP [RFC8182].\n"
+- title: 4.1.  Fetcher Operations
+  contents:
+  - "4.1.  Fetcher Operations\n   For every visited URI, the fetcher keeps track of\
+    \ the last time a\n   successful fetch occurred.\n"
+- title: 4.1.1.  Fetch Repository Objects
+  contents:
+  - "4.1.1.  Fetch Repository Objects\n   This operation receives one parameter --\
+    \ a URI.  For an rsync\n   repository, this URI points to a directory.  For an\
+    \ RRDP repository,\n   it points to the repository's notification file.\n   The\
+    \ fetcher follows these steps:\n   1.  If data associated with the URI has been\
+    \ downloaded recently (as\n       specified by the local policy), skip the following\
+    \ steps.\n   2.  Download remote objects using the URI provided (for an rsync\n\
+    \       repository, use recursive mode).  If the URI contains the \"https\"\n\
+    \       schema and download has failed, issue a warning, replace the\n       \"\
+    https\" schema in the URI with \"http\", and try to download\n       objects again\
+    \ using the resulting URI.\n   3.  If remote objects cannot be downloaded, issue\
+    \ an error and skip\n       the following steps.\n   4.  Perform syntactic verification\
+    \ of fetched objects.  The type of\n       every object (certificate, manifest,\
+    \ CRL, ROA, or Ghostbusters\n       Record) is determined based on the object's\
+    \ filename extension\n       (.cer, .mft, .crl, .roa, and .gbr, respectively).\
+    \  The syntax of\n       the object is described in Section 4 of [RFC6487] for\
+    \ resource\n       certificates, step 1 of Section 3 of [RFC6488] for signed\n\
+    \       objects, Section 4 of [RFC6486] for manifests, [RFC5280] for\n       CRLs,\
+    \ Section 3 of [RFC6482] for ROAs, and Section 5 of [RFC6493]\n       for Ghostbusters\
+    \ Records.\n   5.  Put every downloaded and syntactically correct object in the\n\
+    \       object store (Section 5.1.1).\n   The time interval used in step 1 should\
+    \ be chosen based on the\n   acceptable delay in receiving repository updates.\n"
+- title: 4.1.2.  Fetch Single Repository Object
+  contents:
+  - "4.1.2.  Fetch Single Repository Object\n   This operation receives one parameter\
+    \ -- a URI that points to an\n   object in a repository.\n   The fetcher follows\
+    \ these steps:\n   1.  Download a remote object using the URI provided.  If the\
+    \ URI\n       contains the \"https\" schema and download failed, issue a warning,\n\
+    \       replace the \"https\" schema in the URI with \"http\", and try to\n  \
+    \     download the object using the resulting URI.\n   2.  If the remote object\
+    \ cannot be downloaded, issue an error and\n       skip the following steps.\n\
+    \   3.  Perform syntactic verification of the fetched object.  The type\n    \
+    \   of object (certificate, manifest, CRL, ROA, or Ghostbusters\n       Record)\
+    \ is determined based on the object's filename extension\n       (.cer, .mft,\
+    \ .crl, .roa, and .gbr, respectively).  The syntax of\n       the object is described\
+    \ in Section 4 of [RFC6487] for resource\n       certificates, step 1 of Section\
+    \ 3 of [RFC6488] for signed\n       objects, Section 4 of [RFC6486] for manifests,\
+    \ [RFC5280] for\n       CRLs, Section 3 of [RFC6482] for ROAs, and Section 5 of\
+    \ [RFC6493]\n       for Ghostbusters Records.\n   4.  If the downloaded object\
+    \ is not syntactically correct, issue an\n       error and skip further steps.\n\
+    \   5.  Delete all objects from the object store (Section 5.1.5) whose\n     \
+    \  URI matches the URI given.\n   6.  Put the downloaded object in the object\
+    \ store (Section 5.1.1).\n"
+- title: 5.  Local Object Store
+  contents:
+  - '5.  Local Object Store
+
+    '
+- title: 5.1.  Store Operations
+  contents:
+  - '5.1.  Store Operations
+
+    '
+- title: 5.1.1.  Store Repository Object
+  contents:
+  - "5.1.1.  Store Repository Object\n   Put the given object in the store if there\
+    \ is no record with the same\n   hash and URI fields.  Note that in the (unlikely)\
+    \ event of hash\n   collision, the given object will not replace the object in\
+    \ the store.\n"
+- title: 5.1.2.  Get Objects by Hash
+  contents:
+  - "5.1.2.  Get Objects by Hash\n   Retrieve all objects from the store whose hash\
+    \ attribute matches the\n   given hash.\n"
+- title: 5.1.3.  Get Certificate Objects by URI
+  contents:
+  - "5.1.3.  Get Certificate Objects by URI\n   Retrieve from the store all objects\
+    \ of type certificate whose URI\n   attribute matches the given URI.\n"
+- title: 5.1.4.  Get Manifest Objects by AKI
+  contents:
+  - "5.1.4.  Get Manifest Objects by AKI\n   Retrieve from the store all objects of\
+    \ type manifest whose AKI\n   attribute matches the given AKI.\n"
+- title: 5.1.5.  Delete Objects for a URI
+  contents:
+  - "5.1.5.  Delete Objects for a URI\n   For a given URI, delete all objects in the\
+    \ store with a matching URI\n   attribute.\n"
+- title: 5.1.6.  Delete Outdated Objects
+  contents:
+  - "5.1.6.  Delete Outdated Objects\n   For a given URI and a list of hashes, delete\
+    \ all objects in the store\n   with a matching URI whose hash attribute is not\
+    \ in the given list of\n   hashes.\n"
+- title: 5.1.7.  Update Object's Validation Time
+  contents:
+  - "5.1.7.  Update Object's Validation Time\n   For all objects in the store whose\
+    \ hash attribute matches the given\n   hash, set the last validation time attribute\
+    \ to the given timestamp.\n"
+- title: 6.  IANA Considerations
+  contents:
+  - "6.  IANA Considerations\n   This document has no IANA actions.\n"
+- title: 7.  Security Considerations
+  contents:
+  - '7.  Security Considerations
+
+    '
+- title: 7.1.  Hash Collisions
+  contents:
+  - "7.1.  Hash Collisions\n   This implementation will not detect possible hash collisions\
+    \ in the\n   hashes of repository objects (calculated using the file hash\n  \
+    \ algorithm specified in [RFC7935]).  It considers objects with same\n   hash\
+    \ values to be identical.\n"
+- title: 7.2.  Algorithm Agility
+  contents:
+  - "7.2.  Algorithm Agility\n   This implementation only supports hash algorithms\
+    \ and key sizes\n   specified in [RFC7935].  Algorithm agility described in [RFC6916]\
+    \ is\n   not supported.\n"
+- title: 7.3.  Mismatch between the Expected and Actual Location of an Object in
+  contents:
+  - "7.3.  Mismatch between the Expected and Actual Location of an Object in\n   \
+    \   the Repository\n   According to Section 2 of [RFC6481], all objects issued\
+    \ by a\n   particular CA certificate are expected to be located in one\n   repository\
+    \ publication point, specified in the SIA extension of that\n   CA certificate.\
+    \  The manifest object issued by that CA certificate\n   enumerates all other\
+    \ issued objects, listing their filenames and\n   content hashes.\n   However,\
+    \ it is possible that an object whose content hash matches the\n   hash listed\
+    \ in the manifest either has a different filename or is\n   located at a different\
+    \ publication point in a repository.\n   On the other hand, all RPKI objects,\
+    \ either explicitly or within\n   their embedded EE certificate, have an AKI extension\
+    \ that contains\n   the key identifier of their issuing CA certificate.  Therefore,\
+    \ it is\n   always possible to perform an RPKI validation of the object whose\n\
+    \   expected location does not match its actual location, provided that\n   the\
+    \ certificate that matches the AKI of the object in question is\n   known to the\
+    \ system that performs validation.\n   In the case of a mismatch as described\
+    \ above, this implementation\n   will not exclude an object from further validation\
+    \ merely because its\n   actual location or filename does not match the expected\
+    \ location or\n   filename.  This decision was made because the actual location\
+    \ of a\n   file in a repository is taken from the repository retrieval\n   mechanism,\
+    \ which, in the case of an rsync repository, does not\n   provide any cryptographic\
+    \ security, and in the case of an RRDP\n   repository, provides only a transport-layer\
+    \ security with the\n   fallback to unsecured transport.  On the other hand, the\
+    \ manifest is\n   an RPKI signed object, and its content could be verified in\
+    \ the\n   context of the RPKI validation.\n"
+- title: 7.4.  Manifest Content versus Publication Point Content
+  contents:
+  - "7.4.  Manifest Content versus Publication Point Content\n   This algorithm uses\
+    \ the content of a manifest object to determine\n   other objects issued by a\
+    \ CA certificate.  It verifies that the\n   manifest is located in the publication\
+    \ point designated in the CA\n   certificate's SIA extension.  However, if there\
+    \ are other (not listed\n   in the manifest) objects located in the same publication\
+    \ point\n   directory, they are ignored even if they might be valid and issued\
+    \ by\n   the same CA as the manifest.  (This RP behavior is allowed, but not\n\
+    \   required, by [RFC6486].)\n"
+- title: 7.5.  Possible Denial of Service
+  contents:
+  - "7.5.  Possible Denial of Service\n   The store cleanup procedure described in\
+    \ Section 3.3 tries to\n   minimize removal and subsequent re-fetch of objects\
+    \ that are\n   published in a repository but not used in the validation.  Once\
+    \ such\n   objects are removed from the remote repository, they will be\n   discarded\
+    \ from the local object store after a period of time\n   specified by a local\
+    \ policy.  By generating an excessive amount of\n   syntactically valid RPKI objects,\
+    \ a man-in-the-middle attack between\n   a validating tool and a repository could\
+    \ force an implementation to\n   fetch and store those objects in the object store\
+    \ (see Section 4.1.1)\n   before they are validated and discarded, leading to\
+    \ out-of-memory or\n   out-of-disk-space conditions and, subsequently, a denial\
+    \ of service.\n"
+- title: 8.  References
+  contents:
+  - '8.  References
+
+    '
+- title: 8.1.  Normative References
+  contents:
+  - "8.1.  Normative References\n   [RFC5280]  Cooper, D., Santesson, S., Farrell,\
+    \ S., Boeyen, S.,\n              Housley, R., and W. Polk, \"Internet X.509 Public\
+    \ Key\n              Infrastructure Certificate and Certificate Revocation List\n\
+    \              (CRL) Profile\", RFC 5280, DOI 10.17487/RFC5280, May 2008,\n  \
+    \            <https://www.rfc-editor.org/info/rfc5280>.\n   [RFC6481]  Huston,\
+    \ G., Loomans, R., and G. Michaelson, \"A Profile for\n              Resource\
+    \ Certificate Repository Structure\", RFC 6481,\n              DOI 10.17487/RFC6481,\
+    \ February 2012,\n              <https://www.rfc-editor.org/info/rfc6481>.\n \
+    \  [RFC6482]  Lepinski, M., Kent, S., and D. Kong, \"A Profile for Route\n   \
+    \           Origin Authorizations (ROAs)\", RFC 6482,\n              DOI 10.17487/RFC6482,\
+    \ February 2012,\n              <https://www.rfc-editor.org/info/rfc6482>.\n \
+    \  [RFC6486]  Austein, R., Huston, G., Kent, S., and M. Lepinski,\n          \
+    \    \"Manifests for the Resource Public Key Infrastructure\n              (RPKI)\"\
+    , RFC 6486, DOI 10.17487/RFC6486, February 2012,\n              <https://www.rfc-editor.org/info/rfc6486>.\n\
+    \   [RFC6487]  Huston, G., Michaelson, G., and R. Loomans, \"A Profile for\n \
+    \             X.509 PKIX Resource Certificates\", RFC 6487,\n              DOI\
+    \ 10.17487/RFC6487, February 2012,\n              <https://www.rfc-editor.org/info/rfc6487>.\n\
+    \   [RFC6488]  Lepinski, M., Chi, A., and S. Kent, \"Signed Object\n         \
+    \     Template for the Resource Public Key Infrastructure\n              (RPKI)\"\
+    , RFC 6488, DOI 10.17487/RFC6488, February 2012,\n              <https://www.rfc-editor.org/info/rfc6488>.\n\
+    \   [RFC6493]  Bush, R., \"The Resource Public Key Infrastructure (RPKI)\n   \
+    \           Ghostbusters Record\", RFC 6493, DOI 10.17487/RFC6493,\n         \
+    \     February 2012, <https://www.rfc-editor.org/info/rfc6493>.\n   [RFC6916]\
+    \  Gagliano, R., Kent, S., and S. Turner, \"Algorithm Agility\n              Procedure\
+    \ for the Resource Public Key Infrastructure\n              (RPKI)\", BCP 182,\
+    \ RFC 6916, DOI 10.17487/RFC6916, April\n              2013, <https://www.rfc-editor.org/info/rfc6916>.\n\
+    \   [RFC7730]  Huston, G., Weiler, S., Michaelson, G., and S. Kent,\n        \
+    \      \"Resource Public Key Infrastructure (RPKI) Trust Anchor\n            \
+    \  Locator\", RFC 7730, DOI 10.17487/RFC7730, January 2016,\n              <https://www.rfc-editor.org/info/rfc7730>.\n\
+    \   [RFC7935]  Huston, G. and G. Michaelson, Ed., \"The Profile for\n        \
+    \      Algorithms and Key Sizes for Use in the Resource Public\n             \
+    \ Key Infrastructure\", RFC 7935, DOI 10.17487/RFC7935,\n              August\
+    \ 2016, <https://www.rfc-editor.org/info/rfc7935>.\n   [RFC8182]  Bruijnzeels,\
+    \ T., Muravskiy, O., Weber, B., and R. Austein,\n              \"The RPKI Repository\
+    \ Delta Protocol (RRDP)\", RFC 8182,\n              DOI 10.17487/RFC8182, July\
+    \ 2017,\n              <https://www.rfc-editor.org/info/rfc8182>.\n   [RFC8360]\
+    \  Huston, G., Michaelson, G., Martinez, C., Bruijnzeels, T.,\n              Newton,\
+    \ A., and D. Shaw, \"Resource Public Key\n              Infrastructure (RPKI)\
+    \ Validation Reconsidered\", RFC 8360,\n              DOI 10.17487/RFC8360, April\
+    \ 2018,\n              <https://www.rfc-editor.org/info/rfc8360>.\n"
+- title: 8.2.  Informative References
+  contents:
+  - "8.2.  Informative References\n   [rpki-validator]\n              \"RIPE-NCC/rpki-validator\
+    \ source code\",\n              <https://github.com/RIPE-NCC/rpki-validator>.\n\
+    \   [rsync]    \"rsync\", October 2018, <https://rsync.samba.org>.\n"
+- title: Acknowledgements
+  contents:
+  - "Acknowledgements\n   This document describes the algorithm as it is implemented\
+    \ by the\n   software development team at the RIPE NCC, which, over time, included\n\
+    \   Mikhail Puzanov, Erik Rozendaal, Miklos Juhasz, Misja Alma, Thiago da\n  \
+    \ Cruz Pereira, Yannis Gonianakis, Andrew Snare, Varesh Tapadia, Paolo\n   Milani,\
+    \ Thies Edeling, Hans Westerbeek, Rudi Angela, and Constantijn\n   Visinescu.\
+    \  The authors would also like to acknowledge contributions\n   by Carlos Martinez,\
+    \ Andy Newton, Rob Austein, and Stephen Kent.\n"
+- title: Authors' Addresses
+  contents:
+  - "Authors' Addresses\n   Oleg Muravskiy\n   RIPE NCC\n   Email: oleg@ripe.net\n\
+    \   URI:   https://www.ripe.net/\n   Tim Bruijnzeels\n   NLnet Labs\n   Email:\
+    \ tim@nlnetlabs.nl\n   URI:   https://www.nlnetlabs.nl/\n"

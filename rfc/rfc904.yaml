@@ -1,0 +1,711 @@
+- title: __initial_text__
+  contents:
+  - "             Exterior Gateway Protocol Formal Specification\n0.  Status of this\
+    \ Memo\n     This RFC is the specification of the Exterior Gateway Protocol\n\
+    (EGP).  This document updates RFCs 827 and 888.  This RFC specifies a\nstandard\
+    \ for the DARPA community.  Interactions between gateways of\ndifferent autonomous\
+    \ systems in the ARPA-Internet must follow this \nprotocol.\n1.  Introduction\n\
+    \     This document is a formal specification of the Exterior Gateway\nProtocol\
+    \ (EGP), which is used to exchange net-reachability information\nbetween Internet\
+    \ gateways belonging to the same or different autonomous\nsystems.  The specification\
+    \ is intended as a reference guide for\nimplementation, testing and verification\
+    \ and includes suggested\nalgorithmic parameters suitable for operation over a\
+    \ wide set of\nconfigurations, including the ARPANET and many local-network\n\
+    technologies now part of the Internet system.\n     Specifically excluded in this\
+    \ document is discussion on the\nbackground, application and limitations of EGP,\
+    \ which have been\ndiscussed elsewhere (RFC-827, RFC-888).  If, as expected, EGP\
+    \ evolves to\ninclude topologies not restricted to tree-structures and to incorporate\n\
+    full routing capabilities, this specification will be amended or\nobsoleted accordingly.\
+    \  However, it is expected that, as new features\nare added to EGP, the basic\
+    \ protocol mechanisms described here will\nremain substantially unchanged, with\
+    \ only the format and interpretation\nof the Update message (see below) changed.\n\
+    \     Section 2 of this document describes the nomenclature used, while\nSection\
+    \ 3 describes the state-machine model, including events, actions,\nparameters\
+    \ and state transitions.  Section 4 contains a functional\ndescription of the\
+    \ operation of the machine, together with specific\nprocedures and algorithms.\
+    \  Appendix A describes the EGP message\nformats, while Appendix B contains a\
+    \ summary of the minor differences\nbetween these and the formats described in\
+    \ RFC-888.  Appendix C presents\na reachability analysis including a table of\
+    \ composite state transitions\nfor a system of two communicating EGP gateways.\n\
+    1.1.  Summary and Overview\n     EGP exists in order to convey net-reachability\
+    \ information between\nneighboring gateways, possibly in different autonomous\
+    \ systems.  The\nprotocol includes mechanisms to acquire neighbors, monitor neighbor\n\
+    reachability and exchange net-reachability information in the form of\nUpdate\
+    \ messages.  The protocol is based on periodic polling using\nHello/I-Heard-You\
+    \ (I-H-U) message exchanges to monitor neighbor\nfinite-state automaton with defined\
+    \ events, state transitions and\nactions.  The following diagram shows a simplified\
+    \ graphical\nrepresentation of this machine (see Section 3.4 for a detailed state\n\
+    transition table).\n          +-------+\n          |       |---------------+---------------+\n\
+    \    +---->| Idle  |               A               A\n    |     |       |-----------+\
+    \   |               |\n    |     +-------+           |   |               |\n \
+    \   |       |   A     Request |   | Cease         | Cease\n    | Start |   | Cease\
+    \       |   |               |\n    |       V   | Refuse      V   |           \
+    \    |\n    |     +-------+ Confirm +-------+    Up   +-------+\n    |     | \
+    \      |-------->|       |-------->|       |\n    |     | Aqsn  |         | Down\
+    \  |   Down  |  Up   |\n    |     |       |----+    |       |<--------|      \
+    \ |\n    |     +-------+    |    +-------+         +-------+\n    |          \
+    \        |        |                 |\n    | Stop             |        |     \
+    \            |\n    | Cease-ack        | Stop   | Stop            | Stop\n   \
+    \ |     +-------+    |        |                 |\n    |     |       |    V  \
+    \      V                 V\n    +-----| Cease |<---+--------+-----------------+\n\
+    \          |       |\n          +-------+\n     Following is a brief summary and\
+    \ overview of gateway operations by\nstate as determined by this model.\nIdle\
+    \ State (0)\n    In the Idle state the gateway has no resources (table space)\n\
+    \    assigned to the neighbor and no protocol activity of any kind is in\n   \
+    \ progress.  It responds only to a Request command or a Start event\n    (system\
+    \ or operator initiated) and ignores all other commands and\n    responses.  The\
+    \ gateway may optionally return a Cease-ack response\n    to a Cease command in\
+    \ this state.\n    Upon receipt of a Request command the gateway initializes the\
+    \ state\n    variables as described in Section 3.1, sends a Confirm response and\n\
+    \    transitions to the Down state, if resource committments permit, or\n    sends\
+    \ a Refuse response and returns to the Idle state if not.  Upon\n    receipt of\
+    \ a Start event it sends a Request command and transitions\n    to the Acquistion\
+    \ state.\nAcquisition State (1)\n    the state variables and transitions to the\
+    \ Down state.  Upon\n    receiving a Refuse response it returns to the Idle state.\
+    \  The\n    gateway does not send any other commands or responses in this state,\n\
+    \    since not all state variables have yet been initialized.\nDown State (2)\n\
+    \    In the Down state the gateway has received a Request command or a\n    Confirm\
+    \ response has been received for a previously sent Request.\n    The neighbor-reachability\
+    \ protocol has declared the neighbor to be\n    down.  In this state the gateway\
+    \ processes Request, Cease and Hello\n    commands and responds as required. \
+    \ It periodically retransmits\n    Hello commands if enabled.  It does not process\
+    \ Poll commands and\n    does not send them, but may optionally process an unsolicited\
+    \ Update\n    indication.\nUp State (3)\n    In the Up state the neighbor-reachability\
+    \ protocol has declared the\n    neighbor to be up.  In this state the gateway\
+    \ processes and responds\n    to all commands.  It periodically retransmits Hello\
+    \ commands, if\n    enabled, and Poll commands.\nCease State (4)\n    A Stop event\
+    \ causes a Cease command to be sent and a transition to\n    the Cease state.\
+    \  In this state the gateway periodically retransmits\n    the Cease command and\
+    \ returns to the Idle state upon receiving a\n    Cease-ack response or a another\
+    \ Stop event.  The defined state\n    transitions are designed to ensure that\
+    \ the neighbor does with high\n    probability receive the Cease command and stop\
+    \ the protocol.\n     In following sections of this document document a state\
+    \ machine\nwhich can serve as a model for implementation is described.  It may\n\
+    happen that implementators may deviate from this model while conforming\nto the\
+    \ protocol specification;  however, in order to verify conformance\nto the specification,\
+    \ the state-machine model is intended as the\nreference model.\n     Although\
+    \ not mentioned specifically in this document, it should be\nunderstood that all\
+    \ Internet gateways must include support for the\nInternet Control Message Protocol\
+    \ (ICMP), specifically ICMP Redirect and\nICMP Destination Unreachable messages.\n\
+    2.  Nomenclature\n        Name            Function\n        ------------------------------------------------------\n\
+    \        Request         request acquisition of neighbor and/or\n            \
+    \            initialize polling variables\n        Confirm         confirm acquisition\
+    \ of neighbor and/or\n                        initialize polling variables\n \
+    \       Refuse          refuse acquisition of neighbor\n        Cease        \
+    \   request de-acquisition of neighbor\n        Cease-ack       confirm de-acquisition\
+    \ of neighbor\n        Hello           request neigbor reachability\n        I-H-U\
+    \           confirm neigbor reachability\n        Poll            request net-reachability\
+    \ update\n        Update          net-reachability update\n        Error     \
+    \      error\n     EGP messages are classed as commands which request some action,\n\
+    responses, which are sent to indicate the status of that action, and\nindications,\
+    \ which are similar to responses, but may be sent at any\ntime.  Following is\
+    \ a list of commands along with their possible\nresponses.\n        Command  \
+    \       Corresponding Responses\n        ---------------------------------------\n\
+    \        Request         Confirm, Refuse, Error\n        Cease           Cease-ack,\
+    \ Error\n        Hello           I-H-U, Error\n        Poll            Update,\
+    \ Error\n     The Update and Error messages are classed both as responses and\n\
+    indications.  When sent in reply to a previous command, either of these\nmessages\
+    \ is classed as a response.  In some circumstances an unsolicited\nUpdate message\
+    \ can be sent, in which case it is classed as an\nindication.  The use of the\
+    \ Error message other than as a response to a\nprevious command is a topic for\
+    \ further study.\n3.  State Machine\n     This section describes the state-machine\
+    \ model for EGP, including\nthe variables and constants which establish the state\
+    \ at any time, the\nevents which cause the state transitions, the actions which\
+    \ result from\nthese transitions and the state-transition table which defines\
+    \ the\nbehavior.\n3.1.  State Variables\n     The state-machine model includes\
+    \ a number of state variables which\nestablish the state of the protocol between\
+    \ the gateway and each of its\nneighbor separately.\n     The model assumes that\
+    \ system resources, including the set of state\nvariables, are allocated when\
+    \ the state machine leaves the Idle state,\neither because of the arrival of a\
+    \ Request specifying a new neighbor\naddreess, or because of a Start event specifying\
+    \ a new neighbor address.\nWhen either of these events occur the values of the\
+    \ state variables are\ninitialized as indicated below.  Upon return to the Idle\
+    \ state all\nresources, including the set of state variables, are deallocated\
+    \ and\nreturned to the system.  Implementators may, of course, elect to\ndedicate\
+    \ resources and state variables permananently.\n     Included among the set of\
+    \ state variables are the following which\ndetermine the state transitions of\
+    \ the model.  Initial values for all of\nthe variables except the send sequence\
+    \ number S are set during the\ninitial Request/Confirm exchange.  The initial\
+    \ value for S is arbitrary.\n        Name    Function\n        --------------------------------------------------------------\n\
+    \        R       receive sequence number\n        S       send sequence number\n\
+    \        T1      interval between Hello command retransmissions\n        T2  \
+    \    interval between Poll command retransmissions\n        T3      interval during\
+    \ which neighbor-reachability\n                indications are counted\n     \
+    \   M       hello polling mode\n        t1      timer 1 (used to control Request,\
+    \ Hello and Cease\n                command retransmissions)\n        t2      timer\
+    \ 2 (used to control Poll command retransmissions)\n        t3      timer 3 (abort\
+    \ timer)\nAdditional state variables may be necessary to support various timer\
+    \ and\nsimilar internal housekeeping functions.  The function and management of\n\
+    the cited variables are discussed in Section 4.\n3.2.  Fixed Parameters\n    \
+    \ This section defines several fixed parameters which characterize\nthe gateway\
+    \ functions.  Included is a suggested value for each parameter\nbased on experimental\
+    \ implementations in the Internet system.  These\nvalues may or may not be appropriate\
+    \ for the individual configuration.\n        Name    Value   Description\n   \
+    \     --------------------------------------------------------------\n       \
+    \ P1      30 sec  minimum interval acceptable between successive\n           \
+    \             Hello commands received\n        P2      2 min   minimum interval\
+    \ acceptable between successive\n                        Poll commands recieved\n\
+    \        P3      30 sec  interval between Request or Cease command\n         \
+    \               retransmissions\n        P4      1 hr    interval during which\
+    \ state variables are\n                        maintained in the absence of commands\
+    \ or\n                        responses in the Down and Up states.\n        P5\
+    \      2 min   interval during which state variables are\n                   \
+    \     maintained in the absence of responses in the\n                        Acquisition\
+    \ and Cease states\n     Parameters P4 and P5 are used only if the abort-timer\
+    \ option is\nimplemented.  Parameter P4 establishes how long the machine will\
+    \ remain\nin the Down and Up states in the absence of commands or responses and\n\
+    would ordinarily be set to sustain state information while the neighbor\nis dumped\
+    \ and restarted, for example.  Parameter P5 establishes how long\nthe machine\
+    \ will remain in the Acquisition or Cease states in the\nabsence of responses\
+    \ and would ordinarily be set in the same order as\nthe expected value of T3 variables.\n\
+    \     Following is a list of other parameters of interest.\n        Name    Active\
+    \  Passive Description\n        -----------------------------------------------\n\
+    \        j       3       1       neighbor-up threshold   \n        k       1 \
+    \      4       neighbor-down threshold\n     The j and k parameters establish\
+    \ the \"noise immunity\" of the\nneighbor-reachability protocol described later.\
+    \  The values in the\nActive column are suggested if the gateway elects to do\
+    \ hello polling,\nwhile the values in the Passive column are suggested otherwise.\n\
+    3.3.  Events\nName            Event\n----------------------------------------------------------------------\n\
+    Up              At least j neighbor-reachability indications have been\n     \
+    \           received within the last T3 seconds.\nDown            At most k neighbor-reachabilitiy\
+    \ indications have been\n                received within the last T3 seconds.\n\
+    Request         Request command has been received.\nConfirm         Confirm command\
+    \ has been received.\nRefuse          Refuse response has been received.\nCease\
+    \           Cease command has been received.\nCease-ack       Cease-ack response\
+    \ has been received.\nHello           Hello command has been received.\nI-H-U\
+    \           I-H-U response has been received.\nPoll            Poll command has\
+    \ been received.\nUpdate          Update response has been received.\nStart  \
+    \         Start event has been recognized due to system or\n                operator\
+    \ intervention.\nStop/t3         Stop event has been recognized due to (a) system\
+    \ or\n                operator intervention or (b) expiration of the abort\n \
+    \               timer t3.\nt1              Timer t1 has counted down to zero.\n\
+    t2              Timer t2 has counted down to zero.\n     There is one special\
+    \ event, called a neighbor-reachability\nindication, which occurs when:\n1.  The\
+    \ gateway is operating in the active mode (hello polling enabled)\n    and either\
+    \ a Confirm, I-H-U or Update response is received.\n2.  The gateway is operating\
+    \ in the passive mode (hello polling\n    disabled) and either a Hello or Poll\
+    \ command is received with the\n    \"Up state\" code in the Status field.\n3.4.\
+    \  State Transition Table\n             0 Idle      1 Aqsn      2 Down       3\
+    \ Up       4 Cease\n          +-----------+-----------+-----------+-----------+-----------+\n\
+    Up        |0          |1          |3/Poll     |3          |4          |\nDown\
+    \      |0          |1          |2          |2          |4          |\nRequest\
+    \   |2/Confirm *|2/Confirm  |2/Confirm  |2/Confirm  |4/Cease    |\nConfirm   |0/Cease\
+    \  **|2          |2          |3          |4          |\nRefuse    |0/Cease  **|0\
+    \          |2          |3          |4          |\nCease     |0/Cease-ack|0/Cease-ack|0/Cease-ack|0/Cease-ack|0/Cease-ack|\n\
+    Cease-ack |0          |1          |2          |3          |0          |\nHello\
+    \     |0/Cease  **|1          |2/I-H-U    |3/I-H-U    |4          |\nI-H-U   \
+    \  |0/Cease  **|1          |2/Process  |3/Process  |4          |\nPoll      |0/Cease\
+    \  **|1          |2          |3/Update   |4          |\nUpdate    |0/Cease  **|1\
+    \          |2          |3/Process  |4          |\nStart     |1/Request  |1/Request\
+    \  |1/Request  |1/Request  |4          |\nStop/t3   |0          |0          |4/Cease\
+    \    |4/Cease    |0          |\nt1        |0          |1/Request  |2/Hello   \
+    \ |3/Hello    |4/Cease    |\nt2        |0          |1          |2          |3/Poll\
+    \     |4          |\n          +-----------+-----------+-----------+-----------+-----------+\n\
+    Note *:  The transition shown applies to the case where the\nneighbor-acquisition\
+    \ request is accepted.  The transition \"0/Refuse\"\napplies to the case where\
+    \ the request is rejected.\nNote **:  The Cease action shown is optional.\n3.5.\
+    \  State Transitions and Actions\n     The following table describes in detail\
+    \ the transitions of the\nstate machine and the actions evoked.\n            \
+    \    Next    Message\nEvent           State   Sent            Actions\n------------------------------------------------------------------------\n\
+    Idle State (0)\nRequest         2       Confirm         Initialize state variables\
+    \ and\n                        Hello           reset timer t1 to T1 seconds and\n\
+    \                                        reset timer t3 to P5 seconds.\n  (or)\
+    \          0       Refuse          Return resources.\nCease           0      \
+    \ Cease-ack       Return resources.\nStart           1       Request         Reset\
+    \ timer t1 to P3 seconds and\n                                        reset timer\
+    \ t3 to P5 seconds.\nAcquisition State (1)\nRequest         2       Confirm  \
+    \       Initialize state variables and\n                                     \
+    \   reset timer t1 to T1 seconds and\n                                       \
+    \ reset timer t3 to P5 seconds.\nRefuse          0                       Stop\
+    \ timers and return\n                                        resources.\nCease\
+    \           0       Cease-ack       Stop timers and return\n                 \
+    \                       resources.\nStart           1       Request         Reset\
+    \ timer t1 to P3 seconds and\n                                        reset timer\
+    \ t3 to P5 seconds.\nStop/t3         0                       Stop timers and return\n\
+    \                                        resources.\nt1              1       Request\
+    \         Reset timer t1 to P3 seconds.\nDown State (2)\nNote: Reset timer t3\
+    \ to P4 seconds on receipt of a reachability\nindication.\nUp              3 \
+    \      Poll            Reset timer t2 to T2 seconds.\nRequest         2      \
+    \ Confirm         Reinitialize state variables and\n                        Hello\
+    \           reset timer t1 to T1 seconds and\n                               \
+    \         reset timer t3 to P5 seconds.\nCease           0       Cease-ack   \
+    \    Stop timers and return\n                                        resources.\n\
+    Hello           2       I-H-U\nI-H-U           2                       Process\
+    \ neighbor-reachability\n                                        info.\nStart\
+    \           1       Request         Reset timer t1 to P3 seconds and\n       \
+    \                                 reset timer t3 to P5 seconds.\nStop/t3     \
+    \    4       Cease           Reset timer t1 to P3 seconds and\n              \
+    \                          reset timer t3 to P5 seconds.\nt1              2  \
+    \     Hello           Reset timer t1 to T1 seconds.\nUp State (3)\nNote: Reset\
+    \ timer t3 to P4 seconds on receipt of a reachability\nindication.\nDown     \
+    \       2                       Stop timer t2.\nRequest         2       Confirm\
+    \         Renitialize state variables and\n                        Hello     \
+    \      reset timer t1 to T1 seconds and\n                                    \
+    \    reset timer t3 to P5 seconds.\nCease           0       Cease-ack       Stop\
+    \ timers and return\n                                        resources.\nHello\
+    \           3       I-H-U\nI-H-U           3                       Process neighbor-reachability\n\
+    \                                        info.\nPoll            3       Update\n\
+    Update          3                       Process net-reachability info.\nStart\
+    \           1       Request         Reset timer t1 to P3 seconds and\nt1     \
+    \         3       Hello           Reset timer t1 to T1 seconds.\nt2          \
+    \    3       Poll            Reset timer t2 to T2 seconds.\nCease State (4)\n\
+    Request         4       Cease\nCease           0       Cease-ack       Stop timers\
+    \ and return\n                                        resources.\nCease-ack  \
+    \     0                       Stop timers and return\n                       \
+    \                 resources.\nStop/t3         0                       Stop timers\
+    \ and return\n                                        resources.\nt1         \
+    \     4       Cease           Reset timer t1 to P3 seconds.\n4.  Functional Description\n\
+    \     This section contains detailed descriptions of the various\nprocedures and\
+    \ algorithms used to manage the protocol.\n4.1.  Managing the State Variables\n\
+    \     The state variables which characterize the protocol are summarized\nin Section\
+    \ 3.1.  This section describes the detailed management of these\nvariables, including\
+    \ sequence numbers, polling intervals and timers.\n4.1.1.  Sequence Numbers\n\
+    \     All EGP commands and replies carry a sequence number.  The state\nvariable\
+    \ R records the last sequence number received in a command from\nthat neighbor.\
+    \  The current value of R is used as the sequence number\nfor all replies and\
+    \ indications sent to the neighbor until a command\nwith a different sequence\
+    \ number is received from that neighbor.\n     Implementors are free to manage\
+    \ the sequence numbers of the\ncommands sent;  however, it is suggested that a\
+    \ separate send state\nvariable S be maintained for each EGP neighbor and that\
+    \ its value be\nincremented just before the time an Poll command is sent and at\
+    \ no other\ntimes.  The actions upon receipt of a response or indication with\n\
+    sequence number not equal to S is not specified;  however, it is\nrecommended\
+    \ these be discarded.\n4.1.1.  Polling Intervals\n     As part of the Request/Confirm\
+    \ exchange a set of polling intervals\nare established including T1, which establishes\
+    \ the interval between\nHello command retransmissions, and T2, which establishes\
+    \ the interval\nbetween Poll retransmissions.\nat which it will respond to Hello\
+    \ commands, and P2, which specifies the\nminimum polling interval at which it\
+    \ will respond to Poll commands.  P1\nand P2 are inserted in the Hello Interval\
+    \ (S1) and Poll Interval (S2)\nfields, respectively, of Request commands and Confirm\
+    \ responses.\n     A gateway receiving a Request command or Confirm response uses\
+    \ the\nS1 and S2 fields in the message to calculate its own T1 and T2 state\n\
+    variables, respectively.  Implementors are free to perform this\ncalculation in\
+    \ arbitrary ways;  however, the following constraints must\nbe observed:\n1. \
+    \ If T1 < S1 the neighbor may discard Hello commands.  If T2 < S2 the\n    neighbor\
+    \ may discard Poll commands.\n2.  The time window T3 in which neighbor-reachability\
+    \ indications are\n    counted is dependent on T1.  In the case where two neighbors\
+    \ select\n    widely differing values for their T3 state variables, the\n    neighbor-reachability\
+    \ algorithm may not work properly.  This can be\n    avoided if T1 > max(P1, S1).\n\
+    3.  If either S1 or S2 or both are unacceptable for some reason (e.g.\n    exceed\
+    \ useful limits), the neighbor may either send a Refuse\n    response or declare\
+    \ a Stop event, depending on state.\n     It is suggested that T3 be computed\
+    \ as four times the value of T1,\ngiving a window of four neighbor-reachability\
+    \ indications, which has\nbeen found appropriate in the experimental implementations.\n\
+    Implementors may choose to make T3 a fixed parameter in those cases\nwhere the\
+    \ path between the neighbors has well-known characteristics.\n     Note that,\
+    \ if a gateway attempts to send Hello commands near the\nrate max(P1, S1) or Poll\
+    \ commands near the rate max(P2, S2), the\nneighbor may observe their succeeding\
+    \ arrivals to violate the polling\nrestrictions due to bunching in the net.  For\
+    \ this reason the gateway\nshould send at rates somewhat below these.  Just how\
+    \ much below these\nrates is appropriate depends on many factors beyond the scope\
+    \ of this\nspecification.\n4.1.3.  Hello Polling Mode\n     The neighbor-reachability\
+    \ algorithm can be used in either the\nactive or passive mode.  In the active\
+    \ mode Hello commands are sent\nperiodically along with Poll commands, with reachability\
+    \ determined by\nthe corresponding I-H-U and Update responses.  In the passive\
+    \ mode Hello\ncommands are not sent and I-H-U responses are not expected.\nReachability\
+    \ is then determined from the Status field of received Hello\nor Poll commands\
+    \ or Update responses.\nprotocol must operate in the active mode;  however, the\n\
+    neighbor-reachability protocol is designed to work even if both\nneighbors operate\
+    \ in the active mode.  The value of M is determined from\nthe Status field of\
+    \ a Request command or Confirm response.  The sender\nsets this field according\
+    \ to whether the implementation supports the\nactive mode, passive mode or both:\n\
+    \                Status  Sender capabilities\n                --------------------------------\n\
+    \                0       either active or passive\n                1       active\
+    \ only\n                2       passive only\n     The receiver inspects this\
+    \ field and sets the value of M according\nto its own capabilities as follows:\n\
+    \                Status  Receiver capabilites\n                field   0     \
+    \  1       2\n                -------------------------------\n              \
+    \  0       *       active  passive \n                1       passive active  passive\n\
+    \                2       active  active  **\n     In the case of \"*\" the mode\
+    \ is determined by comparing the\nautonomous system numbers of the neigbors. \
+    \ The neighbor with the\nsmallest such number assumes active mode, while the other\
+    \ neighbor\nassumes passive mode.  In the case of \"**\" the neighbor may either\
+    \ send\na Refuse response or declare a Stop event, depending on state.\n4.1.4.\
+    \  Timers\n     There are three timers defined in the state machine:  t1, used\
+    \ to\ncontrol retransmission of Request, Hello and Cease messages, t2, used to\n\
+    control retransmission of Poll commands, and t3, which serves as an\nabort-timer\
+    \ mechanism should the protocol hang indefinately.  The timers\nare set to specified\
+    \ values upon entry to each state and count down to\nzero.\n     In the case of\
+    \ t1 and t2 state-dependent events are declared when\nthe timer counts down to\
+    \ zero, after which the timer is reset to the\nspecified value and counts down\
+    \ again.  In the case of t3 a Stop event\nis declared when the timer counts down\
+    \ to zero.  Implementors may choose\nnot to implement t3 or, if so, may choose\
+    \ to implement it only in\ncertain states, with the effect that Request, Hello\
+    \ and/or Cease\ncommands may be retransmitted indefinately.\n     The following\
+    \ table shows the initial values for each of the timers\n                Idle\
+    \    Aqsn    Down    Up      Cease\n        Timer   0       1       2       3\
+    \       4\n        ---------------------------------------------\n        t1 \
+    \             P3      T1              P3\n        t2                         \
+    \     T2      \n        t3              P5      P5              P5\n4.2.  Starting\
+    \ and Stopping the Protocol\n     The Start and Stop events are intrinsic to the\
+    \ system environment\nof the gateway.  They can be declared as the result of the\
+    \ gateway\nprocess being started and stopped by the operator, for example.  A\
+    \ Start\nevent has meaning only in some states;  however, a Stop event has\nmeaning\
+    \ in all states.\n     In all except the Idle state the abort timer t3 is presumed\n\
+    running.  This timer is initialized at P5 seconds upon entry to any\nstate and\
+    \ at P4 seconds upon receipt of a neighbor-reachability\nindication in the Down\
+    \ and Up states.  If it expires a Stop event is\ndeclared.  A Stop event can also\
+    \ be declared by an intrinsic system\naction such as a resource problem or operator\
+    \ command.\n     If the abort timer is not implemented a manually-initiated Stop\n\
+    event can be used to stop the protocol.  If this is done in the Down or\nUp states,\
+    \ the machine will transition to the Cease state and emit a\nCease command.  If\
+    \ the neighbor does not respond to this command the\nmachine will stay in the\
+    \ Cease state indefinately;  however, a second\nStop event can be used in this\
+    \ state to force a transition to the Idle\nstate.\n     A Cease command received\
+    \ in any state will cause the gateway to\nimmediately send the Cease-ack response\
+    \ and transition to the Idle\nstate.  This causes the protocol to be stopped and\
+    \ all system resources\ncommitted to the gateway process to be released.  The\
+    \ interval between\nthe time the gateway enters the Idle state as the result of\
+    \ receiving a\nCease command and the time when it next sends a Request command\
+    \ to\nresume the protocol is not specified;  however, it is recommended this\n\
+    interval be at least P5 seconds.\n     It may happen that the Cease-ack response\
+    \ is lost in the network,\ncausing the neighbor to retransmit the Cease response\
+    \ indefinately, at\nleast if it has not implemented the abort-timer option.  In\
+    \ order to\nreduce the likelihood of this happening, it is suggested that a gateway\n\
+    in the Idle state be prepared to reply to a Cease command with a\nCease-ack response\
+    \ whenever possible.\n4.3.  Determining Neighbor Reachability\nproviding reliable\
+    \ net-reachability information.  An equally important\npurpose is to filter noisy\
+    \ reachability information before sending it on\nto the remainder of the Internet\
+    \ gateway system, thus avoiding\nunneccesary reachability changes.\n     As described\
+    \ above, a gateway operating in the active mode sends\nperiodic Hello commands\
+    \ and listens for I-H-U responses in order to\ndetermine neighbor-reachability\
+    \ indications.  A gateway operating in the\npassive mode determines reachability\
+    \ indications by means of the Status\nfield in received Hello commands.  Poll\
+    \ commands and Update responses\ncan be used in lieu of Hello commands and I-H-U\
+    \ responses respectively,\nsince they contain the same Status-field information.\n\
+    \     The neighbor-reachability algorithm runs continuously while the\ngateway\
+    \ is in the Down and Up states and operates as follows.  Define a\nmoving window\
+    \ in time starting at the present and extending backwards\nfor t seconds.  Then\
+    \ count the number n of neighbor-reachability\nindications which have occured\
+    \ in that window.  If n increases to j,\nthen declare a Up event.  If n decreases\
+    \ to k, then declare a Down\nevent.  The number n is set to zero upon entering\
+    \ the Down state from\nany state other than the Up state.\n     The window t in\
+    \ this algorithm is defined as T3 seconds, the value\nof which is suggested as\
+    \ four times T1, which itself is determined\nduring the Request/Confirm exchange.\
+    \  For proper operation of the\nalgorithm only one neighbor-reachability indication\
+    \ is significant in\nany window of T1 seconds and additional ones are ignored.\
+    \  Note that the\nonly way n can increase is as the result of a new neighbor-reachability\n\
+    indication and the only way it can decrease is as the result of an old\nneighbor-reachability\
+    \ indication moving out of the window.\n     The behavior of the algorithm described\
+    \ above and using the\nsuggested fixed parameters j and k differs depending on\
+    \ whether the\ngateway is operating in the active or passive mode.  In the active\
+    \ mode\n(j = 3, k = 1 and T3/T1 = 4), once the neighbor has been declared down\n\
+    it will be forced down for at least two T1 intervals and, once it has\nbeen declared\
+    \ up it will be forced up for at least two T1 intervals.  It\nwill not change\
+    \ state unless at least three of the last four\ndeterminations of reachability\
+    \ have indicated that change.\n     In the passive mode (j = 1, k = 4 and T3/T1\
+    \ = 4), the neighbor will\nbe considered up from the first time the Status field\
+    \ of a Hello or Poll\ncommand or Update response indicates \"Up state\" until\
+    \ four successive T1\nintervals have passed without such indication.  This design,\
+    \ suggested\nby similar designs used in the ARPANET, has proven effective in the\n\
+    experimental implementations, but may need to be adjusted for other\nconfigurations.\n\
+    command approximately once every T2 seconds, with the\nneighbor-reachability indication\
+    \ generated by the corresponding I-H-U or\nUpdate responses.  Its passive neighbor\
+    \ generates neighbor-reachability\nindications from the Status field of received\
+    \ Hello and Poll commands\nand Update responses.\n     Implementors may find the\
+    \ following model useful in the\nunderstanding and implementation of this algorithm.\
+    \  Consider an n-bit\nshift register that shifts one bit to the right each T1-second\
+    \ interval.\nIf a neighbor-reachability indication was received during the preceeding\n\
+    T1-second interval a one bit is shifted into the register at the end of\nthe interval;\
+    \  otherwise, a zero bit is shifted.  A table of 2**n\nentries indexed by the\
+    \ contents of the register can be used to calculate\nthe number of one bits, which\
+    \ can then be used to declare the\nappropriate event to the state machine.  A\
+    \ value of n equal to four has\nbeen found useful in the experimental implementations.\n\
+    4.4.  Determining Network Reachability\n     Network reachability information\
+    \ is encoded into Update messages in\nthe form of lists of nets and gateways.\
+    \  The IP Source Address field of\nthe Poll command is used to specify a network\
+    \ common to the autonomous\nsystems of each of the neighbors, which is usually,\
+    \ but not necessarily,\nthe one common to the neighbors themselves.  The Update\
+    \ response\nincludes a list of gateways on the common net.  Associated with each\n\
+    gateway is a list of the networks reachable via that gateway together\nwith corresponding\
+    \ hop counts.\n     It is important to understand that, at the present state of\n\
+    development as described in RFC-827 and RFC-888, the EGP architectural\nmodel\
+    \ restricts the interpretation of \"reachable\" in this context.  This\nconsideration,\
+    \ as well as the implied topological restrictions, are\nbeyond the scope of discussion\
+    \ here.  The reader is referred to the RFCs\nfor further discussion.\n     Two\
+    \ types of gateway lists can be included in the Update response,\nthe format of\
+    \ which is described in Appendix A.  Both lists include only\nthose gateways directly\
+    \ connected to the net specified in the IP Source\nNetwork field of the last-received\
+    \ Poll command.  The internal list\nincludes some or all of the gateways in the\
+    \ same autonomous system as\nthe sender, together with the nets which are reachable\
+    \ via these\ngateways, with the sending gateway listed first.  A net is reachable\
+    \ in\nthis context if a path exists to that net including only gateways in the\n\
+    system.  The external list includes those gateways in other autonomous\nsystems\
+    \ known to the sender.  It is important to realize that the hop\ncounts do not\
+    \ represent a routing metric and are comparable between\n     According to the\
+    \ current system architectural model, only gateways\nbelonging to a designated\
+    \ system, called the core system, may include\nthe external list in their Update\
+    \ responses.  All other gateways may\ninclude only those gateways belonging to\
+    \ the same system and can claim\nreachability for a particular net only if that\
+    \ net is reachable in the\nsame system.\n     The interval between successive\
+    \ Poll commands T2 is determined\nduring the Request/Confirm exchange.  However,\
+    \ the specification permits\nat most one unsolicited Update indication between\
+    \ succeeding Poll\ncommands received from the neighbor.  It is the intent of the\
+    \ model here\nthat an Update indication is sent (a) upon entry to the Up state\
+    \ and (b)\nwhen a change in the reachability data base is detected, subject to\
+    \ this\nlimitation.\n     Occasionally it may happen that a Poll command or Update\
+    \ response\nis lost in the network, with the effect that net-reachability\ninformation\
+    \ may not be available until after another T2 interval.  As an\nimplementation\
+    \ option, the gateway sending a Poll command and not\nreceiving an Update response\
+    \ after T1 seconds may send another Poll.\nThe gateway receiving this Poll may\
+    \ either (a) send an Update response\nif it never received the original Poll for\
+    \ that interval, (b) send a\nsecond Update response (which counts as the unsolicited\
+    \ Update\nindication mentioned in the preceeding paragraph) or (c) send an Error\n\
+    response or not respond at all in other cases.\n4.5.  Error Messages\n     Error\
+    \ messages can be used to report problems such as described in\nAppendix A in\
+    \ connection with the Error Response/Indication message\nformat.  In general,\
+    \ an Error message is sent upon receipt of another\ncommand or response with bad\
+    \ format, content or ordering, but never in\nAppendix A.  EGP Message Formats\n\
+    \     The formats for the various EGP messages are described in this\nsection.\
+    \  All EGP messages include a ten-octet header of six fields,\nwhich may be followed\
+    \ by additional fields depending on message type.\nThe format of the header is\
+    \ shown below along with a description of its\nfields.\n      0              \
+    \     1                   2                   3\n      0 1 2 3 4 5 6 7 8 9 0 1\
+    \ 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     | EGP Version # |     Type      |     Code      |    Status     |\n    \
+    \ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n     |  \
+    \      Checksum               |       Autonomous System #     |\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     |        Sequence #             |\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    EGP Version #           assigned number identifying the EGP version\n        \
+    \                (currently 2)\nType                    identifies the message\
+    \ type\nCode                    identifies the message code (subtype)\nStatus\
+    \                  contains message-dependent status information\nChecksum   \
+    \             The EGP checksum is the 16-bit one's complement\n              \
+    \          of the one's complement sum of the EGP message\n                  \
+    \      starting with the EGP version number field. When\n                    \
+    \    computing the checksum the checksum field itself\n                      \
+    \  should be zero.\nAutonomous System #     assigned number identifying the particular\n\
+    \                        autonomous system\nSequence #              send state\
+    \ variable (commands) or receive state\n                        variable (responses\
+    \ and indications)\nA.1.  Neighbor Acquisition Messages\n      0             \
+    \      1                   2                   3\n      0 1 2 3 4 5 6 7 8 9 0\
+    \ 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     | EGP Version # |     Type      |     Code      |    Status     |\n    \
+    \ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n     |  \
+    \      Checksum               |       Autonomous System #     |\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     |        Sequence #             |          Hello Interval       |\n    \
+    \ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n     |  \
+    \      Poll Interval          |\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\nNote:\
+    \  the Hello Interval and Poll Interval fields are present only in\nRequest and\
+    \ Confirm messages.\nType                    3\nCode                    0    \
+    \   Request command\n                        1       Confirm response\n      \
+    \                  2       Refuse response\n                        3       Cease\
+    \ command\n                        4       Cease-ack response\nStatus (see below)\
+    \      0       unspecified\n                        1       active mode\n    \
+    \                    2       passive mode\n                        3       insufficient\
+    \ resources\n                        4       administratively prohibited\n   \
+    \                     5       going down\n                        6       parameter\
+    \ problem\n                        7       protocol violation\nHello Interval\
+    \          minimum Hello command polling interval (seconds)\nPoll Interval   \
+    \        minumum Poll command polling interval (seconds)\nCode    Status     \
+    \             Scenarios\n-------------------------------------------------------------------\n\
+    0       unspecified             when nothing else fits\n1       active mode  \
+    \           Request/Confirm only\n2       passive mode            Request/Confirm\
+    \ only    \n3       insufficient resources  1. out of table space\n          \
+    \                      2. out of system resources\n4       administratively  \
+    \      1. unknown Autonomous System  \n        prohibited              2. use\
+    \ another gateway\n5       going down              1. operator initiated Stop\n\
+    \                                2. abort timeout\n6       parameter problem \
+    \      1. nonsense polling parameters\n                                2. unable\
+    \ to assume compatible mode\nA.2. Neighbor Reachability Messages\n      0    \
+    \               1                   2                   3\n      0 1 2 3 4 5 6\
+    \ 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     | EGP Version # |     Type      |     Code      |    Status     |\n    \
+    \ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n     |  \
+    \  Checksum                   |    Autonomous System #        |\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     |      Sequence #               |\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    Type                    5\nCode                    0       Hello command\n   \
+    \                     1       I-H-U response\nA.3. Poll Command\n      0     \
+    \              1                   2                   3\n      0 1 2 3 4 5 6\
+    \ 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     | EGP Version # |    Type       |     Code      |    Status     |\n    \
+    \ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n     |  \
+    \       Checksum              |       Autonomous System #     |\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     |         Sequence #            |           Reserved            |\n    \
+    \ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n     |  \
+    \                     IP Source Network                       |\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    Type                    2\nCode                    0\nStatus                 \
+    \ 0       indeterminate\n                        1       Up state\n          \
+    \              2       Down state\nIP Source Network       IP network number of\
+    \ the network about which\nA.4. Update Response/Indication\n      0          \
+    \         1                   2                   3\n      0 1 2 3 4 5 6 7 8 9\
+    \ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     | EGP Version # |    Type       |     Code      |    Status     |\n    \
+    \ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n     |  \
+    \  Checksum                   |       Autonomous System #     |\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     |    Sequence #                 | # of Int Gwys | # of Ext Gwys |\n    \
+    \ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n     |  \
+    \                     IP Source Network                       |\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     | Gateway 1 IP address (without network #)      | (1-3 octets)\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     |  # Distances  |\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n     |  Distance\
+    \ 1   |   # Nets      |\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     |   net 1,1,1   ||||||||||||||||||||||||||||||||| (1-3 octets)\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     |   net 1,1,2   ||||||||||||||||||||||||||||||||| (1-3 octets)\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \            ...\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n     |  Distance 2 \
+    \  |   # Nets      |\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     |   net 1,2,1   ||||||||||||||||||||||||||||||||| (1-3 octets)\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     |   net 1,2,2   ||||||||||||||||||||||||||||||||| (1-3 octets)\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \            ...\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     |             Gateway  n IP address (without network #)         |\n    \
+    \ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n     |  #\
+    \ Distances  |\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n     |  Distance 1   |\
+    \  # Nets       |\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     |   net n,1,1   |||||||||||||||||||||||||||||||||  (1-3 octets)\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     |   net n,1,2   |||||||||||||||||||||||||||||||||  (1-3 octets)\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     |  Distance 2   |  # Nets       |\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     |   net n,2,1   |||||||||||||||||||||||||||||||||  (1-3 octets)\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    Type                    1\nCode                    0\nStatus                 \
+    \ 0       indeterminate\n                        1       Up state\n          \
+    \              2       Down state\n                        128     unsolicited\
+    \ message bit\n# of Int Gwys           number of interior gateways appearing in\
+    \ this\n                        message\n# of Ext Gwys           number of exterior\
+    \ gateways appearing in this\n                        message\nIP Source Network\
+    \       IP network number of the network about which\n                       \
+    \ reachability information is being supplied\n                        (coded as\
+    \ 1, 2 or 3 octets, left justified with\n                        trailing zeros)\n\
+    Gateway IP addresses    IP address (without network number) of the\n         \
+    \               gateway block (coded as 1, 2 or 3 octets)\n# of Distances    \
+    \      number of distances in the gateway block\nDistances               numbers\
+    \ depending on autonomous system\n                        architecture\nA.5. Error\
+    \ Response/Indication\n      0                   1                   2       \
+    \            3\n      0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7\
+    \ 8 9 0 1\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     | EGP Version # |    Type       |     Code      |    Status     |\n    \
+    \ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n     |  \
+    \  Checksum                   |       Autonomous System #     |\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \     |       Sequence #              |          Reason               |\n    \
+    \ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n     |  \
+    \                                                             |\n     |      \
+    \               Error Message Header                      |\n     |          \
+    \  (first three 32-bit words of EGP header)           |\n     |              \
+    \                                                 |\n     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    Type                    8\nCode                    0\nStatus                 \
+    \ 0       indeterminate\n                        1       Up state\n          \
+    \              2       Down state\n                        128     unsolicited\
+    \ message bit\nReason (see below)      0       unspecified\n                 \
+    \       1       bad EGP header format\n                        2       bad EGP\
+    \ data field format\n                        3       reachability info unavailable\n\
+    \                        4       excessive polling rate\n                    \
+    \    5       no response\nError Message Header    first three 32-bit words of\
+    \ EGP header\nCode    Reason                  Scenarios\n------------------------------------------------------------------------\n\
+    0       unspecified             when nothing else fits\n1       bad EGP header\
+    \ format   1. bad message length\n                                2. invalid Type,\
+    \ Code or Status fields\n                                Notes: The recipient\
+    \ can determine which\n                                of the above hold by inspecting\
+    \ the EGP\n                                header included in the message. An\n\
+    \                                instance of a wrong EGP version or bad\n    \
+    \                            checksum should not be reported, since\n        \
+    \                        the original recipient can not trust the\n          \
+    \                      header format. An instance of an unknown\n            \
+    \                    autonomous system should be caught at\n                 \
+    \               acquistion time.\n2       bad EGP data field      1. nonsense\
+    \ polling rates\n        format                     (Request/Confirm)\n      \
+    \                          2. invalid Update message format\n                \
+    \                3. response IP Net Address field does\n                     \
+    \              not match command (Update)\n                                Notes:\
+    \ An instance of nonsense polling\n                                intervals (e.g.\
+    \ too long to be useful)\n                                specified in a Request\
+    \ or Confirm should\n                                result in a Refuse or Cease\
+    \ with this\n                                cause specified.\n3       reachability\
+    \ info       1. no info available on net specified in\n        unavailable   \
+    \             IP Net Address field (Poll)\n4       excessive polling rate  1.\
+    \ two or more Hello commands received\n                                   within\
+    \ minimum specified polling\n                                   interval\n   \
+    \                             2. two or more Poll commands received\n        \
+    \                           within minimum specified polling\n               \
+    \                    interval\n                                3. two or more\
+    \ Request commands received\n                                   within some (reasonably\
+    \ short)\n                                   interval\n                      \
+    \          Notes: The recipient can determine which\n                        \
+    \        of the above hold by inspecting the EGP\n                           \
+    \     header included in the message.\nAppendix B.  Comparison with RFC-888\n\
+    \     Minor functional enhancements are necessary in the RFC-888 message\nformats\
+    \ to support certain features assumed of the state-machine model,\nin particular\
+    \ the capability to request a neighbor to suppress Hello\ncommands.  In addition,\
+    \ the model suggests a mapping between its states\nand certain status and error\
+    \ indications which clarifies and generalizes\nthe interpretation.\n     All of\
+    \ the header fields except the Status field (called the\nInformation field at\
+    \ some places in RFC-888) remain unchanged.  The\nfollowing table summarizes the\
+    \ suggested format changes in the Status\nfield for the various messages by (Type,\
+    \ Code) class.\nClass   Messages                Status Codes\n-------------------------------------------------------------------\n\
+    3,0     Request                 0       unspecified\n3,1     Confirm         \
+    \        1       active mode\n3,2     Refuse                  2       passive\
+    \ mode\n3,3     Cease                   3       insufficient resources\n3,4  \
+    \   Cease-ack               4       administratively prohibited\n            \
+    \                    5       going down\n                                6   \
+    \    parameter problem\n5,0     Hello                   0       indeterminate\n\
+    5,1     I-H-U                   1       Up state\n2,0     Poll               \
+    \     2       Down state\n1,0     Update                  128     unsolicited\
+    \ message bit\n8,0     Error\nThe changes from RFC-888 are as follows:\n1.  The\
+    \ status codes have been combined in two classes, one for those\n    messages\
+    \ involved in starting and stopping the protocol and the\n    other for those\
+    \ messages involved in maintaining the protocol and\n    exchanging reachability\
+    \ information.  Some messages of either class\n    may not use all the status\
+    \ codes assigned.\n2.  The status codes for the Request and Confirm indicate whether\
+    \ the\n    sender can operate in active or passive mode.  In RFC-888 this field\n\
+    \    must be zero;  however, RFC-888 does not specify any mechanism to\n    decide\
+    \ how the neighbors poll each other.\n3.  The status codes for the Cease, Refuse\
+    \ and Cease-ack have the same\n    interpretation.  This provides a clear and\
+    \ unambiguous indication\n    when the protocol is terminated due to an unusual\
+    \ situation, for\n    instance if the NOC dynamically repartitions the ARPANET.\
+    \  The\n4.  The status codes for the Hello, I-H-U, Poll, Update and Error have\n\
+    \    the same interpretation.  Codes 0 through 2 are mutually exclusive\n    and\
+    \ are chosen solely on the basis of the state of the sender.  In\n    the case\
+    \ of the Update (and possibly Error) one of these codes can\n    be combined with\
+    \ the \"unsolicited bit,\" which corresponds to code\n    128.  In RFC-888 this\
+    \ field is unused for the Poll and Error and may\n    contain only zero or 128\
+    \ for the Update, so that the default case is\n    to assume that reciprocal reachability\
+    \ cannot be determined by these\n    messages.\nAppendix C.  Reachability Analysis\n\
+    \     The following table shows the state transitions which can occur in\na system\
+    \ of two neighboring EGP gateways.  Besides being useful in the\ndesign and verification\
+    \ of the protocol, the table is useful for\nimplementation and testing.\n    \
+    \ The system of two neighboring EGP gateways is modelled as a\nfinite-state automaton\
+    \ constructed as the cartesian product of two state\nmachines as defined above.\
+    \  Each state of this machine is represented as\n[i,j], where i and j are states\
+    \ of the original machine.  Each line of\nthe table shows one state transition\
+    \ of the machine in the form:\n                        [i1,j1] -> [i2,j2]  E \
+    \ A\nwhich specifies the machine in state [i1,j1] presented with event E\ntransitions\
+    \ to state [i2,j2] and generates action A.  Multiple actions\nare separated by\
+    \ the \"/\" symbol.  The special symbol \"*\" represents the\nset of lines where\
+    \ all \"*\"s in the line take on the (same) values 0 - 4\nin turn.\n     The table\
+    \ shows only those transitions which can occur as the\nresult of events arriving\
+    \ at one of the two neighbors.  The full table\nincludes a duplicate set of lines\
+    \ for the other neighbor as well, with\neach line derived from a line of the table\
+    \ below using the\ntransformation:\n         [i1,j1] -> [i2,j2]  E  A  =>  [j1,i1]\
+    \ -> [j2,i2]  E  A\nState    State  Event           Actions\n---------------------------------------------------\n\
+    [*,4] -> [0,4]  Cease           Cease-ack\n[0,1] -> [2,1]  Request         Confirm/Hello/Up/t1\n\
+    [0,1] -> [0,1]  Request         Refuse\n[0,*] -> [1,*]  Start           Request/t1\n\
+    [1,1] -> [2,1]  Request         Confirm/Hello/Up/t1\n[1,2] -> [2,2]  Confirm \
+    \        Hello/Up/t1\n[1,3] -> [2,3]  Confirm         Hello/Up/t1\n[1,0] -> [0,0]\
+    \  Refuse          Null\n[1,*] -> [1,*]  Start           Request/r1\n[1,*] ->\
+    \ [0,*]  Stop            Null\n[1,*] -> [1,*]  t1              Request/t1\n[2,1]\
+    \ -> [3,1]  Up              Down/Hello/Poll/t1/t2\n[2,1] -> [2,1]  Request   \
+    \      Confirm/Hello/Up/t1\n[2,3] -> [2,3]  I-H-U           Process\n[2,*] ->\
+    \ [1,*]  Start           Request/r1\n[2,*] -> [4,*]  Stop            Cease/t1\n\
+    [2,1] -> [2,1]  t1              Hello/t1\n[2,2] -> [2,2]  t1              Hello/t1\n\
+    [2,3] -> [2,3]  t1              Hello/t1\n[3,1] -> [2,1]  Down            Null\n\
+    [3,2] -> [2,2]  Down            Null\n[3,3] -> [2,3]  Down            Null\n[3,1]\
+    \ -> [2,1]  Request         Confirm/Hello/Up/t1\n[3,2] -> [3,2]  Hello       \
+    \    I-H-U\n[3,3] -> [3,3]  Hello           I-H-U\n[3,2] -> [3,2]  I-H-U     \
+    \      Process\n[3,3] -> [3,3]  I-H-U           Process\n[3,3] -> [3,3]  Poll\
+    \            Update\n[3,3] -> [3,3]  Update          Process\n[3,*] -> [1,*] \
+    \ Start           Request/r1\n[3,*] -> [4,*]  Stop            Cease/t1\n[3,1]\
+    \ -> [3,1]  t1              Hello/t1\n[3,2] -> [3,2]  t1              Hello/t1\n\
+    [3,3] -> [3,3]  t1              Hello/t1\n[3,1] -> [3,1]  t2              Poll/t2\n\
+    [3,2] -> [3,2]  t2              Poll/t2\n[3,3] -> [3,3]  t2              Poll/t2\n\
+    [4,1] -> [4,1]  Request         Cease\n[4,*] -> [0,*]  Cease           Cease-ack\n\
+    [4,0] -> [0,0]  Cease-ack       Null\n[4,*] -> [0,*]  Stop            Null\n[4,*]\
+    \ -> [4,*]  t1              Cease/t1\n     In the state-machine model defined\
+    \ in this document all states of\nthe above machine are reachable;  however, some\
+    \ are reachable only in\nextreme cases when one neighbor crashes, for example.\
+    \  In the common\ncase where only one of the neighbors initiates and terminates\
+    \ the\nprotocol and neither one crashes, for example, not all states are\nreachable.\
+    \  Following is a matrix showing the states which can be\n                   \
+    \             Passive Gateway\nActive     0 Idle      1 Aqsn      2 Down     \
+    \ 3 Up        4 Cease\nGateway   +-----------+-----------+-----------+-----------+-----------+\n\
+    0 Idle    |stable     |           |           |           |unstable   |\n1 Aqsn\
+    \    |unstable   |unstable   |unstable   |unstable   |unstable   |\n2 Down   \
+    \ |           |           |stable     |unstable   |           |\n3 Up      | \
+    \          |           |unstable   |stable     |           |\n4 Cease   |unstable\
+    \   |unstable   |unstable   |unstable   |unstable   |\n          +-----------+-----------+-----------+-----------+-----------+\n\
+    \     In the above matrix the blank entries represent unreachable states,\n"

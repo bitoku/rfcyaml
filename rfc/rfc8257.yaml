@@ -1,0 +1,500 @@
+- title: __initial_text__
+  contents:
+  - '    Data Center TCP (DCTCP): TCP Congestion Control for Data Centers
+
+    '
+- title: Abstract
+  contents:
+  - "Abstract\n   This Informational RFC describes Data Center TCP (DCTCP): a TCP\n\
+    \   congestion control scheme for data-center traffic.  DCTCP extends the\n  \
+    \ Explicit Congestion Notification (ECN) processing to estimate the\n   fraction\
+    \ of bytes that encounter congestion rather than simply\n   detecting that some\
+    \ congestion has occurred.  DCTCP then scales the\n   TCP congestion window based\
+    \ on this estimate.  This method achieves\n   high-burst tolerance, low latency,\
+    \ and high throughput with shallow-\n   buffered switches.  This memo also discusses\
+    \ deployment issues\n   related to the coexistence of DCTCP and conventional TCP,\
+    \ discusses\n   the lack of a negotiating mechanism between sender and receiver,\
+    \ and\n   presents some possible mitigations.  This memo documents DCTCP as\n\
+    \   currently implemented by several major operating systems.  DCTCP, as\n   described\
+    \ in this specification, is applicable to deployments in\n   controlled environments\
+    \ like data centers, but it must not be\n   deployed over the public Internet\
+    \ without additional measures.\n"
+- title: Status of This Memo
+  contents:
+  - "Status of This Memo\n   This document is not an Internet Standards Track specification;\
+    \ it is\n   published for informational purposes.\n   This document is a product\
+    \ of the Internet Engineering Task Force\n   (IETF).  It represents the consensus\
+    \ of the IETF community.  It has\n   received public review and has been approved\
+    \ for publication by the\n   Internet Engineering Steering Group (IESG).  Not\
+    \ all documents\n   approved by the IESG are a candidate for any level of Internet\n\
+    \   Standard; see Section 2 of RFC 7841.\n   Information about the current status\
+    \ of this document, any errata,\n   and how to provide feedback on it may be obtained\
+    \ at\n   https://www.rfc-editor.org/info/rfc8257.\n"
+- title: Copyright Notice
+  contents:
+  - "Copyright Notice\n   Copyright (c) 2017 IETF Trust and the persons identified\
+    \ as the\n   document authors.  All rights reserved.\n   This document is subject\
+    \ to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n\
+    \   (https://trustee.ietf.org/license-info) in effect on the date of\n   publication\
+    \ of this document.  Please review these documents\n   carefully, as they describe\
+    \ your rights and restrictions with respect\n   to this document.  Code Components\
+    \ extracted from this document must\n   include Simplified BSD License text as\
+    \ described in Section 4.e of\n   the Trust Legal Provisions and are provided\
+    \ without warranty as\n   described in the Simplified BSD License.\n"
+- title: Table of Contents
+  contents:
+  - "Table of Contents\n   1.  Introduction  . . . . . . . . . . . . . . . . . . .\
+    \ . . . . .   3\n   2.  Terminology . . . . . . . . . . . . . . . . . . . . .\
+    \ . . . .   4\n   3.  DCTCP Algorithm . . . . . . . . . . . . . . . . . . . .\
+    \ . . .   5\n     3.1.  Marking Congestion on the L3 Switches and Routers . .\
+    \ . .   5\n     3.2.  Echoing Congestion Information on the Receiver  . . . .\
+    \ .   5\n     3.3.  Processing Echoed Congestion Indications on the Sender  .\
+    \   7\n     3.4.  Handling of Congestion Window Growth  . . . . . . . . . .  \
+    \ 8\n     3.5.  Handling of Packet Loss . . . . . . . . . . . . . . . . .   8\n\
+    \     3.6.  Handling of SYN, SYN-ACK, and RST Packets . . . . . . . .   9\n  \
+    \ 4.  Implementation Issues . . . . . . . . . . . . . . . . . . . .   9\n    \
+    \ 4.1.  Configuration of DCTCP  . . . . . . . . . . . . . . . . .   9\n     4.2.\
+    \  Computation of DCTCP.Alpha  . . . . . . . . . . . . . . .  10\n   5.  Deployment\
+    \ Issues . . . . . . . . . . . . . . . . . . . . . .  11\n   6.  Known Issues\
+    \  . . . . . . . . . . . . . . . . . . . . . . . .  12\n   7.  Security Considerations\
+    \ . . . . . . . . . . . . . . . . . . .  12\n   8.  IANA Considerations . . .\
+    \ . . . . . . . . . . . . . . . . . .  13\n   9.  References  . . . . . . . .\
+    \ . . . . . . . . . . . . . . . . .  13\n     9.1.  Normative References  . .\
+    \ . . . . . . . . . . . . . . . .  13\n     9.2.  Informative References  . .\
+    \ . . . . . . . . . . . . . . .  14\n   Acknowledgments . . . . . . . . . . .\
+    \ . . . . . . . . . . . . . .  16\n   Authors' Addresses  . . . . . . . . . .\
+    \ . . . . . . . . . . . . .  16\n"
+- title: 1.  Introduction
+  contents:
+  - "1.  Introduction\n   Large data centers necessarily need many network switches\
+    \ to\n   interconnect their many servers.  Therefore, a data center can\n   greatly\
+    \ reduce its capital expenditure by leveraging low-cost\n   switches.  However,\
+    \ such low-cost switches tend to have limited queue\n   capacities; thus, they\
+    \ are more susceptible to packet loss due to\n   congestion.\n   Network traffic\
+    \ in a data center is often a mix of short and long\n   flows, where the short\
+    \ flows require low latencies and the long flows\n   require high throughputs.\
+    \  Data centers also experience incast\n   bursts, where many servers send traffic\
+    \ to a single server at the\n   same time.  For example, this traffic pattern\
+    \ is a natural\n   consequence of the MapReduce [MAPREDUCE] workload: the worker\
+    \ nodes\n   complete at approximately the same time, and all reply to the master\n\
+    \   node concurrently.\n   These factors place some conflicting demands on the\
+    \ queue occupancy\n   of a switch:\n   o  The queue must be short enough that\
+    \ it does not impose excessive\n      latency on short flows.\n   o  The queue\
+    \ must be long enough to buffer sufficient data for the\n      long flows to saturate\
+    \ the path capacity.\n   o  The queue must be long enough to absorb incast bursts\
+    \ without\n      excessive packet loss.\n   Standard TCP congestion control [RFC5681]\
+    \ relies on packet loss to\n   detect congestion.  This does not meet the demands\
+    \ described above.\n   First, short flows will start to experience unacceptable\
+    \ latencies\n   before packet loss occurs.  Second, by the time TCP congestion\n\
+    \   control kicks in on the senders, most of the incast burst has already\n  \
+    \ been dropped.\n   [RFC3168] describes a mechanism for using Explicit Congestion\n\
+    \   Notification (ECN) from the switches for detection of congestion.\n   However,\
+    \ this method only detects the presence of congestion, not its\n   extent.  In\
+    \ the presence of mild congestion, the TCP congestion\n   window is reduced too\
+    \ aggressively, and this unnecessarily reduces\n   the throughput of long flows.\n\
+    \   Data Center TCP (DCTCP) changes traditional ECN processing by\n   estimating\
+    \ the fraction of bytes that encounter congestion rather\n   than simply detecting\
+    \ that some congestion has occurred.  DCTCP then\n   scales the TCP congestion\
+    \ window based on this estimate.  This method\n   achieves high-burst tolerance,\
+    \ low latency, and high throughput with\n   shallow-buffered switches.  DCTCP\
+    \ is a modification to the processing\n   of ECN by a conventional TCP and requires\
+    \ that standard TCP\n   congestion control be used for handling packet loss.\n\
+    \   DCTCP should only be deployed in an intra-data-center environment\n   where\
+    \ both endpoints and the switching fabric are under a single\n   administrative\
+    \ domain.  DCTCP MUST NOT be deployed over the public\n   Internet without additional\
+    \ measures, as detailed in Section 5.\n   The objective of this Informational\
+    \ RFC is to document DCTCP as a new\n   approach (which is known to be widely\
+    \ implemented and deployed) to\n   address TCP congestion control in data centers.\
+    \  The IETF TCPM\n   Working Group reached consensus regarding the fact that a\
+    \ DCTCP\n   standard would require further work.  A precise documentation of\n\
+    \   running code enables follow-up Experimental or Standards Track RFCs\n   through\
+    \ the IETF stream.\n   This document describes DCTCP as implemented in Microsoft\
+    \ Windows\n   Server 2012 [WINDOWS].  The Linux [LINUX] and FreeBSD [FREEBSD]\n\
+    \   operating systems have also implemented support for DCTCP in a way\n   that\
+    \ is believed to follow this document.  Deployment experiences\n   with DCTCP\
+    \ have been documented in [MORGANSTANLEY].\n"
+- title: 2.  Terminology
+  contents:
+  - "2.  Terminology\n   The key words \"MUST\", \"MUST NOT\", \"REQUIRED\", \"SHALL\"\
+    , \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\", \"NOT RECOMMENDED\"\
+    , \"MAY\", and\n   \"OPTIONAL\" in this document are to be interpreted as described\
+    \ in\n   BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in all\n\
+    \   capitals, as shown here.\n   Normative language is used to describe how necessary\
+    \ the various\n   aspects of a DCTCP implementation are for interoperability,\
+    \ but even\n   compliant implementations without the measures in Sections 4-6\
+    \ would\n   still only be safe to deploy in controlled environments, i.e., not\n\
+    \   over the public Internet.\n"
+- title: 3.  DCTCP Algorithm
+  contents:
+  - "3.  DCTCP Algorithm\n   There are three components involved in the DCTCP algorithm:\n\
+    \   o  The switches (or other intermediate devices in the network) detect\n  \
+    \    congestion and set the Congestion Encountered (CE) codepoint in\n      the\
+    \ IP header.\n   o  The receiver echoes the congestion information back to the\
+    \ sender,\n      using the ECN-Echo (ECE) flag in the TCP header.\n   o  The sender\
+    \ computes a congestion estimate and reacts by reducing\n      the TCP congestion\
+    \ window (cwnd) accordingly.\n"
+- title: 3.1.  Marking Congestion on the L3 Switches and Routers
+  contents:
+  - "3.1.  Marking Congestion on the L3 Switches and Routers\n   The Layer 3 (L3)\
+    \ switches and routers in a data-center fabric\n   indicate congestion to the\
+    \ end nodes by setting the CE codepoint in\n   the IP header as specified in Section\
+    \ 5 of [RFC3168].  For example,\n   the switches may be configured with a congestion\
+    \ threshold.  When a\n   packet arrives at a switch and its queue length is greater\
+    \ than the\n   congestion threshold, the switch sets the CE codepoint in the packet.\n\
+    \   For example, Section 3.4 of [DCTCP10] suggests threshold marking with\n  \
+    \ a threshold of K > (RTT * C)/7, where C is the link rate in packets\n   per\
+    \ second.  In typical deployments, the marking threshold is set to\n   be a small\
+    \ value to maintain a short average queueing delay.\n   However, the actual algorithm\
+    \ for marking congestion is an\n   implementation detail of the switch and will\
+    \ generally not be known\n   to the sender and receiver.  Therefore, the sender\
+    \ and receiver\n   should not assume that a particular marking algorithm is implemented\n\
+    \   by the switching fabric.\n"
+- title: 3.2.  Echoing Congestion Information on the Receiver
+  contents:
+  - "3.2.  Echoing Congestion Information on the Receiver\n   According to Section\
+    \ 6.1.3 of [RFC3168], the receiver sets the ECE\n   flag if any of the packets\
+    \ being acknowledged had the CE codepoint\n   set.  The receiver then continues\
+    \ to set the ECE flag until it\n   receives a packet with the Congestion Window\
+    \ Reduced (CWR) flag set.\n   However, the DCTCP algorithm requires more-detailed\
+    \ congestion\n   information.  In particular, the sender must be able to determine\
+    \ the\n   number of bytes sent that encountered congestion.  Thus, the scheme\n\
+    \   described in [RFC3168] does not suffice.\n   One possible solution is to ACK\
+    \ every packet and set the ECE flag in\n   the ACK if and only if the CE codepoint\
+    \ was set in the packet being\n   acknowledged.  However, this prevents the use\
+    \ of delayed ACKs, which\n   are an important performance optimization in data\
+    \ centers.  If the\n   delayed ACK frequency is n, then an ACK is generated every\
+    \ n packets.\n   The typical value of n is 2, but it could be affected by ACK\n\
+    \   throttling or packet-coalescing techniques designed to improve\n   performance.\n\
+    \   Instead, DCTCP introduces a new Boolean TCP state variable, DCTCP\n   Congestion\
+    \ Encountered (DCTCP.CE), which is initialized to false and\n   stored in the\
+    \ Transmission Control Block (TCB).  When sending an ACK,\n   the ECE flag MUST\
+    \ be set if and only if DCTCP.CE is true.  When\n   receiving packets, the CE\
+    \ codepoint MUST be processed as follows:\n   1.  If the CE codepoint is set and\
+    \ DCTCP.CE is false, set DCTCP.CE to\n       true and send an immediate ACK.\n\
+    \   2.  If the CE codepoint is not set and DCTCP.CE is true, set DCTCP.CE\n  \
+    \     to false and send an immediate ACK.\n   3.  Otherwise, ignore the CE codepoint.\n\
+    \   Since the immediate ACK reflects the new DCTCP.CE state, it may\n   acknowledge\
+    \ any previously unacknowledged packets in the old state.\n   This can lead to\
+    \ an incorrect rate computation at the sender per\n   Section 3.3.  To avoid this,\
+    \ an implementation MAY choose to send two\n   ACKs: one for previously unacknowledged\
+    \ packets and another\n   acknowledging the most recently received packet.\n \
+    \  Receiver handling of the CWR bit is also per [RFC3168] (including\n   [Err3639]).\
+    \  That is, on receipt of a segment with both the CE and\n   CWR bits set, CWR\
+    \ is processed first and then CE is processed.\n                             Send\
+    \ immediate\n                             ACK with ECE=0\n                 .-----.\
+    \     .--------------.     .-----.\n    Send 1 ACK  /      v     v           \
+    \   |     |      \\\n     for every |     .------------.    .------------.   \
+    \  | Send 1 ACK\n     n packets |     | DCTCP.CE=0 |    | DCTCP.CE=1 |     | for\
+    \ every\n    with ECE=0 |     '------------'    '------------'     | n packets\n\
+    \                \\      |     |              ^     ^      /  with ECE=1\n   \
+    \              '-----'     '--------------'     '-----'\n                    \
+    \          Send immediate\n                              ACK with ECE=1\n    \
+    \              Figure 1: ACK Generation State Machine\n"
+- title: 3.3.  Processing Echoed Congestion Indications on the Sender
+  contents:
+  - "3.3.  Processing Echoed Congestion Indications on the Sender\n   The sender estimates\
+    \ the fraction of bytes sent that encountered\n   congestion.  The current estimate\
+    \ is stored in a new TCP state\n   variable, DCTCP.Alpha, which is initialized\
+    \ to 1 and SHOULD be\n   updated as follows:\n      DCTCP.Alpha = DCTCP.Alpha\
+    \ * (1 - g) + g * M\n   where:\n   o  g is the estimation gain, a real number\
+    \ between 0 and 1.  The\n      selection of g is left to the implementation. \
+    \ See Section 4 for\n      further considerations.\n   o  M is the fraction of\
+    \ bytes sent that encountered congestion during\n      the previous observation\
+    \ window, where the observation window is\n      chosen to be approximately the\
+    \ Round-Trip Time (RTT).  In\n      particular, an observation window ends when\
+    \ all bytes in flight at\n      the beginning of the window have been acknowledged.\n\
+    \   In order to update DCTCP.Alpha, the TCP state variables defined in\n   [RFC0793]\
+    \ are used, and three additional TCP state variables are\n   introduced:\n   o\
+    \  DCTCP.WindowEnd: the TCP sequence number threshold when one\n      observation\
+    \ window ends and another is to begin; initialized to\n      SND.UNA.\n   o  DCTCP.BytesAcked:\
+    \ the number of sent bytes acknowledged during the\n      current observation\
+    \ window; initialized to 0.\n   o  DCTCP.BytesMarked: the number of bytes sent\
+    \ during the current\n      observation window that encountered congestion; initialized\
+    \ to 0.\n   The congestion estimator on the sender MUST process acceptable ACKs\n\
+    \   as follows:\n   1.  Compute the bytes acknowledged (TCP Selective Acknowledgment\n\
+    \       (SACK) options [RFC2018] are ignored for this computation):\n        \
+    \  BytesAcked = SEG.ACK - SND.UNA\n   2.  Update the bytes sent:\n          DCTCP.BytesAcked\
+    \ += BytesAcked\n   3.  If the ECE flag is set, update the bytes marked:\n   \
+    \       DCTCP.BytesMarked += BytesAcked\n   4.  If the acknowledgment number is\
+    \ less than or equal to\n       DCTCP.WindowEnd, stop processing.  Otherwise,\
+    \ the end of the\n       observation window has been reached, so proceed to update\
+    \ the\n       congestion estimate as follows:\n   5.  Compute the congestion level\
+    \ for the current observation window:\n          M = DCTCP.BytesMarked / DCTCP.BytesAcked\n\
+    \   6.  Update the congestion estimate:\n          DCTCP.Alpha = DCTCP.Alpha *\
+    \ (1 - g) + g * M\n   7.  Determine the end of the next observation window:\n\
+    \          DCTCP.WindowEnd = SND.NXT\n   8.  Reset the byte counters:\n      \
+    \    DCTCP.BytesAcked = DCTCP.BytesMarked = 0\n   9.  Rather than always halving\
+    \ the congestion window as described in\n       [RFC3168], the sender SHOULD update\
+    \ cwnd as follows:\n          cwnd = cwnd * (1 - DCTCP.Alpha / 2)\n   Just as\
+    \ specified in [RFC3168], DCTCP does not react to congestion\n   indications more\
+    \ than once for every window of data.  The setting of\n   the CWR bit is also\
+    \ as per [RFC3168].  This is required for\n   interoperation with classic ECN\
+    \ receivers due to potential\n   misconfigurations.\n"
+- title: 3.4.  Handling of Congestion Window Growth
+  contents:
+  - "3.4.  Handling of Congestion Window Growth\n   A DCTCP sender grows its congestion\
+    \ window in the same way as\n   conventional TCP.  Slow start and congestion avoidance\
+    \ algorithms are\n   handled as specified in [RFC5681].\n"
+- title: 3.5.  Handling of Packet Loss
+  contents:
+  - "3.5.  Handling of Packet Loss\n   A DCTCP sender MUST react to loss episodes\
+    \ in the same way as\n   conventional TCP, including fast retransmit and fast\
+    \ recovery\n   algorithms, as specified in [RFC5681].  For cases where the packet\n\
+    \   loss is inferred and not explicitly signaled by ECN, the cwnd and\n   other\
+    \ state variables like ssthresh MUST be changed in the same way\n   that a conventional\
+    \ TCP would have changed them.  As with ECN, a\n   DCTCP sender will only reduce\
+    \ the cwnd once per window of data across\n   all loss signals.  Just as specified\
+    \ in [RFC5681], upon a timeout,\n   the cwnd MUST be set to no more than the loss\
+    \ window (1 full-sized\n   segment), regardless of previous cwnd reductions in\
+    \ a given window of\n   data.\n"
+- title: 3.6.  Handling of SYN, SYN-ACK, and RST Packets
+  contents:
+  - "3.6.  Handling of SYN, SYN-ACK, and RST Packets\n   If SYN, SYN-ACK, and RST\
+    \ packets for DCTCP connections have the ECN-\n   Capable Transport (ECT) codepoint\
+    \ set in the IP header, they will\n   receive the same treatment as other DCTCP\
+    \ packets when forwarded by a\n   switching fabric under load.  Lack of ECT in\
+    \ these packets can result\n   in a higher drop rate, depending on the switching\
+    \ fabric\n   configuration.  Hence, for DCTCP connections, the sender SHOULD set\n\
+    \   ECT for SYN, SYN-ACK, and RST packets.  A DCTCP receiver ignores CE\n   codepoints\
+    \ set on any SYN, SYN-ACK, or RST packets.\n"
+- title: 4.  Implementation Issues
+  contents:
+  - '4.  Implementation Issues
+
+    '
+- title: 4.1.  Configuration of DCTCP
+  contents:
+  - "4.1.  Configuration of DCTCP\n   An implementation needs to know when to use\
+    \ DCTCP.  Data-center\n   servers may need to communicate with endpoints outside\
+    \ the data\n   center, where DCTCP is unsuitable or unsupported.  Thus, a global\n\
+    \   configuration setting to enable DCTCP will generally not suffice.\n   DCTCP\
+    \ provides no mechanism for negotiating its use.  Thus,\n   additional management\
+    \ and configuration functionality is needed to\n   ensure that DCTCP is not used\
+    \ with non-DCTCP endpoints.\n   Known solutions rely on either configuration or\
+    \ heuristics.\n   Heuristics need to allow endpoints to individually enable DCTCP\
+    \ to\n   ensure a DCTCP sender is always paired with a DCTCP receiver.  One\n\
+    \   approach is to enable DCTCP based on the IP address of the remote\n   endpoint.\
+    \  Another approach is to detect connections that transmit\n   within the bounds\
+    \ of a data center.  For example, an implementation\n   could support automatic\
+    \ selection of DCTCP if the estimated RTT is\n   less than a threshold (like 10\
+    \ msec) and ECN is successfully\n   negotiated under the assumption that if the\
+    \ RTT is low, then the two\n   endpoints are likely in the same data-center network.\n\
+    \   [RFC3168] forbids the ECN-marking of pure ACK packets because of the\n   inability\
+    \ of TCP to mitigate ACK-path congestion.  RFC 3168 also\n   forbids ECN-marking\
+    \ of retransmissions, window probes, and RSTs.\n   However, dropping all these\
+    \ control packets -- rather than ECN-\n   marking them -- has considerable performance\
+    \ disadvantages.  It is\n   RECOMMENDED that an implementation provide a configuration\
+    \ knob that\n   will cause ECT to be set on such control packets, which can be\
+    \ used\n   in environments where such concerns do not apply.  See\n   [ECN-EXPERIMENTATION]\
+    \ for details.\n   It is useful to implement DCTCP as an additional action on\
+    \ top of an\n   existing congestion control algorithm like Reno [RFC5681].  The\
+    \ DCTCP\n   implementation MAY also allow configuration of resetting the value\
+    \ of\n   DCTCP.Alpha as part of processing any loss episodes.\n"
+- title: 4.2.  Computation of DCTCP.Alpha
+  contents:
+  - "4.2.  Computation of DCTCP.Alpha\n   As noted in Section 3.3, the implementation\
+    \ will need to choose a\n   suitable estimation gain.  [DCTCP10] provides a theoretical\
+    \ basis for\n   selecting the gain.  However, it may be more practical to use\n\
+    \   experimentation to select a suitable gain for a particular network\n   and\
+    \ workload.  A fixed estimation gain of 1/16 is used in some\n   implementations.\
+    \  (It should be noted that values of 0 or 1 for g\n   result in problematic behavior;\
+    \ g=0 fixes DCTCP.Alpha to its initial\n   value, and g=1 sets it to M without\
+    \ any smoothing.)\n   The DCTCP.Alpha computation as per the formula in Section\
+    \ 3.3\n   involves fractions.  An efficient kernel implementation MAY scale the\n\
+    \   DCTCP.Alpha value for efficient computation using shift operations.\n   For\
+    \ example, if the implementation chooses g as 1/16, multiplications\n   of DCTCP.Alpha\
+    \ by g become right-shifts by 4.  A scaling\n   implementation SHOULD ensure that\
+    \ DCTCP.Alpha is able to reach 0 once\n   it falls below the smallest shifted\
+    \ value (16 in the above example).\n   At the other extreme, a scaled update needs\
+    \ to ensure DCTCP.Alpha\n   does not exceed the scaling factor, which would be\
+    \ equivalent to\n   greater than 100% congestion.  So, DCTCP.Alpha MUST be clamped\
+    \ after\n   an update.\n   This results in the following computations replacing\
+    \ steps 5 and 6 in\n   Section 3.3, where SCF is the chosen scaling factor (65536\
+    \ in the\n   example), and SHF is the shift factor (4 in the example):\n   1.\
+    \  Compute the congestion level for the current observation window:\n        \
+    \  ScaledM = SCF * DCTCP.BytesMarked / DCTCP.BytesAcked\n   2.  Update the congestion\
+    \ estimate:\n          if (DCTCP.Alpha >> SHF) == 0, then DCTCP.Alpha = 0\n  \
+    \        DCTCP.Alpha += (ScaledM >> SHF) - (DCTCP.Alpha >> SHF)\n          if\
+    \ DCTCP.Alpha > SCF, then DCTCP.Alpha = SCF\n"
+- title: 5.  Deployment Issues
+  contents:
+  - "5.  Deployment Issues\n   DCTCP and conventional TCP congestion control do not\
+    \ coexist well in\n   the same network.  In typical DCTCP deployments, the marking\n\
+    \   threshold in the switching fabric is set to a very low value to\n   reduce\
+    \ queueing delay, and a relatively small amount of congestion\n   will exceed\
+    \ the marking threshold.  During such periods of\n   congestion, conventional\
+    \ TCP will suffer packet loss and quickly and\n   drastically reduce cwnd.  DCTCP,\
+    \ on the other hand, will use the\n   fraction of marked packets to reduce cwnd\
+    \ more gradually.  Thus, the\n   rate reduction in DCTCP will be much slower than\
+    \ that of conventional\n   TCP, and DCTCP traffic will gain a larger share of\
+    \ the capacity\n   compared to conventional TCP traffic traversing the same path.\
+    \  If\n   the traffic in the data center is a mix of conventional TCP and\n  \
+    \ DCTCP, it is RECOMMENDED that DCTCP traffic be segregated from\n   conventional\
+    \ TCP traffic.  [MORGANSTANLEY] describes a deployment\n   that uses the IP Differentiated\
+    \ Services Codepoint (DSCP) bits to\n   segregate the network such that Active\
+    \ Queue Management (AQM)\n   [RFC7567] is applied to DCTCP traffic, whereas TCP\
+    \ traffic is managed\n   via drop-tail queueing.\n   Deployments should take into\
+    \ account segregation of non-TCP traffic\n   as well.  Today's commodity switches\
+    \ allow configuration of different\n   marking/drop profiles for non-TCP and non-IP\
+    \ packets.  Non-TCP and\n   non-IP packets should be able to pass through such\
+    \ switches, unless\n   they really run out of buffer space.\n   Since DCTCP relies\
+    \ on congestion marking by the switches, DCTCP's\n   potential can only be realized\
+    \ in data centers where the entire\n   network infrastructure supports ECN.  The\
+    \ switches may also support\n   configuration of the congestion threshold used\
+    \ for marking.  The\n   proposed parameterization can be configured with switches\
+    \ that\n   implement Random Early Detection (RED) [RFC2309].  [DCTCP10] provides\n\
+    \   a theoretical basis for selecting the congestion threshold, but, as\n   with\
+    \ the estimation gain, it may be more practical to rely on\n   experimentation\
+    \ or simply to use the default configuration of the\n   device.  DCTCP will revert\
+    \ to loss-based congestion control when\n   packet loss is experienced (e.g.,\
+    \ when transiting a congested drop-\n   tail link, or a link with an AQM drop\
+    \ behavior).\n   DCTCP requires changes on both the sender and the receiver, so\
+    \ both\n   endpoints must support DCTCP.  Furthermore, DCTCP provides no\n   mechanism\
+    \ for negotiating its use, so both endpoints must be\n   configured through some\
+    \ out-of-band mechanism to use DCTCP.  A\n   variant of DCTCP that can be deployed\
+    \ unilaterally and that only\n   requires standard ECN behavior has been described\
+    \ in [ODCTCP] and\n   [BSDCAN], but it requires additional experimental evaluation.\n"
+- title: 6.  Known Issues
+  contents:
+  - "6.  Known Issues\n   DCTCP relies on the sender's ability to reconstruct the\
+    \ stream of CE\n   codepoints received by the remote endpoint.  To accomplish\
+    \ this,\n   DCTCP avoids using a single ACK packet to acknowledge segments\n \
+    \  received both with and without the CE codepoint set.  However, if one\n   or\
+    \ more ACK packets are dropped, it is possible that a subsequent ACK\n   will\
+    \ cumulatively acknowledge a mix of CE and non-CE segments.  This\n   will, of\
+    \ course, result in a less-accurate congestion estimate.\n   There are some potential\
+    \ considerations:\n   o  Even with an inaccurate congestion estimate, DCTCP may\
+    \ still\n      perform better than [RFC3168].\n   o  If the estimation gain is\
+    \ small relative to the packet loss rate,\n      the estimate may not be too inaccurate.\n\
+    \   o  If ACK packet loss mostly occurs under heavy congestion, most\n      drops\
+    \ will occur during an unbroken string of CE packets, and the\n      estimate\
+    \ will be unaffected.\n   However, the effect of packet drops on DCTCP under real-world\n\
+    \   conditions has not been analyzed.\n   DCTCP provides no mechanism for negotiating\
+    \ its use.  The effect of\n   using DCTCP with a standard ECN endpoint has been\
+    \ analyzed in\n   [ODCTCP] and [BSDCAN].  Furthermore, it is possible that other\n\
+    \   implementations may also modify behavior in the [RFC3168] style\n   without\
+    \ negotiation, causing further interoperability issues.\n   Much like standard\
+    \ TCP, DCTCP is biased against flows with longer\n   RTTs.  A method for improving\
+    \ the RTT fairness of DCTCP has been\n   proposed in [ADCTCP], but it requires\
+    \ additional experimental\n   evaluation.\n"
+- title: 7.  Security Considerations
+  contents:
+  - "7.  Security Considerations\n   DCTCP enhances ECN; thus, it inherits the general\
+    \ security\n   considerations discussed in [RFC3168], although additional mitigation\n\
+    \   options exist due to the limited intra-data-center deployment of\n   DCTCP.\n\
+    \   The processing changes introduced by DCTCP do not exacerbate the\n   considerations\
+    \ in [RFC3168] or introduce new ones.  In particular,\n   with either algorithm,\
+    \ the network infrastructure or the remote\n   endpoint can falsely report congestion\
+    \ and, thus, cause the sender to\n   reduce cwnd.  However, this is no worse than\
+    \ what can be achieved by\n   simply dropping packets.\n   [RFC3168] requires\
+    \ that a compliant TCP must not set ECT on SYN or\n   SYN-ACK packets.  [RFC5562]\
+    \ proposes setting ECT on SYN-ACK packets\n   but maintains the restriction of\
+    \ no ECT on SYN packets.  Both these\n   RFCs prohibit ECT in SYN packets due\
+    \ to security concerns regarding\n   malicious SYN packets with ECT set.  However,\
+    \ these RFCs are intended\n   for general Internet use; they do not directly apply\
+    \ to a controlled\n   data-center environment.  The security concerns addressed\
+    \ by both of\n   these RFCs might not apply in controlled environments like data\n\
+    \   centers, and it might not be necessary to account for the presence of\n  \
+    \ non-ECN servers.  Beyond the security considerations related to\n   virtual\
+    \ servers, additional security can be imposed in the physical\n   servers to intercept\
+    \ and drop traffic resembling an attack.\n"
+- title: 8.  IANA Considerations
+  contents:
+  - "8.  IANA Considerations\n   This document does not require any IANA actions.\n"
+- title: 9.  References
+  contents:
+  - '9.  References
+
+    '
+- title: 9.1.  Normative References
+  contents:
+  - "9.1.  Normative References\n   [RFC0793]  Postel, J., \"Transmission Control\
+    \ Protocol\", STD 7,\n              RFC 793, DOI 10.17487/RFC0793, September 1981,\n\
+    \              <https://www.rfc-editor.org/info/rfc793>.\n   [RFC2018]  Mathis,\
+    \ M., Mahdavi, J., Floyd, S., and A. Romanow, \"TCP\n              Selective Acknowledgment\
+    \ Options\", RFC 2018,\n              DOI 10.17487/RFC2018, October 1996,\n  \
+    \            <https://www.rfc-editor.org/info/rfc2018>.\n   [RFC2119]  Bradner,\
+    \ S., \"Key words for use in RFCs to Indicate\n              Requirement Levels\"\
+    , BCP 14, RFC 2119,\n              DOI 10.17487/RFC2119, March 1997,\n       \
+    \       <https://www.rfc-editor.org/info/rfc2119>.\n   [RFC3168]  Ramakrishnan,\
+    \ K., Floyd, S., and D. Black, \"The Addition\n              of Explicit Congestion\
+    \ Notification (ECN) to IP\",\n              RFC 3168, DOI 10.17487/RFC3168, September\
+    \ 2001,\n              <https://www.rfc-editor.org/info/rfc3168>.\n   [RFC5562]\
+    \  Kuzmanovic, A., Mondal, A., Floyd, S., and K.\n              Ramakrishnan,\
+    \ \"Adding Explicit Congestion Notification\n              (ECN) Capability to\
+    \ TCP's SYN/ACK Packets\", RFC 5562,\n              DOI 10.17487/RFC5562, June\
+    \ 2009,\n              <https://www.rfc-editor.org/info/rfc5562>.\n   [RFC5681]\
+    \  Allman, M., Paxson, V., and E. Blanton, \"TCP Congestion\n              Control\"\
+    , RFC 5681, DOI 10.17487/RFC5681, September 2009,\n              <https://www.rfc-editor.org/info/rfc5681>.\n\
+    \   [RFC8174]  Leiba, B., \"Ambiguity of Uppercase vs Lowercase in RFC\n     \
+    \         2119 Key Words\", BCP 14, RFC 8174, DOI 10.17487/RFC8174,\n        \
+    \      May 2017, <https://www.rfc-editor.org/info/rfc8174>.\n"
+- title: 9.2.  Informative References
+  contents:
+  - "9.2.  Informative References\n   [ADCTCP]   Alizadeh, M., Javanmard, A., and\
+    \ B. Prabhakar, \"Analysis\n              of DCTCP: Stability, Convergence, and\
+    \ Fairness\",\n              DOI 10.1145/1993744.1993753, Proceedings of the ACM\n\
+    \              SIGMETRICS Joint International Conference on Measurement\n    \
+    \          and Modeling of Computer Systems, June 2011,\n              <https://dl.acm.org/citation.cfm?id=1993753>.\n\
+    \   [BSDCAN]   Kato, M., Eggert, L., Zimmermann, A., van Meter, R., and\n    \
+    \          H. Tokuda, \"Extensions to FreeBSD Datacenter TCP for\n           \
+    \   Incremental Deployment Support\", BSDCan 2015, June 2015,\n              <https://www.bsdcan.org/2015/schedule/events/559.en.html>.\n\
+    \   [DCTCP10]  Alizadeh, M., Greenberg, A., Maltz, D., Padhye, J., Patel,\n  \
+    \            P., Prabhakar, B., Sengupta, S., and M. Sridharan, \"Data\n     \
+    \         Center TCP (DCTCP)\", DOI 10.1145/1851182.1851192,\n              Proceedings\
+    \ of the ACM SIGCOMM 2010 Conference, August\n              2010,\n          \
+    \    <http://dl.acm.org/citation.cfm?doid=1851182.1851192>.\n   [ECN-EXPERIMENTATION]\n\
+    \              Black, D., \"Explicit Congestion Notification (ECN)\n         \
+    \     Experimentation\", Work in Progress, draft-ietf-tsvwg-ecn-\n           \
+    \   experimentation-06, September 2017.\n   [Err3639]  RFC Errata, Erratum ID\
+    \ 3639, RFC 3168,\n              <https://www.rfc-editor.org/errata/eid3639>.\n\
+    \   [FREEBSD]  Kato, M. and H. Panchasara, \"DCTCP (Data Center TCP)\n       \
+    \       implementation\", January 2015,\n              <https://github.com/freebsd/freebsd/\n\
+    \              commit/8ad879445281027858a7fa706d13e458095b595f>.\n   [LINUX] \
+    \   Borkmann, D., Westphal, F., and Glenn. Judd, \"net: tcp:\n              add\
+    \ DCTCP congestion control algorithm\", LINUX DCTCP\n              Patch, September\
+    \ 2014, <https://git.kernel.org/cgit/linux/\n              kernel/git/davem/net-next.git/commit/\n\
+    \              ?id=e3118e8359bb7c59555aca60c725106e6d78c5ce>.\n   [MAPREDUCE]\n\
+    \              Dean, J. and S. Ghemawat, \"MapReduce: Simplified Data\n      \
+    \        Processing on Large Clusters\", Proceedings of the 6th\n            \
+    \  ACM/USENIX Symposium on Operating Systems Design and\n              Implementation,\
+    \ October 2004, <https://www.usenix.org/\n              legacy/publications/library/proceedings/osdi04/tech/\n\
+    \              dean.html>.\n   [MORGANSTANLEY]\n              Judd, G., \"Attaining\
+    \ the Promise and Avoiding the Pitfalls\n              of TCP in the Datacenter\"\
+    , Proceedings of the 12th USENIX\n              Symposium on Networked Systems\
+    \ Design and Implementation,\n              May 2015, <https://www.usenix.org/conference/nsdi15/\n\
+    \              technical-sessions/presentation/judd>.\n   [ODCTCP]   Kato, M.,\
+    \ \"Improving Transmission Performance with One-\n              Sided Datacenter\
+    \ TCP\", M.S. Thesis, Keio University, 2013,\n              <http://eggert.org/students/kato-thesis.pdf>.\n\
+    \   [RFC2309]  Braden, B., Clark, D., Crowcroft, J., Davie, B., Deering,\n   \
+    \           S., Estrin, D., Floyd, S., Jacobson, V., Minshall, G.,\n         \
+    \     Partridge, C., Peterson, L., Ramakrishnan, K., Shenker,\n              S.,\
+    \ Wroclawski, J., and L. Zhang, \"Recommendations on\n              Queue Management\
+    \ and Congestion Avoidance in the\n              Internet\", RFC 2309, DOI 10.17487/RFC2309,\
+    \ April 1998,\n              <https://www.rfc-editor.org/info/rfc2309>.\n   [RFC7567]\
+    \  Baker, F., Ed. and G. Fairhurst, Ed., \"IETF\n              Recommendations\
+    \ Regarding Active Queue Management\",\n              BCP 197, RFC 7567, DOI 10.17487/RFC7567,\
+    \ July 2015,\n              <https://www.rfc-editor.org/info/rfc7567>.\n   [WINDOWS]\
+    \  Microsoft, \"Data Center Transmission Control Protocol\n              (DCTCP)\"\
+    , May 2012, <https://technet.microsoft.com/\n              en-us/library/hh997028(v=ws.11).aspx>.\n"
+- title: Acknowledgments
+  contents:
+  - "Acknowledgments\n   The DCTCP algorithm was originally proposed and analyzed\
+    \ in [DCTCP10]\n   by Mohammad Alizadeh, Albert Greenberg, Dave Maltz, Jitu Padhye,\n\
+    \   Parveen Patel, Balaji Prabhakar, Sudipta Sengupta, and Murari\n   Sridharan.\n\
+    \   We would like to thank Andrew Shewmaker for identifying the problem\n   of\
+    \ clamping DCTCP.Alpha and proposing a solution for it.\n   Lars Eggert has received\
+    \ funding from the European Union's Horizon\n   2020 research and innovation program\
+    \ 2014-2018 under grant agreement\n   No. 644866 (\"SSICLOPS\").  This document\
+    \ reflects only the authors'\n   views and the European Commission is not responsible\
+    \ for any use that\n   may be made of the information it contains.\n"
+- title: Authors' Addresses
+  contents:
+  - "Authors' Addresses\n   Stephen Bensley\n   Microsoft\n   One Microsoft Way\n\
+    \   Redmond, WA  98052\n   United States of America\n   Phone: +1 425 703 5570\n\
+    \   Email: sbens@microsoft.com\n   Dave Thaler\n   Microsoft\n   Phone: +1 425\
+    \ 703 8835\n   Email: dthaler@microsoft.com\n   Praveen Balasubramanian\n   Microsoft\n\
+    \   Phone: +1 425 538 2782\n   Email: pravb@microsoft.com\n   Lars Eggert\n  \
+    \ NetApp\n   Sonnenallee 1\n   Kirchheim  85551\n   Germany\n   Phone: +49 151\
+    \ 120 55791\n   Email: lars@netapp.com\n   URI:   http://eggert.org/\n   Glenn\
+    \ Judd\n   Morgan Stanley\n   Phone: +1 973 979 6481\n   Email: glenn.judd@morganstanley.com\n"

@@ -1,0 +1,752 @@
+- title: __initial_text__
+  contents:
+  - "            Proportional Integral Controller Enhanced (PIE):\n    A Lightweight\
+    \ Control Scheme to Address the Bufferbloat Problem\n"
+- title: Abstract
+  contents:
+  - "Abstract\n   Bufferbloat is a phenomenon in which excess buffers in the network\n\
+    \   cause high latency and latency variation.  As more and more\n   interactive\
+    \ applications (e.g., voice over IP, real-time video\n   streaming, and financial\
+    \ transactions) run in the Internet, high\n   latency and latency variation degrade\
+    \ application performance.  There\n   is a pressing need to design intelligent\
+    \ queue management schemes\n   that can control latency and latency variation,\
+    \ and hence provide\n   desirable quality of service to users.\n   This document\
+    \ presents a lightweight active queue management design\n   called \"PIE\" (Proportional\
+    \ Integral controller Enhanced) that can\n   effectively control the average queuing\
+    \ latency to a target value.\n   Simulation results, theoretical analysis, and\
+    \ Linux testbed results\n   have shown that PIE can ensure low latency and achieve\
+    \ high link\n   utilization under various congestion situations.  The design does\
+    \ not\n   require per-packet timestamps, so it incurs very little overhead and\n\
+    \   is simple enough to implement in both hardware and software.\n"
+- title: Status of This Memo
+  contents:
+  - "Status of This Memo\n   This document is not an Internet Standards Track specification;\
+    \ it is\n   published for examination, experimental implementation, and\n   evaluation.\n\
+    \   This document defines an Experimental Protocol for the Internet\n   community.\
+    \  This document is a product of the Internet Engineering\n   Task Force (IETF).\
+    \  It represents the consensus of the IETF\n   community.  It has received public\
+    \ review and has been approved for\n   publication by the Internet Engineering\
+    \ Steering Group (IESG).  Not\n   all documents approved by the IESG are a candidate\
+    \ for any level of\n   Internet Standard; see Section 2 of RFC 7841.\n   Information\
+    \ about the current status of this document, any errata,\n   and how to provide\
+    \ feedback on it may be obtained at\n   http://www.rfc-editor.org/info/rfc8033.\n"
+- title: Copyright Notice
+  contents:
+  - "Copyright Notice\n   Copyright (c) 2017 IETF Trust and the persons identified\
+    \ as the\n   document authors.  All rights reserved.\n   This document is subject\
+    \ to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n\
+    \   (http://trustee.ietf.org/license-info) in effect on the date of\n   publication\
+    \ of this document.  Please review these documents\n   carefully, as they describe\
+    \ your rights and restrictions with respect\n   to this document.  Code Components\
+    \ extracted from this document must\n   include Simplified BSD License text as\
+    \ described in Section 4.e of\n   the Trust Legal Provisions and are provided\
+    \ without warranty as\n   described in the Simplified BSD License.\n"
+- title: Table of Contents
+  contents:
+  - "Table of Contents\n   1. Introduction ....................................................3\n\
+    \   2. Terminology .....................................................5\n  \
+    \ 3. Design Goals ....................................................5\n   4.\
+    \ The Basic PIE Scheme ............................................6\n      4.1.\
+    \ Random Dropping ............................................7\n      4.2. Drop\
+    \ Probability Calculation ...............................7\n      4.3. Latency\
+    \ Calculation ........................................9\n      4.4. Burst Tolerance\
+    \ ...........................................10\n   5. Optional Design Elements\
+    \ of PIE ................................11\n      5.1. ECN Support ...............................................11\n\
+    \      5.2. Dequeue Rate Estimation ...................................11\n  \
+    \    5.3. Setting PIE Active and Inactive ...........................13\n    \
+    \  5.4. Derandomization ...........................................14\n      5.5.\
+    \ Cap Drop Adjustment .......................................15\n   6. Implementation\
+    \ Cost ............................................15\n   7. Scope of Experimentation\
+    \ .......................................17\n   8. Incremental Deployment .........................................17\n\
+    \   9. Security Considerations ........................................18\n  \
+    \ 10. References ....................................................18\n    \
+    \  10.1. Normative References .....................................18\n      10.2.\
+    \ Informative References ...................................18\n   Appendix A.\
+    \ The Basic PIE Pseudocode ..............................21\n   Appendix B. Pseudocode\
+    \ for PIE with Optional Enhancement ..........24\n   Contributors ......................................................29\n\
+    \   Authors' Addresses ................................................30\n"
+- title: 1.  Introduction
+  contents:
+  - "1.  Introduction\n   The explosion of smart phones, tablets, and video traffic\
+    \ in the\n   Internet brings about a unique set of challenges for congestion\n\
+    \   control.  To avoid packet drops, many service providers or\n   data-center\
+    \ operators require vendors to put in as much buffer as\n   possible.  Because\
+    \ of the rapid decrease in memory chip prices, these\n   requests are easily accommodated\
+    \ to keep customers happy.  While this\n   solution succeeds in assuring low packet\
+    \ loss and high TCP\n   throughput, it suffers from a major downside.  TCP continuously\n\
+    \   increases its sending rate and causes network buffers to fill up.\n   TCP\
+    \ cuts its rate only when it receives a packet drop or mark that is\n   interpreted\
+    \ as a congestion signal.  However, drops and marks usually\n   occur when network\
+    \ buffers are full or almost full.  As a result,\n   excess buffers, initially\
+    \ designed to avoid packet drops, would lead\n   to highly elevated queuing latency\
+    \ and latency variation.  Designing\n   a queue management scheme is a delicate\
+    \ balancing act: it not only\n   should allow short-term bursts to smoothly pass\
+    \ but also should\n   control the average latency in the presence of long-running\
+    \ greedy\n   flows.\n   Active Queue Management (AQM) schemes could potentially\
+    \ solve the\n   aforementioned problem.  AQM schemes, such as Random Early Detection\n\
+    \   (RED) [RED] as suggested in [RFC2309] (which is now obsoleted by\n   [RFC7567]),\
+    \ have been around for well over a decade.  RED is\n   implemented in a wide variety\
+    \ of network devices, both in hardware\n   and software.  Unfortunately, due to\
+    \ the fact that RED needs careful\n   tuning of its parameters for various network\
+    \ conditions, most network\n   operators don't turn RED on.  In addition, RED\
+    \ is designed to control\n   the queue length, which would affect latency implicitly.\
+    \  It does not\n   control latency directly.  Hence, the Internet today still\
+    \ lacks an\n   effective design that can control buffer latency to improve the\n\
+    \   quality of experience to latency-sensitive applications.  The more\n   recently\
+    \ published RFC 7567 calls for new methods of controlling\n   network latency.\n\
+    \   New algorithms are beginning to emerge to control queuing latency\n   directly\
+    \ to address the bufferbloat problem [CoDel].  Along these\n   lines, Proportional\
+    \ Integral controller Enhanced (PIE) also aims to\n   keep the benefits of RED,\
+    \ including easy implementation and\n   scalability to high speeds.  Similar to\
+    \ RED, PIE randomly drops an\n   incoming packet at the onset of congestion. \
+    \ Congestion detection,\n   however, is based on the queuing latency instead of\
+    \ the queue length\n   (as with RED).  Furthermore, PIE also uses the derivative\
+    \ (rate of\n   change) of the queuing latency to help determine congestion levels\n\
+    \   and an appropriate response.  The design parameters of PIE are chosen\n  \
+    \ via control theory stability analysis.  While these parameters can be\n   fixed\
+    \ to work in various traffic conditions, they could be made\n   self-tuning to\
+    \ optimize system performance.\n   Separately, it is assumed that any latency-based\
+    \ AQM scheme would be\n   applied over a Fair Queuing (FQ) structure or one of\
+    \ its approximate\n   designs, Flow Queuing or Class-Based Queuing (CBQ).  FQ\
+    \ is one of the\n   most studied scheduling algorithms since it was first proposed\
+    \ in\n   1985 [RFC970].  CBQ has been a standard feature in most network\n   devices\
+    \ today [CBQ].  Any AQM scheme that is built on top of FQ or\n   CBQ could benefit\
+    \ from these advantages.  Furthermore, these\n   advantages, such as per-flow\
+    \ or per-class fairness, are orthogonal to\n   the AQM design whose primary goal\
+    \ is to control latency for a given\n   queue.  For flows that are classified\
+    \ into the same class and put\n   into the same queue, one needs to ensure that\
+    \ their latency is better\n   controlled and that their fairness is not worse\
+    \ than those under the\n   standard DropTail or RED design.  More details about\
+    \ the relationship\n   between FQ and AQM can be found in [RFC7806].\n   In October\
+    \ 2013, CableLabs' Data-Over-Cable Service Interface\n   Specification 3.1 (DOCSIS\
+    \ 3.1) specification [DOCSIS_3.1] mandated\n   that cable modems implement a specific\
+    \ variant of the PIE design as\n   the active queue management algorithm.  In\
+    \ addition to cable-specific\n   improvements, the PIE design in DOCSIS 3.1 [RFC8034]\
+    \ has improved the\n   original design in several areas, including derandomization\
+    \ of coin\n   tosses and enhanced burst protection.\n   This document describes\
+    \ the design of PIE and separates it into basic\n   elements and optional components\
+    \ that may be implemented to enhance\n   the performance of PIE.\n"
+- title: 2.  Terminology
+  contents:
+  - "2.  Terminology\n   The key words \"MUST\", \"MUST NOT\", \"REQUIRED\", \"SHALL\"\
+    , \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\", \"MAY\", and\
+    \ \"OPTIONAL\" in this\n   document are to be interpreted as described in RFC\
+    \ 2119 [RFC2119].\n"
+- title: 3.  Design Goals
+  contents:
+  - "3.  Design Goals\n   A queue management framework is designed to improve the\
+    \ performance\n   of interactive and latency-sensitive applications.  It should\
+    \ follow\n   the general guidelines set by the AQM working group document \"IETF\n\
+    \   Recommendations Regarding Active Queue Management\" [RFC7567].  More\n   specifically,\
+    \ the PIE design has the following basic criteria.\n   *  First, queuing latency,\
+    \ instead of queue length, is controlled.\n      Queue sizes change with queue\
+    \ draining rates and various flows'\n      round-trip times.  Latency bloat is\
+    \ the real issue that needs to\n      be addressed, as it impairs real-time applications.\
+    \  If latency\n      can be controlled, bufferbloat is not an issue.  In fact,\
+    \ once\n      latency is under control, it frees up buffers for sporadic bursts.\n\
+    \   *  Secondly, PIE aims to attain high link utilization.  The goal of\n    \
+    \  low latency shall be achieved without suffering link\n      underutilization\
+    \ or losing network efficiency.  An early\n      congestion signal could cause\
+    \ TCP to back off and avoid queue\n      buildup.  On the other hand, however,\
+    \ TCP's rate reduction could\n      result in link underutilization.  There is\
+    \ a delicate balance\n      between achieving high link utilization and low latency.\n\
+    \   *  Furthermore, the scheme should be simple to implement and easily\n    \
+    \  scalable in both hardware and software.  PIE strives to maintain\n      design\
+    \ simplicity similar to that of RED, which has been\n      implemented in a wide\
+    \ variety of network devices.\n   *  Finally, the scheme should ensure system\
+    \ stability for various\n      network topologies and scale well across an arbitrary\
+    \ number of\n      streams.  Design parameters shall be set automatically.  Users\n\
+    \      only need to set performance-related parameters such as target\n      queue\
+    \ latency, not design parameters.\n   In the following text, the design of PIE\
+    \ and its operation are\n   described in detail.\n"
+- title: 4.  The Basic PIE Scheme
+  contents:
+  - "4.  The Basic PIE Scheme\n   As illustrated in Figure 1, PIE is comprised of\
+    \ three simple basic\n   components: a) random dropping at enqueuing, b) periodic\
+    \ drop\n   probability updates, and c) latency calculation.  When a packet\n \
+    \  arrives, a random decision is made regarding whether to drop the\n   packet.\
+    \  The drop probability is updated periodically based on how\n   far the current\
+    \ latency is away from the target value and whether the\n   queuing latency is\
+    \ currently trending up or down.  The queuing\n   latency can be obtained using\
+    \ direct measurements or using\n   estimations calculated from the queue length\
+    \ and the dequeue rate.\n   The detailed definition of parameters can be found\
+    \ in Appendix A of\n   this document (\"The Basic PIE Pseudocode\").  Any state\
+    \ variables that\n   PIE maintains are noted using \"PIE->\".  For a full description\
+    \ of the\n   algorithm, one can refer to the full paper [HPSR-PIE].\n        \
+    \ Random Drop\n              /               --------------\n      -------/  -------------->\
+    \    | | | | | -------------->\n             /|\\                   | | | | |\n\
+    \              |               --------------\n              |             Queue\
+    \ Buffer   \\\n              |                     |       \\\n              |\
+    \                     |Queue   \\\n              |                     |Length\
+    \   \\\n              |                     |          \\\n              |   \
+    \                 \\|/         \\/\n              |          -----------------\
+    \    -------------------\n              |          |     Drop      |    |    \
+    \             |\n              -----<-----|  Probability  |<---| Latency     \
+    \    |\n                         |  Calculation  |    | Calculation     |\n  \
+    \                       -----------------    -------------------\n           \
+    \             Figure 1: The PIE Structure\n"
+- title: 4.1.  Random Dropping
+  contents:
+  - "4.1.  Random Dropping\n   PIE randomly drops a packet upon its arrival to a queue\
+    \ according to\n   a drop probability, PIE->drop_prob_, that is obtained from\
+    \ the\n   drop-probability-calculation component.  The random drop is triggered\n\
+    \   by a packet's arrival before enqueuing into a queue.\n   *  Upon a packet\
+    \ enqueue:\n      randomly drop the packet with a probability of PIE->drop_prob_.\n\
+    \   To ensure that PIE is \"work conserving\", we bypass the random drop if\n\
+    \   the latency sample, PIE->qdelay_old_, is smaller than half of the\n   target\
+    \ latency value (QDELAY_REF) when the drop probability is not\n   too high (i.e.,\
+    \ PIE->drop_prob_ < 0.2), or if the queue has less than\n   a couple of packets.\n\
+    \   *  Upon a packet enqueue, PIE does the following:\n      //Safeguard PIE to\
+    \ be work conserving\n      if ( (PIE->qdelay_old_ < QDELAY_REF/2 && PIE->drop_prob_\
+    \ < 0.2)\n            || (queue_.byte_length() <= 2 * MEAN_PKTSIZE) )\n      \
+    \          return ENQUE;\n      else\n         randomly drop the packet with a\
+    \ probability of\n         PIE->drop_prob_.\n   PIE optionally supports Explicit\
+    \ Congestion Notification (ECN); see\n   Section 5.1.\n"
+- title: 4.2.  Drop Probability Calculation
+  contents:
+  - "4.2.  Drop Probability Calculation\n   The PIE algorithm periodically updates\
+    \ the drop probability based on\n   the latency samples -- not only the current\
+    \ latency sample but also\n   whether the latency is trending up or down.  This\
+    \ is the classical\n   Proportional Integral (PI) controller method, which is\
+    \ known for\n   eliminating steady-state errors.  This type of controller has\
+    \ been\n   studied before for controlling the queue length [PI] [QCN].  PIE\n\
+    \   adopts the PI controller for controlling latency.  The algorithm also\n  \
+    \ auto-adjusts the control parameters based on how heavy the congestion\n   is,\
+    \ which is reflected in the current drop probability.  Note that\n   the current\
+    \ drop probability is a direct measure of the current\n   congestion level; there\
+    \ is no need to measure the arrival rate and\n   dequeue rate mismatches.\n  \
+    \ When a congestion period ends, we might be left with a high drop\n   probability\
+    \ with light packet arrivals.  Hence, the PIE algorithm\n   includes a mechanism\
+    \ by which the drop probability decays\n   exponentially (rather than linearly)\
+    \ when the system is not\n   congested.  This would help the drop probability\
+    \ converge to 0 more\n   quickly, while the PI controller ensures that it would\
+    \ eventually\n   reach zero.  The decay parameter of 2% gives us a time constant\n\
+    \   around 50 * T_UPDATE.\n   Specifically, the PIE algorithm periodically adjusts\
+    \ the drop\n   probability every T_UPDATE interval:\n   *  calculate drop probability\
+    \ PIE->drop_prob_, and autotune it as\n      follows:\n         p = alpha * (current_qdelay\
+    \ - QDELAY_REF) +\n                beta * (current_qdelay - PIE->qdelay_old_);\n\
+    \         if (PIE->drop_prob_ < 0.000001) {\n             p /= 2048;\n       \
+    \  } else if (PIE->drop_prob_ < 0.00001) {\n             p /= 512;\n         }\
+    \ else if (PIE->drop_prob_ < 0.0001) {\n             p /= 128;\n         } else\
+    \ if (PIE->drop_prob_ < 0.001) {\n             p /= 32;\n         } else if (PIE->drop_prob_\
+    \ < 0.01) {\n             p /= 8;\n         } else if (PIE->drop_prob_ < 0.1)\
+    \ {\n             p /= 2;\n         } else {\n             p = p;\n         }\n\
+    \         PIE->drop_prob_ += p;\n   *  decay the drop probability exponentially:\n\
+    \         if (current_qdelay == 0 && PIE->qdelay_old_ == 0) {\n             PIE->drop_prob_\
+    \ = PIE->drop_prob_ * 0.98;\n                                                \
+    \ //1 - 1/64 is\n                                                 //sufficient\n\
+    \         }\n   *  bound the drop probability:\n         if (PIE->drop_prob_ <\
+    \ 0)\n                  PIE->drop_prob_ = 0.0\n         if (PIE->drop_prob_ >\
+    \ 1)\n                  PIE->drop_prob_ = 1.0\n   *  store the current latency\
+    \ value:\n         PIE->qdelay_old_ = current_qdelay.\n   The update interval,\
+    \ T_UPDATE, is defaulted to be 15 milliseconds.\n   It MAY be reduced on high-speed\
+    \ links in order to provide smoother\n   response.  The target latency value,\
+    \ QDELAY_REF, SHOULD be set to 15\n   milliseconds.  The variables current_qdelay\
+    \ and PIE->qdelay_old_\n   represent the current and previous samples of the queuing\
+    \ latency,\n   which are calculated by the \"latency calculation\" component (see\n\
+    \   Section 4.3).  The variable current_qdelay is actually a temporary\n   variable,\
+    \ while PIE->qdelay_old_ is a state variable that PIE keeps.\n   The drop probability\
+    \ is a value between 0 and 1.  However,\n   implementations can certainly use\
+    \ integers.\n   The controller parameters, alpha and beta (expressed in Hz), are\n\
+    \   designed using feedback loop analysis, where TCP's behaviors are\n   modeled\
+    \ using the results from well-studied prior art [TCP-Models].\n   Note that the\
+    \ above adjustment of 'p' effectively scales the alpha\n   and beta parameters\
+    \ based on the current congestion level indicated\n   by the drop probability.\n\
+    \   The theoretical analysis of PIE can be found in [HPSR-PIE].  As a\n   rule\
+    \ of thumb, to keep the same feedback loop dynamics, if we cut\n   T_UPDATE in\
+    \ half, we should also cut alpha by half and increase beta\n   by alpha/4.  If\
+    \ the target latency is reduced, e.g., for data-center\n   use, the values of\
+    \ alpha and beta should be increased by the same\n   order of magnitude by which\
+    \ the target latency is reduced.  For\n   example, if QDELAY_REF is reduced and\
+    \ changed from 15 milliseconds to\n   150 microseconds -- a reduction of two orders\
+    \ of magnitude -- then\n   alpha and beta values should be increased to alpha\
+    \ * 100 and\n   beta * 100.\n"
+- title: 4.3.  Latency Calculation
+  contents:
+  - "4.3.  Latency Calculation\n   The PIE algorithm uses latency to calculate drop\
+    \ probability in one\n   of two ways:\n   *  It estimates the current queuing\
+    \ latency using Little's law (see\n      Section 5.2 for details):\n         current_qdelay\
+    \ = queue_.byte_length()/dequeue_rate;\n   *  It may use other techniques for\
+    \ calculating queuing latency, e.g.,\n      time-stamp the packets at enqueue,\
+    \ and use the timestamps to\n      calculate latency during dequeue.\n"
+- title: 4.4.  Burst Tolerance
+  contents:
+  - "4.4.  Burst Tolerance\n   PIE does not penalize short-term packet bursts as suggested\
+    \ in\n   [RFC7567].  PIE allows bursts of traffic that create finite-duration\n\
+    \   events in which current queuing latency exceeds QDELAY_REF without\n   triggering\
+    \ packet drops.  This document introduces a parameter called\n   \"MAX_BURST\"\
+    ; MAX_BURST defines the burst duration that will be\n   protected.  By default,\
+    \ the parameter SHOULD be set to 150\n   milliseconds.  For simplicity, the PIE\
+    \ algorithm MAY effectively\n   round MAX_BURST up to an integer multiple of T_UPDATE.\n\
+    \   To implement the burst tolerance function, two basic components of\n   PIE\
+    \ are involved: \"random dropping\" and \"drop probability\n   calculation\".\
+    \  The PIE algorithm does the following:\n   *  In the \"random dropping\" block\
+    \ and upon packet arrival, PIE checks\n      the following:\n      Upon a packet\
+    \ enqueue:\n         if PIE->burst_allowance_ > 0\n            enqueue packet;\n\
+    \         else\n            randomly drop a packet with a probability of\n   \
+    \         PIE->drop_prob_.\n         if (PIE->drop_prob_ == 0 and current_qdelay\
+    \ < QDELAY_REF/2 and\n             PIE->qdelay_old_ < QDELAY_REF/2)\n        \
+    \     PIE->burst_allowance_ = MAX_BURST;\n   *  In the \"drop probability calculation\"\
+    \ block, PIE additionally\n      calculates:\n      PIE->burst_allowance_ = max(0,PIE->burst_allowance_\
+    \ - T_UPDATE);\n   The burst allowance, noted by PIE->burst_allowance_, is initialized\n\
+    \   to MAX_BURST.  As long as PIE->burst_allowance_ is above zero, an\n   incoming\
+    \ packet will be enqueued, bypassing the random drop process.\n   During each\
+    \ update instance, the value of PIE->burst_allowance_ is\n   decremented by the\
+    \ update period, T_UPDATE, and is bottomed at 0.\n   When the congestion goes\
+    \ away -- defined here as PIE->drop_prob_\n   equals 0 and both the current and\
+    \ previous samples of estimated\n   latency are less than half of QDELAY_REF --\
+    \ PIE->burst_allowance_ is\n   reset to MAX_BURST.\n"
+- title: 5.  Optional Design Elements of PIE
+  contents:
+  - "5.  Optional Design Elements of PIE\n   There are several enhancements that are\
+    \ added to further augment the\n   performance of the basic algorithm.  For purposes\
+    \ of clarity, they\n   are included in this section.\n"
+- title: 5.1.  ECN Support
+  contents:
+  - "5.1.  ECN Support\n   PIE MAY support ECN by marking (rather than dropping) ECN-capable\n\
+    \   packets [ECN].  This document introduces an additional threshold\n   called\
+    \ \"mark_ecnth\", which acts as a safeguard: if the calculated\n   drop probability\
+    \ exceeds mark_ecnth, PIE reverts to packet-dropping\n   for ECN-capable packets.\
+    \  The variable mark_ecnth SHOULD be set to\n   0.1 (10%).\n   *  To support ECN,\
+    \ the \"random drop with a probability of\n      PIE->drop_prob_\" function in\
+    \ the \"random dropping\" block is\n      changed to the following:\n      * \
+    \ Upon a packet enqueue:\n         if rand() < PIE->drop_prob_:\n          if\
+    \ PIE->drop_prob_ < mark_ecnth && ecn_capable_packet == TRUE:\n             mark\
+    \ packet;\n          else\n             drop packet;\n"
+- title: 5.2.  Dequeue Rate Estimation
+  contents:
+  - "5.2.  Dequeue Rate Estimation\n   Using timestamps, a latency sample can only\
+    \ be obtained when a packet\n   reaches the head of a queue.  When a quick response\
+    \ time is desired\n   or a direct latency sample is not available, one may obtain\
+    \ latency\n   through measuring the dequeue rate.  The draining rate of a queue\
+    \ in\n   the network often varies either because other queues are sharing the\n\
+    \   same link or because the link capacity fluctuates.  Rate fluctuation\n   is\
+    \ particularly common in wireless networks.  One may measure\n   directly at the\
+    \ dequeue operation.  Short, non-persistent bursts of\n   packets result in empty\
+    \ queues from time to time; this would make the\n   measurement less accurate.\
+    \  PIE only measures latency when there is\n   sufficient data in the buffer,\
+    \ i.e., when the queue length is over a\n   certain threshold (DQ_THRESHOLD).\
+    \  PIE measures how long it takes to\n   drain DQ_THRESHOLD packets.  More specifically,\
+    \ the rate estimation\n   can be implemented as follows:\n      current_qdelay\
+    \ = queue_.byte_length() *\n                       PIE->avg_dq_time_/DQ_THRESHOLD;\n\
+    \   *  Upon a packet dequeue:\n      if PIE->in_measurement_ == FALSE and queue.byte_length()\
+    \ >=\n      DQ_THRESHOLD:\n         PIE->in_measurement_ = TRUE;\n         PIE->measurement_start_\
+    \ = now;\n         PIE->dq_count_ = 0;\n      if PIE->in_measurement_ == TRUE:\n\
+    \         PIE->dq_count_ = PIE->dq_count_ + deque_pkt_size;\n         if PIE->dq_count_\
+    \ >= DQ_THRESHOLD then\n            weight = DQ_THRESHOLD/2^16\n            PIE->avg_dq_time_\
+    \ = (now - PIE->measurement_start_) *\n                                weight\
+    \ + PIE->avg_dq_time_ *\n                                (1 - weight);\n     \
+    \       PIE->dq_count_ = 0;\n            PIE->measurement_start_ = now\n     \
+    \    else\n            PIE->in_measurement_ = FALSE;\n   The parameter PIE->dq_count_\
+    \ represents the number of bytes departed\n   since the last measurement.  Once\
+    \ PIE->dq_count_ is over\n   DQ_THRESHOLD, a measurement sample is obtained. \
+    \ It is recommended\n   that the threshold be set to 16 KB, assuming a typical\
+    \ packet size of\n   around 1 KB or 1.5 KB.  This threshold would allow sufficient\
+    \ data to\n   obtain an average draining rate but would also be fast enough (<\
+    \ 64\n   KB) to reflect sudden changes in the draining rate.  If DQ_THRESHOLD\n\
+    \   is smaller than 64 KB, a small weight is used to smooth out the\n   dequeue\
+    \ time and obtain PIE->avg_dq_time_.  The dequeue rate is\n   simply DQ_THRESHOLD\
+    \ divided by PIE->avg_dq_time_.  This threshold is\n   not crucial for the system's\
+    \ stability.  Please note that the update\n   interval for calculating the drop\
+    \ probability is different from the\n   rate measurement cycle.  The drop probability\
+    \ calculation is done\n   periodically per Section 4.2, and it is done even when\
+    \ the algorithm\n   is not in a measurement cycle; in this case, the previously\
+    \ latched\n   value of PIE->avg_dq_time_ is used.\n            Random Drop\n \
+    \               /                     --------------\n        -------/  -------------------->\
+    \    | | | | | -------------->\n               /|\\             |           |\
+    \ | | | |\n                |              |      --------------\n            \
+    \    |              |       Queue Buffer\n                |              |   \
+    \          |\n                |              |             |Queue\n          \
+    \      |              |             |Length\n                |              |\
+    \             |\n                |             \\|/           \\|/\n         \
+    \       |          ------------------------------\n                |         \
+    \ |     Dequeue Rate           |\n                -----<-----|  & Drop Probability\
+    \        |\n                           |        Calculation         |\n      \
+    \                     ------------------------------\n                 Figure\
+    \ 2: The Enqueue-Based PIE Structure\n   In some platforms, enqueuing and dequeuing\
+    \ functions belong to\n   different modules that are independent of each other.\
+    \  In such\n   situations, a pure enqueue-based design can be developed.  An\n\
+    \   enqueue-based design is depicted in Figure 2.  The dequeue rate is\n   deduced\
+    \ from the number of packets enqueued and the queue length.\n   The design is\
+    \ based on the following key observation: over a certain\n   time interval, the\
+    \ number of dequeued packets = the number of\n   enqueued packets minus the number\
+    \ of remaining packets in the queue.\n   In this design, everything can be triggered\
+    \ by packet arrival,\n   including the background update process.  The design\
+    \ complexity here\n   is similar to the original design.\n"
+- title: 5.3.  Setting PIE Active and Inactive
+  contents:
+  - "5.3.  Setting PIE Active and Inactive\n   Traffic naturally fluctuates in a network.\
+    \  It would be preferable\n   not to unnecessarily drop packets due to a spurious\
+    \ uptick in queuing\n   latency.  PIE has an optional feature of automatically\
+    \ becoming\n   active/inactive.  To implement this feature, PIE may choose to\
+    \ only\n   become active (from inactive) when the buffer occupancy is over a\n\
+    \   certain threshold, which may be set to 1/3 of the tail drop\n   threshold.\
+    \  PIE becomes inactive when congestion ends; i.e., when the\n   drop probability\
+    \ reaches 0, current and previous latency samples are\n   all below half of QDELAY_REF.\n\
+    \   Ideally, PIE should become active/inactive based on latency.\n   However,\
+    \ calculating latency when PIE is inactive would introduce\n   unnecessary packet-processing\
+    \ overhead.  Weighing the trade-offs,\n   we decided to compare against the tail\
+    \ drop threshold to keep things\n   simple.\n   When PIE optionally becomes active/inactive,\
+    \ the burst protection\n   logic described in Section 4.4 is modified as follows:\n\
+    \   *  \"Random dropping\" block: PIE adds the following:\n      Upon packet arrival:\n\
+    \      if PIE->active_ == FALSE && queue_length >= TAIL_DROP/3:\n         PIE->active_\
+    \ = TRUE;\n         PIE->burst_allowance_ = MAX_BURST;\n      if PIE->burst_allowance_\
+    \ > 0\n         enqueue packet;\n      else\n         randomly drop a packet with\
+    \ a probability of\n         PIE->drop_prob_.\n      if (PIE->drop_prob_ == 0\
+    \ and current_qdelay < QDELAY_REF/2 and\n          PIE->qdelay_old_ < QDELAY_REF/2)\n\
+    \          PIE->active_ = FALSE;\n          PIE->burst_allowance_ = MAX_BURST;\n\
+    \   *  \"Drop probability calculation\" block: PIE does the following:\n     \
+    \ if PIE->active_ == TRUE:\n         PIE->burst_allowance_ =\n            max(0,PIE->burst_allowance_\
+    \ - T_UPDATE);\n"
+- title: 5.4.  Derandomization
+  contents:
+  - "5.4.  Derandomization\n   Although PIE adopts random dropping to achieve latency\
+    \ control,\n   independent coin tosses could introduce outlier situations where\n\
+    \   packets are dropped too close to each other or too far from each\n   other.\
+    \  This would cause the real drop percentage to temporarily\n   deviate from the\
+    \ intended value PIE->drop_prob_.  In certain\n   scenarios, such as a small number\
+    \ of simultaneous TCP flows, these\n   deviations can cause significant deviations\
+    \ in link utilization and\n   queuing latency.  PIE may use a derandomization\
+    \ mechanism to avoid\n   such situations.  A parameter called \"PIE->accu_prob_\"\
+    \ is reset to 0\n   after a drop.  Upon packet arrival, PIE->accu_prob_ is incremented\
+    \ by\n   the amount of drop probability, PIE->drop_prob_.  If PIE->accu_prob_\n\
+    \   is less than a low threshold, e.g., 0.85, the arriving packet is\n   enqueued;\
+    \ on the other hand, if PIE->accu_prob_ is more than a high\n   threshold, e.g.,\
+    \ 8.5, and the queue is congested, the arrival packet\n   is forced to be dropped.\
+    \  A packet is only randomly dropped if\n   PIE->accu_prob_ falls between the\
+    \ two thresholds.  Since\n   PIE->accu_prob_ is reset to 0 after a drop, another\
+    \ drop will not\n   happen until 0.85/PIE->drop_prob_ packets later.  This avoids\
+    \ packets\n   being dropped too close to each other.  In the other extreme case\n\
+    \   where 8.5/PIE->drop_prob_ packets have been enqueued without\n   incurring\
+    \ a drop, PIE would force a drop in order to prevent the\n   drops from being\
+    \ spaced too far apart.  Further analysis can be found\n   in [RFC8034].\n"
+- title: 5.5.  Cap Drop Adjustment
+  contents:
+  - "5.5.  Cap Drop Adjustment\n   In the case of a single TCP flow, during the slow-start\
+    \ phase the\n   queue could quickly increase, which could result in a very rapid\n\
+    \   increase in drop probability.  In order to prevent an excessive\n   ramp-up\
+    \ that could negatively impact the throughput in this scenario,\n   PIE can cap\
+    \ the maximum drop probability increase in each step.\n   *  \"Drop probability\
+    \ calculation\" block: PIE adds the following:\n      if (PIE->drop_prob_ >= 0.1\
+    \ && p > 0.02) {\n          p = 0.02;\n      }\n"
+- title: 6.  Implementation Cost
+  contents:
+  - "6.  Implementation Cost\n   PIE can be applied to existing hardware or software\
+    \ solutions.  There\n   are three steps involved in PIE, as discussed in Section\
+    \ 4.  Their\n   complexities are examined below.\n   Upon packet arrival, the\
+    \ algorithm simply drops a packet randomly,\n   based on the drop probability.\
+    \  This step is straightforward and\n   requires no packet header examination\
+    \ and manipulation.  If the\n   implementation doesn't rely on packet timestamps\
+    \ for calculating\n   latency, PIE does not require extra memory.  Furthermore,\
+    \ the input\n   side of a queue is typically under software control while the\
+    \ output\n   side of a queue is hardware based.  Hence, a drop at enqueuing can\
+    \ be\n   readily retrofitted into existing or software implementations.\n   The\
+    \ drop probability calculation is done in the background, and it\n   occurs every\
+    \ T_UPDATE interval.  Given modern high-speed links, this\n   period translates\
+    \ into once every tens, hundreds, or even thousands\n   of packets.  Hence, the\
+    \ calculation occurs at a much slower time\n   scale than the packet-processing\
+    \ time -- at least an order of\n   magnitude slower.  The calculation of drop\
+    \ probability involves\n   multiplications using alpha and beta.  Since PIE's\
+    \ control law is\n   robust to minor changes in alpha and beta values, an implementation\n\
+    \   MAY choose these values to the closest multiples of 2 or 1/2 (e.g.,\n   alpha\
+    \ = 1/8, beta = 1 + 1/4) such that the multiplications can be\n   done using simple\
+    \ adds and shifts.  As no complicated functions are\n   required, PIE can be easily\
+    \ implemented in both hardware and\n   software.  The state requirement is only\
+    \ three variables per queue:\n   burst_allowance_, PIE->drop_prob_, and PIE->qdelay_old_.\
+    \  Hence, the\n   memory overhead is small.\n   If one chooses to implement the\
+    \ departure rate estimation, PIE uses a\n   counter to keep track of the number\
+    \ of bytes departed for the current\n   interval.  This counter is incremented\
+    \ per packet departure.  Every\n   T_UPDATE, PIE calculates latency using the\
+    \ departure rate, which can\n   be implemented using a single multiply operation.\
+    \  Note that many\n   network devices keep track of an interface's departure rate.\
+    \  In this\n   case, PIE might be able to reuse this information and simply skip\
+    \ the\n   third step of the algorithm; hence, it would incur no extra cost.  If\n\
+    \   a platform already leverages packet timestamps for other purposes,\n   PIE\
+    \ can make use of these packet timestamps for latency calculation\n   instead\
+    \ of estimating the departure rate.\n   Flow queuing can also be combined with\
+    \ PIE to provide isolation\n   between flows.  In this case, it is preferable\
+    \ to have an independent\n   value of drop probability per queue.  This allows\
+    \ each flow to\n   receive the most appropriate level of congestion signal and\
+    \ ensures\n   that sparse flows are protected from experiencing packet drops.\n\
+    \   However, running the entire PIE algorithm independently on each queue\n  \
+    \ in order to calculate the drop probability may be overkill.\n   Furthermore,\
+    \ in the case where departure rate estimation is used to\n   predict queuing latency,\
+    \ it is not possible to calculate an accurate\n   per-queue departure rate upon\
+    \ which to implement the PIE drop\n   probability calculation.  Instead, it has\
+    \ been proposed [DOCSIS-AQM]\n   that a single implementation of the PIE drop\
+    \ probability calculation\n   based on the overall latency estimate be used, followed\
+    \ by a\n   per-queue scaling of drop probability based on the ratio of\n   queue\
+    \ depth between the queue in question and the current largest\n   queue.  This\
+    \ scaling is reasonably simple and has a couple of nice\n   properties:\n   *\
+    \  If a packet is arriving to an empty queue, it is given immunity\n      from\
+    \ packet drops altogether, regardless of the state of the other\n      queues.\n\
+    \   *  In the situation where only a single queue is in use, the\n      algorithm\
+    \ behaves exactly like the single-queue PIE algorithm.\n   In summary, PIE is\
+    \ simple enough to be implemented in both software\n   and hardware.\n"
+- title: 7.  Scope of Experimentation
+  contents:
+  - "7.  Scope of Experimentation\n   The design of the PIE algorithm is presented\
+    \ in this document.  The\n   PIE algorithm effectively controls the average queuing\
+    \ latency to a\n   target value.  The following areas can be used for further\
+    \ study and\n   experimentation:\n   *  Autotuning of target latency without losing\
+    \ utilization.\n   *  Autotuning for the average round-trip time of traffic.\n\
+    \   *  The proper threshold to transition smoothly between ECN marking\n     \
+    \ and dropping.\n   *  The enhancements described in Section 5, which can be used\
+    \ in\n      experiments to see if they would be of more value in the real\n  \
+    \    world.  If so, they will be incorporated into the basic PIE\n      algorithm.\n\
+    \   *  The PIE design, which is separated into the data path and the\n      control\
+    \ path.  The control path can be implemented in software.\n      Field tests of\
+    \ other control laws can be performed to experiment\n      with further improvements\
+    \ to PIE's performance.\n   Although all network nodes cannot be changed altogether\
+    \ to adopt\n   latency-based AQM schemes such as PIE, a gradual adoption would\n\
+    \   eventually lead to end-to-end low-latency service for all\n   applications.\n"
+- title: 8.  Incremental Deployment
+  contents:
+  - "8.  Incremental Deployment\n   From testbed experiments and large-scale simulations\
+    \ of PIE so far,\n   PIE has been shown to be effective across a diverse range\
+    \ of network\n   scenarios.  There is no indication that PIE would be harmful\
+    \ to\n   deploy.\n   The PIE scheme can be independently deployed and managed\
+    \ without a\n   need for interoperability between different network devices. \
+    \ In\n   addition, any individual buffer queue can be incrementally upgraded\n\
+    \   to PIE, as it can coexist with existing AQM schemes such as\n   Weighted RED\
+    \ (WRED).\n   PIE is intended to be self-configuring.  Users should not need to\n\
+    \   configure any design parameters.  Upon installation, the two\n   user-configurable\
+    \ parameters -- QDELAY_REF and MAX_BURST -- will be\n   defaulted to 15 milliseconds\
+    \ and 150 milliseconds for non-data-center\n   network devices and to 15 microseconds\
+    \ and 150 microseconds for\n   data-center switches, respectively.\n   Since the\
+    \ data path of the algorithm needs only a simple coin toss\n   and the control-path\
+    \ calculation happens in a much slower time scale,\n   we don't foresee any scaling\
+    \ issues associated with the algorithm as\n   the link speed scales up.\n"
+- title: 9.  Security Considerations
+  contents:
+  - "9.  Security Considerations\n   This document describes PIE, an active queue\
+    \ management algorithm\n   based on implementations in different products.  The\
+    \ PIE algorithm\n   introduces no specific security exposures.\n"
+- title: 10.  References
+  contents:
+  - '10.  References
+
+    '
+- title: 10.1.  Normative References
+  contents:
+  - "10.1.  Normative References\n   [RFC2119]  Bradner, S., \"Key words for use in\
+    \ RFCs to Indicate\n              Requirement Levels\", BCP 14, RFC 2119,\n  \
+    \            DOI 10.17487/RFC2119, March 1997,\n              <http://www.rfc-editor.org/info/rfc2119>.\n"
+- title: 10.2.  Informative References
+  contents:
+  - "10.2.  Informative References\n   [RFC970]   Nagle, J., \"On Packet Switches\
+    \ With Infinite Storage\",\n              RFC 970, DOI 10.17487/RFC0970, December\
+    \ 1985,\n              <http://www.rfc-editor.org/info/rfc970>.\n   [RFC2309]\
+    \  Braden, B., Clark, D., Crowcroft, J., Davie, B., Deering,\n              S.,\
+    \ Estrin, D., Floyd, S., Jacobson, V., Minshall, G.,\n              Partridge,\
+    \ C., Peterson, L., Ramakrishnan, K., Shenker,\n              S., Wroclawski,\
+    \ J., and L. Zhang, \"Recommendations on\n              Queue Management and Congestion\
+    \ Avoidance in the\n              Internet\", RFC 2309, DOI 10.17487/RFC2309,\
+    \ April 1998,\n              <http://www.rfc-editor.org/info/rfc2309>.\n   [RFC7567]\
+    \  Baker, F., Ed., and G. Fairhurst, Ed., \"IETF\n              Recommendations\
+    \ Regarding Active Queue Management\",\n              BCP 197, RFC 7567, DOI 10.17487/RFC7567,\
+    \ July 2015,\n              <http://www.rfc-editor.org/info/rfc7567>.\n   [RFC7806]\
+    \  Baker, F. and R. Pan, \"On Queuing, Marking, and Dropping\",\n            \
+    \  RFC 7806, DOI 10.17487/RFC7806, April 2016,\n              <http://www.rfc-editor.org/info/rfc7806>.\n\
+    \   [RFC8034]  White, G. and R. Pan, \"Active Queue Management (AQM) Based\n \
+    \             on Proportional Integral Controller Enhanced (PIE) for\n       \
+    \       Data-Over-Cable Service Interface Specifications (DOCSIS)\n          \
+    \    Cable Modems\", RFC 8034, DOI 10.17487/RFC8034,\n              February 2017,\
+    \ <http://www.rfc-editor.org/info/rfc8034>.\n   [CBQ]      Cisco, \"Class-Based\
+    \ Weighted Fair Queueing\",\n              <http://www.cisco.com/en/US/docs/ios/12_0t/12_0t5/\n\
+    \              feature/guide/cbwfq.html>.\n   [CoDel]    Nichols, K. and V. Jacobson,\
+    \ \"Controlling Queue Delay\",\n              Communications of the ACM, Volume\
+    \ 55, Issue 7, pp. 42-50,\n              DOI 10.1145/2209249.2209264, July 2012.\n\
+    \   [DOCSIS_3.1]\n              CableLabs, \"MAC and Upper Layer Protocols Interface\n\
+    \              Specification\", DOCSIS 3.1, January 2017,\n              <https://apps.cablelabs.com/specification/\n\
+    \              CM-SP-MULPIv3.1>.\n   [DOCSIS-AQM]\n              White, G., \"\
+    Active Queue Management in DOCSIS 3.x Cable\n              Modems\", May 2014,\
+    \ <http://www.cablelabs.com/wp-content/\n              uploads/2014/06/DOCSIS-AQM_May2014.pdf>.\n\
+    \   [ECN]      Briscoe, B., Kaippallimalil, J., and P. Thaler,\n             \
+    \ \"Guidelines for Adding Congestion Notification to\n              Protocols\
+    \ that Encapsulate IP\", Work in Progress,\n              draft-ietf-tsvwg-ecn-encap-guidelines-07,\
+    \ July 2016.\n   [HPSR-PIE] Pan, R., Natarajan, P., Piglione, C., Prabhu, M.S.,\n\
+    \              Subramanian, V., Baker, F., and B. Ver Steeg, \"PIE: A\n      \
+    \        lightweight control scheme to address the bufferbloat\n             \
+    \ problem\", IEEE HPSR, DOI 10.1109/HPSR.2013.6602305, 2013,\n              <https://www.researchgate.net/publication/\n\
+    \              261134127_PIE_A_lightweight_control_scheme_to_address_\n      \
+    \        the_bufferbloat_problem?origin=mail>.\n   [PI]       Hollot, C.V., Misra,\
+    \ V., Towsley, D., and W. Gong, \"On\n              designing improved controllers\
+    \ for AQM routers supporting\n              TCP flows\", INFOCOM 2001, DOI 10.1109/INFCOM.2001.916670,\n\
+    \              April 2001.\n   [QCN]      IEEE, \"IEEE Standard for Local and\
+    \ Metropolitan Area\n              Networks--Virtual Bridged Local Area Networks\
+    \ -\n              Amendment: 10: Congestion Notification\", IEEE 802.1Qau,\n\
+    \              <http://www.ieee802.org/1/pages/802.1au.html>.\n   [RED]      Floyd,\
+    \ S. and V. Jacobson, \"Random Early Detection (RED)\n              Gateways for\
+    \ Congestion Avoidance\", IEEE/ACM Transactions\n              on Networking,\
+    \ Volume 1, Issue 4, DOI 10.1109/90.251892,\n              August 1993.\n   [TCP-Models]\n\
+    \              Misra, V., Gong, W., and D. Towsley, \"Fluid-based analysis\n \
+    \             of a network of AQM routers supporting TCP flows with an\n     \
+    \         application to RED\", SIGCOMM 2000, Volume 30, Issue 4,\n          \
+    \    pp. 151-160, DOI 10.1145/347057.347421, October 2000.\n"
+- title: Appendix A.  The Basic PIE Pseudocode
+  contents:
+  - "Appendix A.  The Basic PIE Pseudocode\n   Configurable parameters:\n      - \
+    \ QDELAY_REF.  AQM Latency Target (default: 15 milliseconds)\n      -  MAX_BURST.\
+    \  AQM Max Burst Allowance (default: 150 milliseconds)\n   Internal parameters:\n\
+    \      -  Weights in the drop probability calculation (1/s):\n         alpha (default:\
+    \ 1/8), beta (default: 1 + 1/4)\n      -  T_UPDATE: a period to calculate drop\
+    \ probability\n         (default: 15 milliseconds)\n   Table that stores status\
+    \ variables (ending with \"_\"):\n      -  burst_allowance_: current burst allowance\n\
+    \      -  drop_prob_: The current packet drop probability.  Reset to 0\n     \
+    \ -  qdelay_old_: The previous queue delay.  Reset to 0\n   Public/system functions:\n\
+    \      -  queue_.  Holds the pending packets\n      -  drop(packet).  Drops/discards\
+    \ a packet\n      -  now().  Returns the current time\n      -  random().  Returns\
+    \ a uniform r.v. in the range 0 ~ 1\n      -  queue_.byte_length().  Returns current\
+    \ queue_ length in bytes\n      -  queue_.enque(packet).  Adds packet to tail\
+    \ of queue_\n      -  queue_.deque().  Returns the packet from the head of queue_\n\
+    \      -  packet.size().  Returns size of packet\n      -  packet.timestamp_delay().\
+    \  Returns timestamped packet latency\n   ============================\n   //Called\
+    \ on each packet arrival\n     enque(Packet packet) {\n          if (PIE->drop_prob_\
+    \ == 0 && current_qdelay < QDELAY_REF/2\n              && PIE->qdelay_old_ < QDELAY_REF/2)\
+    \ {\n              PIE->burst_allowance_ = MAX_BURST;\n          }\n         \
+    \ if (PIE->burst_allowance_ == 0 && drop_early() == DROP) {\n                \
+    \   drop(packet);\n          } else {\n                   queue_.enque(packet);\n\
+    \          }\n     }\n   ============================\n     drop_early() {\n \
+    \        //Safeguard PIE to be work conserving\n         if ( (PIE->qdelay_old_\
+    \ < QDELAY_REF/2 && PIE->drop_prob_ < 0.2)\n               || (queue_.byte_length()\
+    \ <= 2 * MEAN_PKTSIZE) ) {\n              return ENQUE;\n         }\n        \
+    \ double u = random();\n         if (u < PIE->drop_prob_) {\n              return\
+    \ DROP;\n         } else {\n              return ENQUE;\n         }\n      }\n\
+    \   ============================\n   //We choose the timestamp option of obtaining\
+    \ latency for clarity\n   //Rate estimation method can be found in the extended\
+    \ PIE pseudocode\n     deque(Packet packet) {\n       current_qdelay = packet.timestamp_delay();\n\
+    \     }\n   ============================\n   //Update periodically, T_UPDATE =\
+    \ 15 milliseconds\n     calculate_drop_prob() {\n          //Can be implemented\
+    \ using integer multiply\n          p = alpha * (current_qdelay - QDELAY_REF)\
+    \ + \\\n              beta * (current_qdelay - PIE->qdelay_old_);\n          if\
+    \ (PIE->drop_prob_ < 0.000001) {\n              p /= 2048;\n          } else if\
+    \ (PIE->drop_prob_ < 0.00001) {\n              p /= 512;\n          } else if\
+    \ (PIE->drop_prob_ < 0.0001) {\n              p /= 128;\n          } else if (PIE->drop_prob_\
+    \ < 0.001) {\n              p /= 32;\n          } else if (PIE->drop_prob_ < 0.01)\
+    \ {\n              p /= 8;\n          } else if (PIE->drop_prob_ < 0.1) {\n  \
+    \            p /= 2;\n          } else {\n              p = p;\n          }\n\
+    \          PIE->drop_prob_ += p;\n          //Exponentially decay drop prob when\
+    \ congestion goes away\n          if (current_qdelay == 0 && PIE->qdelay_old_\
+    \ == 0) {\n              PIE->drop_prob_ *= 0.98;           //1 - 1/64 is\n  \
+    \                                               //sufficient\n          }\n  \
+    \        //Bound drop probability\n          if (PIE->drop_prob_ < 0)\n      \
+    \             PIE->drop_prob_ = 0.0\n          if (PIE->drop_prob_ > 1)\n    \
+    \               PIE->drop_prob_ = 1.0\n          PIE->qdelay_old_ = current_qdelay;\n\
+    \          PIE->burst_allowance_ =\n             max(0,PIE->burst_allowance_ -\
+    \ T_UPDATE);\n       }\n   }\n"
+- title: Appendix B.  Pseudocode for PIE with Optional Enhancement
+  contents:
+  - "Appendix B.  Pseudocode for PIE with Optional Enhancement\n   Configurable parameters:\n\
+    \      -  QDELAY_REF.  AQM Latency Target (default: 15 milliseconds)\n      -\
+    \  MAX_BURST.  AQM Max Burst Allowance (default: 150 milliseconds)\n      -  MAX_ECNTH.\
+    \  AQM Max ECN Marking Threshold (default: 10%)\n   Internal parameters:\n   \
+    \   -  Weights in the drop probability calculation (1/s):\n         alpha (default:\
+    \ 1/8), beta (default: 1 + 1/4)\n      -  DQ_THRESHOLD: (in bytes, default: 2^14\
+    \ (in a power of 2) )\n      -  T_UPDATE: a period to calculate drop probability\n\
+    \         (default: 15 milliseconds)\n      -  TAIL_DROP: the tail drop threshold\
+    \ (max allowed queue depth)\n         for the queue\n   Table that stores status\
+    \ variables (ending with \"_\"):\n      -  active_: INACTIVE/ACTIVE\n      - \
+    \ burst_allowance_: current burst allowance\n      -  drop_prob_: The current\
+    \ packet drop probability.  Reset to 0\n      -  accu_prob_: Accumulated drop\
+    \ probability.  Reset to 0\n      -  qdelay_old_: The previous queue delay estimate.\
+    \  Reset to 0\n      -  last_timestamp_: Timestamp of previous status update\n\
+    \      -  dq_count_, measurement_start_, in_measurement_, avg_dq_time_.\n    \
+    \     Variables for measuring average dequeue rate\n   Public/system functions:\n\
+    \      -  queue_.  Holds the pending packets\n      -  drop(packet).  Drops/discards\
+    \ a packet\n      -  mark(packet).  Marks ECN for a packet\n      -  now().  Returns\
+    \ the current time\n      -  random().  Returns a uniform r.v. in the range 0\
+    \ ~ 1\n      -  queue_.byte_length().  Returns current queue_ length in bytes\n\
+    \      -  queue_.enque(packet).  Adds packet to tail of queue_\n      -  queue_.deque().\
+    \  Returns the packet from the head of queue_\n      -  packet.size().  Returns\
+    \ size of packet\n      -  packet.ecn().  Returns whether packet is ECN capable\
+    \ or not\n   ============================\n   //Called on each packet arrival\n\
+    \     enque(Packet packet) {\n          if (queue_.byte_length() + packet.size()\
+    \ > TAIL_DROP) {\n                 drop(packet);\n                 PIE->accu_prob_\
+    \ = 0;\n          } else if (PIE->active_ == TRUE && drop_early() == DROP\n  \
+    \                   && PIE->burst_allowance_ == 0) {\n                 if (PIE->drop_prob_\
+    \ < MAX_ECNTH && packet.ecn() ==\n                     TRUE)\n               \
+    \        mark(packet);\n                 else\n                       drop(packet);\n\
+    \                       PIE->accu_prob_ = 0;\n          } else {\n           \
+    \      queue_.enque(packet);\n          }\n          //If the queue is over a\
+    \ certain threshold, turn on PIE\n          if (PIE->active_ == INACTIVE\n   \
+    \           && queue_.byte_length() >= TAIL_DROP/3) {\n               PIE->active_\
+    \ = ACTIVE;\n               PIE->qdelay_old_ = 0;\n               PIE->drop_prob_\
+    \ = 0;\n               PIE->in_measurement_ = TRUE;\n               PIE->dq_count_\
+    \ = 0;\n               PIE->avg_dq_time_ = 0;\n               PIE->last_timestamp_\
+    \ = now;\n               PIE->burst_allowance_ = MAX_BURST;\n               PIE->accu_prob_\
+    \ = 0;\n               PIE->measurement_start_ = now;\n          }\n         \
+    \ //If the queue has been idle for a while, turn off PIE\n          //Reset counters\
+    \ when accessing the queue after some idle\n          //period if PIE was active\
+    \ before\n          if ( PIE->drop_prob_ == 0 && PIE->qdelay_old_ == 0\n     \
+    \          && current_qdelay == 0) {\n               PIE->active_ = INACTIVE;\n\
+    \               PIE->in_measurement_ = FALSE;\n          }\n     }\n   ============================\n\
+    \     drop_early() {\n         //PIE is active but the queue is not congested:\
+    \ return ENQUE\n         if ( (PIE->qdelay_old_ < QDELAY_REF/2 && PIE->drop_prob_\
+    \ < 0.2)\n               || (queue_.byte_length() <= 2 * MEAN_PKTSIZE) ) {\n \
+    \             return ENQUE;\n         }\n         if (PIE->drop_prob_ == 0) {\n\
+    \                  PIE->accu_prob_ = 0;\n         }\n         //For practical\
+    \ reasons, drop probability can be further scaled\n         //according to packet\
+    \ size, but one needs to set a bound to\n         //avoid unnecessary bias\n \
+    \        //Random drop\n         PIE->accu_prob_ += PIE->drop_prob_;\n       \
+    \  if (PIE->accu_prob_ < 0.85)\n             return ENQUE;\n         if (PIE->accu_prob_\
+    \ >= 8.5)\n             return DROP;\n                 double u = random();\n\
+    \         if (u < PIE->drop_prob_) {\n                      PIE->accu_prob_ =\
+    \ 0;\n                      return DROP;\n         } else {\n                \
+    \      return ENQUE;\n         }\n      }\n   ============================\n \
+    \   //Update periodically, T_UPDATE = 15 milliseconds\n    calculate_drop_prob()\
+    \ {\n        if ( (now - PIE->last_timestamp_) >= T_UPDATE &&\n              \
+    \  PIE->active_ == ACTIVE) {\n          //Can be implemented using integer multiply\n\
+    \          //DQ_THRESHOLD is power of 2 value\n          current_qdelay = queue_.byte_length()\
+    \ *\n          PIE->avg_dq_time_/DQ_THRESHOLD;\n          p = alpha * (current_qdelay\
+    \ - QDELAY_REF) + \\\n              beta * (current_qdelay - PIE->qdelay_old_);\n\
+    \          if (PIE->drop_prob_ < 0.000001) {\n              p /= 2048;\n     \
+    \     } else if (PIE->drop_prob_ < 0.00001) {\n              p /= 512;\n     \
+    \     } else if (PIE->drop_prob_ < 0.0001) {\n              p /= 128;\n      \
+    \    } else if (PIE->drop_prob_ < 0.001) {\n              p /= 32;\n         \
+    \ } else if (PIE->drop_prob_ < 0.01) {\n              p /= 8;\n          } else\
+    \ if (PIE->drop_prob_ < 0.1) {\n              p /= 2;\n          } else {\n  \
+    \            p = p;\n          }\n          if (PIE->drop_prob_ >= 0.1 && p >\
+    \ 0.02) {\n              p = 0.02;\n          }\n          PIE->drop_prob_ +=\
+    \ p;\n          //Exponentially decay drop prob when congestion goes away\n  \
+    \        if (current_qdelay < QDELAY_REF/2 && PIE->qdelay_old_ <\n           \
+    \   QDELAY_REF/2) {\n                 PIE->drop_prob_ *= 0.98;        //1 - 1/64\
+    \ is\n                                                 //sufficient\n        \
+    \  }\n          //Bound drop probability\n          if (PIE->drop_prob_ < 0)\n\
+    \                   PIE->drop_prob_ = 0\n          if (PIE->drop_prob_ > 1)\n\
+    \                   PIE->drop_prob_ = 1\n          PIE->qdelay_old_ = current_qdelay;\n\
+    \          PIE->last_timestamp_ = now;\n          PIE->burst_allowance_ = max(0,PIE->burst_allowance_\
+    \ -\n             T_UPDATE);\n       }\n   }\n   ============================\n\
+    \   //Called on each packet departure\n     deque(Packet packet) {\n        //Dequeue\
+    \ rate estimation\n        if (PIE->in_measurement_ == TRUE) {\n             PIE->dq_count_\
+    \ = packet.size() + PIE->dq_count_;\n             //Start a new measurement cycle\
+    \ if we have enough packets\n             if ( PIE->dq_count_ >= DQ_THRESHOLD)\
+    \ {\n               dq_time = now - PIE->measurement_start_;\n               if\
+    \ (PIE->avg_dq_time_ == 0) {\n                   PIE->avg_dq_time_ = dq_time;\n\
+    \               } else {\n                   weight = DQ_THRESHOLD/2^16\n    \
+    \               PIE->avg_dq_time_ = dq_time * weight +\n                     \
+    \ PIE->avg_dq_time_ * (1 - weight);\n               }\n               PIE->in_measurement_\
+    \ = FALSE;\n             }\n        }\n        //Start a measurement if we have\
+    \ enough data in the queue\n        if (queue_.byte_length() >= DQ_THRESHOLD &&\n\
+    \            PIE->in_measurement_ == FALSE) {\n               PIE->in_measurement_\
+    \ = TRUE;\n               PIE->measurement_start_ = now;\n               PIE->dq_count_\
+    \ = 0;\n        }\n     }\n"
+- title: Contributors
+  contents:
+  - "Contributors\n   Bill Ver Steeg\n   Comcast Cable\n   Email: William_VerSteeg@comcast.com\n\
+    \   Mythili Prabhu*\n   Akamai Technologies\n   3355 Scott Blvd.\n   Santa Clara,\
+    \ CA  95054\n   United States of America\n   Email: mythili@akamai.com\n   Chiara\
+    \ Piglione*\n   Broadcom Corporation\n   3151 Zanker Road\n   San Jose, CA  95134\n\
+    \   United States of America\n   Email: chiara@broadcom.com\n   Vijay Subramanian*\n\
+    \   PLUMgrid, Inc.\n   350 Oakmead Parkway\n   Suite 250\n   Sunnyvale, CA  94085\n\
+    \   United States of America\n   Email: vns@plumgrid.com\n   * Formerly at Cisco\
+    \ Systems\n"
+- title: Authors' Addresses
+  contents:
+  - "Authors' Addresses\n   Rong Pan\n   Cisco Systems\n   3625 Cisco Way\n   San\
+    \ Jose, CA  95134\n   United States of America\n   Email: ropan@cisco.com\n  \
+    \ Preethi Natarajan\n   Cisco Systems\n   725 Alder Drive\n   Milpitas, CA  95035\n\
+    \   United States of America\n   Email: prenatar@cisco.com\n   Fred Baker\n  \
+    \ Santa Barbara, CA  93117\n   United States of America\n   Email: FredBaker.IETF@gmail.com\n\
+    \   Greg White\n   CableLabs\n   858 Coal Creek Circle\n   Louisville, CO  80027\n\
+    \   United States of America\n   Email: g.white@cablelabs.com\n"

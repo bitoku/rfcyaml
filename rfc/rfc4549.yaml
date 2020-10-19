@@ -1,0 +1,1010 @@
+- title: __initial_text__
+  contents:
+  - '       Synchronization Operations for Disconnected IMAP4 Clients
+
+    '
+- title: Status of This Memo
+  contents:
+  - "Status of This Memo\n   This memo provides information for the Internet community.\
+    \  It does\n   not specify an Internet standard of any kind.  Distribution of\
+    \ this\n   memo is unlimited.\n"
+- title: Copyright Notice
+  contents:
+  - "Copyright Notice\n   Copyright (C) The Internet Society (2006).\n"
+- title: Abstract
+  contents:
+  - "Abstract\n   This document attempts to address some of the issues involved in\n\
+    \   building a disconnected IMAP4 client.  In particular, it deals with\n   the\
+    \ issues of what might be called the \"driver\" portion of the\n   synchronization\
+    \ tool: the portion of the code responsible for issuing\n   the correct set of\
+    \ IMAP4 commands to synchronize the disconnected\n   client in the way that is\
+    \ most likely to make the human who uses the\n   disconnected client happy.\n\
+    \   This note describes different strategies that can be used by\n   disconnected\
+    \ clients and shows how to use IMAP protocol in order to\n   minimize the time\
+    \ of the synchronization process.\n   This note also lists IMAP extensions that\
+    \ a server should implement\n   in order to provide better synchronization facilities\
+    \ to disconnected\n   clients.\n"
+- title: Table of Contents
+  contents:
+  - "Table of Contents\n   1. Introduction ....................................................3\n\
+    \      1.1. Conventions Used in This Document ..........................3\n  \
+    \ 2. Design Principles ...............................................3\n   3.\
+    \ Overall Picture of Synchronization ..............................4\n   4. Mailbox\
+    \ Synchronization Steps and Strategies ....................7\n      4.1. Checking\
+    \ UID Validity ......................................7\n      4.2. Synchronizing\
+    \ Local Changes with the Server ................8\n           4.2.1. Uploading\
+    \ Messages to the Mailbox ...................8\n           4.2.2. Optimizing \"\
+    move\" and \"copy\" Operations .............9\n           4.2.3. Replaying Local\
+    \ Flag Changes .......................14\n           4.2.4. Processing Mailbox\
+    \ Compression (EXPUNGE) Requests ..15\n           4.2.5. Closing a Mailbox ..................................17\n\
+    \      4.3. Details of \"Normal\" Synchronization of a Single Mailbox ...18\n\
+    \           4.3.1. Discovering New Messages and Changes to Old\n             \
+    \     Messages ...........................................18\n           4.3.2.\
+    \ Searching for \"Interesting\" Messages. ..............20\n           4.3.3.\
+    \ Populating Cache with \"Interesting\" Messages. ......21\n           4.3.4.\
+    \ User-Initiated Synchronization .....................22\n      4.4. Special Case:\
+    \ Descriptor-Only Synchronization .............22\n      4.5. Special Case: Fast\
+    \ New-Only Synchronization ...............23\n      4.6. Special Case: Blind FETCH\
+    \ .................................23\n   5. Implementation Considerations ..................................24\n\
+    \      5.1. Error Recovery during Playback ............................26\n  \
+    \    5.2. Quality of Implementation Issues ..........................28\n    \
+    \  5.3. Optimizations .............................................28\n   6. IMAP\
+    \ Extensions That May Help ..................................30\n      6.1. CONDSTORE\
+    \ Extension .......................................30\n   7. Security Considerations\
+    \ ........................................33\n   8. References .....................................................33\n\
+    \      8.1. Normative References ......................................33\n  \
+    \    8.2. Informative References ....................................34\n   9.\
+    \ Acknowledgements ...............................................34\n"
+- title: 1.  Introduction
+  contents:
+  - "1.  Introduction\n   Several recommendations presented in this document are generally\n\
+    \   applicable to all types of IMAP clients.  However, this document\n   tries\
+    \ to concentrate on disconnected mail clients [IMAP-MODEL].  It\n   also suggests\
+    \ some IMAP extensions* that should be implemented by\n   IMAP servers in order\
+    \ to make the life of disconnected clients\n   easier.  In particular, the [UIDPLUS]\
+    \ extension was specifically\n   designed to streamline certain disconnected operations,\
+    \ like\n   expunging, uploading, and copying messages (see Sections 4.2.1,\n \
+    \  4.2.2.1, and 4.2.4).\n   Readers of this document are also strongly advised\
+    \ to read RFC 2683\n   [RFC2683].\n   * Note that the functionality provided by\
+    \ the base IMAP protocol\n     [IMAP4] is sufficient to perform basic synchronization.\n"
+- title: 1.1.  Conventions Used in This Document
+  contents:
+  - "1.1.  Conventions Used in This Document\n   In examples, \"C:\" and \"S:\" indicate\
+    \ lines sent by the client and\n   server, respectively.  Long lines in examples\
+    \ are broken for\n   editorial clarity.\n   The key words \"MUST\", \"MUST NOT\"\
+    , \"REQUIRED\", \"SHALL\", \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\"\
+    , \"MAY\", and \"OPTIONAL\" in this\n   document are to be interpreted as described\
+    \ in RFC 2119 [KEYWORDS].\n   Let's call an IMAP command idempotent if the result\
+    \ of executing the\n   command twice sequentially is the same as the result of\
+    \ executing the\n   command just once.\n"
+- title: 2.  Design Principles
+  contents:
+  - "2.  Design Principles\n   All mailbox state or content information stored on\
+    \ the disconnected\n   client should be viewed strictly as a cache of the state\
+    \ of the\n   server.  The \"master\" state remains on the server, just as it would\n\
+    \   with an interactive IMAP4 client.  The one exception to this rule is\n   that\
+    \ information about the state of the disconnected client's cache\n   (the state\
+    \ includes flag changes while offline and during scheduled\n   message uploads)\
+    \ remains on the disconnected client: that is, the\n   IMAP4 server is not responsible\
+    \ for remembering the state of the\n   disconnected IMAP4 client.\n   We assume\
+    \ that a disconnected client is a client that, for whatever\n   reason, wants\
+    \ to minimize the length of time that it is \"on the\n   phone\" to the IMAP4\
+    \ server.  Often this will be because the client is\n   using a dialup connection,\
+    \ possibly with very low bandwidth, but\n   sometimes it might just be that the\
+    \ human is in a hurry to catch an\n   airplane, or some other event beyond our\
+    \ control.  Whatever the\n   reason, we assume that we must make efficient use\
+    \ of the network\n   connection, both in the usual sense (not generating spurious\
+    \ traffic)\n   and in the sense that we would prefer not to have the connection\n\
+    \   sitting idle while the client and/or the server is performing\n   strictly\
+    \ local computation or I/O.  Another, perhaps simpler way of\n   stating this\
+    \ is that we assume that network connections are\n   \"expensive\".\n   Practical\
+    \ experience with disconnected mail systems has shown that\n   there is no single\
+    \ synchronization strategy that is appropriate for\n   all cases.  Different humans\
+    \ have different preferences, and the same\n   human's preference will vary depending\
+    \ both on external circumstance\n   (how much of a hurry the human is in today)\
+    \ and on the value that the\n   human places on the messages being transferred.\
+    \  The point here is\n   that there is no way that the synchronization program\
+    \ can guess\n   exactly what the human wants to do, so the human will have to\
+    \ provide\n   some guidance.\n   Taken together, the preceding two principles\
+    \ lead to the conclusion\n   that the synchronization program must make its decisions\
+    \ based on\n   some kind of guidance provided by the human, by selecting the\n\
+    \   appropriate options in the user interface or through some sort of\n   configuration\
+    \ file.  Almost certainly, it should not pause for I/O\n   with the human in the\
+    \ middle of the synchronization process.  The\n   human will almost certainly\
+    \ have several different configurations for\n   the synchronization program, for\
+    \ different circumstances.\n   Since a disconnected client has no way of knowing\
+    \ what changes might\n   have occurred to the mailbox while it was disconnected,\
+    \ message\n   numbers are not useful to a disconnected client.  All disconnected\n\
+    \   client operations should be performed using UIDs, so that the client\n   can\
+    \ be sure that it and the server are talking about the same\n   messages during\
+    \ the synchronization process.\n"
+- title: 3.  Overall Picture of Synchronization
+  contents:
+  - "3.  Overall Picture of Synchronization\n   The basic strategy for synchronization\
+    \ is outlined below.  Note that\n   the real strategy may vary from one application\
+    \ to another or may\n   depend on a synchronization mode.\n   a) Process any \"\
+    actions\" that were pending on the client that were\n      not associated with\
+    \ any mailbox.  (In particular sending messages\n      composed offline with SMTP.\
+    \  This is not part of IMAP\n      synchronization, but it is mentioned here for\
+    \ completeness.)\n   b) Fetch the current list of \"interesting\" mailboxes. \
+    \ (The\n      disconnected client should allow the user to skip this step\n  \
+    \    completely.)\n   c) \"Client-to-server synchronization\": for each IMAP \"\
+    action\" that\n      was pending on the client, do the following:\n      1) If\
+    \ the action implies opening a new mailbox (any operation that\n         operates\
+    \ on messages), open the mailbox.  Check its UID\n         validity value (see\
+    \ Section 4.1 for more details) returned in\n         the UIDVALIDITY response\
+    \ code.  If the UIDVALIDITY value\n         returned by the server differs, the\
+    \ client MUST empty the local\n         cache of the mailbox and remove any pending\
+    \ \"actions\" that\n         refer to UIDs in that mailbox (and consider them\
+    \ failed).  Note\n         that this doesn't affect actions performed on client-generated\n\
+    \         fake UIDs (see Section 5).\n      2) Perform the action.  If the action\
+    \ is to delete a mailbox\n         (DELETE), make sure that the mailbox is closed\
+    \ first (see also\n         Section 3.4.12 of [RFC2683]).\n   d) \"Server-to-client\
+    \ synchronization\": for each mailbox that requires\n      synchronization, do\
+    \ the following:\n      1) Check the mailbox UIDVALIDITY (see Section 4.1 for\
+    \ more\n         details) with SELECT/EXAMINE/STATUS.\n         If UIDVALIDITY\
+    \ value returned by the server differs, the client\n         MUST\n         *\
+    \ empty the local cache of that mailbox;\n         * remove any pending \"actions\"\
+    \ that refer to UIDs in that\n           mailbox and consider them failed; and\n\
+    \         * skip step 2-II.\n      2) Fetch the current \"descriptors\";\n   \
+    \      I)  Discover new messages.\n         II) Discover changes to old messages.\n\
+    \      3) Fetch the bodies of any \"interesting\" messages that the client\n \
+    \        doesn't already have.\n   e) Close all open mailboxes not required for\
+    \ further operations (if\n      staying online) or disconnect all open connections\
+    \ (if going\n      offline).\n   Terms used:\n   \"Actions\" are queued requests\
+    \ that were made by the human to the\n   client's Mail User Agent (MUA) software\
+    \ while the client was\n   disconnected.\n   We define \"descriptors\" as a set\
+    \ of IMAP4 FETCH data items.\n   Conceptually, a message's descriptor is that\
+    \ set of information that\n   allows the synchronization program to decide what\
+    \ protocol actions\n   are necessary to bring the local cache to the desired state\
+    \ for this\n   message; since this decision is really up to the human, this\n\
+    \   information probably includes at least a few header fields intended\n   for\
+    \ human consumption.  Exactly what will constitute a descriptor\n   depends on\
+    \ the client implementation.  At a minimum, the descriptor\n   contains the message's\
+    \ UID and FLAGS.  Other likely candidates are\n   the RFC822.SIZE, RFC822.HEADER,\
+    \ BODYSTRUCTURE, or ENVELOPE data\n   items.\n   Comments:\n   1) The list of\
+    \ actions should be ordered.  For example, if the human\n      deletes message\
+    \ A1 in mailbox A, then expunges mailbox A, and then\n      deletes message A2\
+    \ in mailbox A, the human will expect that\n      message A1 is gone and that\
+    \ message A2 is still present but is now\n      deleted.\n      By processing\
+    \ all the actions before proceeding with\n      synchronization, we avoid having\
+    \ to compensate for the local MUA's\n      changes to the server's state.  That\
+    \ is, once we have processed\n      all the pending actions, the steps that the\
+    \ client must take to\n      synchronize itself will be the same no matter where\
+    \ the changes to\n      the server's state originated.\n   2) Steps a and b can\
+    \ be performed in parallel.  Alternatively, step a\n      can be performed after\
+    \ d.\n   3) On step b, the set of \"interesting\" mailboxes pretty much has to\n\
+    \      be determined by the human.  What mailboxes belong to this set may\n  \
+    \    vary between different IMAP4 sessions with the same server,\n      client,\
+    \ and human.  An interesting mailbox can be a mailbox\n      returned by LSUB\
+    \ command (see Section 6.3.9 of [IMAP4]).  The\n      special mailbox \"INBOX\"\
+    \ SHOULD be in the default set of mailboxes\n      that the client considers interesting.\
+    \  However, providing the\n      ability to ignore INBOX for a particular session\
+    \ or client may be\n      valuable for some mail filtering strategies.\n   4)\
+    \ On step d-2-II, the client also finds out about changes to the\n      flags\
+    \ of messages that the client already has in its local cache,\n      and about\
+    \ messages in the local cache that no longer exist on the\n      server (i.e.,\
+    \ messages that have been expunged).\n   5) \"Interesting\" messages are those\
+    \ messages that the synchronization\n      program thinks the human wants to have\
+    \ cached locally, based on\n      the configuration and the data retrieved in\
+    \ step b.\n   6) A disconnected IMAP client is a special case of an IMAP client,\
+    \ so\n      it MUST be able to handle any \"unexpected\" unsolicited responses,\n\
+    \      like EXISTS and EXPUNGE, at any time.  The disconnected client MAY\n  \
+    \    ignore EXPUNGE response during \"client-to-server\" synchronization\n   \
+    \   phase (step c).\n   The rest of this discussion will focus primarily on the\n\
+    \   synchronization issues for a single mailbox.\n"
+- title: 4.  Mailbox Synchronization Steps and Strategies
+  contents:
+  - '4.  Mailbox Synchronization Steps and Strategies
+
+    '
+- title: 4.1.  Checking UID Validity
+  contents:
+  - "4.1.  Checking UID Validity\n   The \"UID validity\" of a mailbox is a number\
+    \ returned in an\n   UIDVALIDITY response code in an OK untagged response at mailbox\n\
+    \   selection time.  The UID validity value changes between sessions when\n  \
+    \ UIDs fail to persist between sessions.\n   Whenever the client selects a mailbox,\
+    \ the client must compare the\n   returned UID validity value with the value stored\
+    \ in the local cache.\n   If the UID validity values differ, the UIDs in the client's\
+    \ cache are\n   no longer valid.  The client MUST then empty the local cache of\
+    \ that\n   mailbox and remove any pending \"actions\" that refer to UIDs in that\n\
+    \   mailbox.  The client MAY also issue a warning to the human.  The\n   client\
+    \ MUST NOT cancel any scheduled uploads (i.e., APPENDs) for the\n   mailbox.\n\
+    \   Note that UIDVALIDITY is not only returned on a mailbox selection.\n   The\
+    \ COPYUID and APPENDUID response codes defined in the [UIDPLUS]\n   extension\
+    \ (see also 4.2.2) and the UIDVALIDITY STATUS response data\n   item also contain\
+    \ a UIDVALIDITY value for some other mailbox.  The\n   client SHOULD behave as\
+    \ described in the previous paragraph (but it\n   should act on the other mailbox's\
+    \ cache), no matter how it obtained\n   the UIDVALIDITY value.\n"
+- title: 4.2.  Synchronizing Local Changes with the Server
+  contents:
+  - '4.2.  Synchronizing Local Changes with the Server
+
+    '
+- title: 4.2.1.  Uploading Messages to the Mailbox
+  contents:
+  - "4.2.1.  Uploading Messages to the Mailbox\n   Two of the most common examples\
+    \ of operations resulting in message\n   uploads are:\n   1) Saving a draft message\n\
+    \   2) Copying a message between remote mailboxes on two different IMAP\n    \
+    \  servers or a local mailbox and a remote mailbox.\n   Message upload is performed\
+    \ with the APPEND command.  A message\n   scheduled to be uploaded has no UID\
+    \ associated with it, as all UIDs\n   are assigned by the server.  The APPEND\
+    \ command will effectively\n   associate a UID with the uploaded message that\
+    \ can be stored in the\n   local cache for future reference.  However, [IMAP4]\
+    \ doesn't describe\n   a simple mechanism to discover the message UID by just\
+    \ performing the\n   APPEND command.  In order to discover the UID, the client\
+    \ can do one\n   of the following:\n   1) Remove the uploaded message from cache.\
+    \  Then, use the mechanism\n      described in 4.3 to fetch the information about\
+    \ the uploaded\n      message as if it had been uploaded by some other client.\n\
+    \   2) Try to fetch header information as described in 4.2.2 in order to\n   \
+    \   find a message that corresponds to the uploaded message.  One\n      strategy\
+    \ for doing this is described in 4.2.2.\n   Case 1 describes a not particularly\
+    \ smart client.\n      C: A003 APPEND Drafts (\\Seen $MDNSent) {310}\n      S:\
+    \ + Ready for literal data\n      C: Date: Mon, 7 Feb 1994 21:52:25 -0800 (PST)\n\
+    \      C: From: Fred Foobar <foobar@blt.example.COM>\n      C: Subject: afternoon\
+    \ meeting\n      C: To: mooch@owatagu.siam.edu\n      C: Message-Id: <B27397-0100000@blt.example.COM>\n\
+    \      C: MIME-Version: 1.0\n      C: Content-Type: TEXT/PLAIN; CHARSET=US-ASCII\n\
+    \      C:\n      C: Hello Joe, do you think we can meet at 3:30 tomorrow?\n  \
+    \    C:\n      S: A003 OK APPEND Completed\n   Fortunately, there is a simpler\
+    \ way to discover the message UID in\n   the presence of the [UIDPLUS] extension:\n\
+    \      C: A003 APPEND Drafts (\\Seen $MDNSent) {310}\n      S: + Ready for literal\
+    \ data\n      C: Date: Mon, 7 Feb 1994 21:52:25 -0800 (PST)\n      C: From: Fred\
+    \ Foobar <foobar@blt.example.COM>\n      C: Subject: afternoon meeting\n     \
+    \ C: To: mooch@owatagu.siam.edu\n      C: Message-Id: <B27397-0100000@blt.example.COM>\n\
+    \      C: MIME-Version: 1.0\n      C: Content-Type: TEXT/PLAIN; CHARSET=US-ASCII\n\
+    \      C:\n      C: Hello Joe, do you think we can meet at 3:30 tomorrow?\n  \
+    \    C:\n      S: A003 OK [APPENDUID 1022843275 77712] APPEND completed\n   The\
+    \ UID of the appended message is the second parameter of APPENDUID\n   response\
+    \ code.\n"
+- title: 4.2.2.  Optimizing "move" and "copy" Operations
+  contents:
+  - "4.2.2.  Optimizing \"move\" and \"copy\" Operations\n   Practical experience\
+    \ with IMAP and other mailbox access protocols\n   that support multiple mailboxes\
+    \ suggests that moving a message from\n   one mailbox to another is an extremely\
+    \ common operation.\n"
+- title: 4.2.2.1.  Moving a Message between Two Mailboxes on the Same Server
+  contents:
+  - "4.2.2.1.  Moving a Message between Two Mailboxes on the Same Server\n   In IMAP4,\
+    \ a \"move\" operation between two mailboxes on the same server\n   is really\
+    \ a combination of a COPY operation and a STORE +FLAGS\n   (\\Deleted) operation.\
+    \  This makes good protocol sense for IMAP, but\n   it leaves a simple-minded\
+    \ disconnected client in the silly position\n   of deleting and possibly expunging\
+    \ its cached copy of a message, then\n   fetching an identical copy via the network.\n\
+    \   However, the presence of the UIDPLUS extension in the server can\n   help:\n\
+    \      C: A001 UID COPY 567,414 \"Interesting Messages\"\n      S: A001 OK [COPYUID\
+    \ 1022843275 414,567 5:6] Completed\n   This tells the client that the message\
+    \ with UID 414 in the current\n   mailbox was successfully copied to the mailbox\
+    \ \"Interesting Messages\"\n   and was given the UID 5, and that the message with\
+    \ UID 567 was given\n   the UID 6.\n   In the absence of UIDPLUS extension support\
+    \ in the server, the\n   following trick can be used.  By including the Message-ID:\
+    \ header and\n   the INTERNALDATE data item as part of the descriptor, the client\
+    \ can\n   check the descriptor of a \"new\" message against messages that are\n\
+    \   already in its cache and avoid fetching the extra copy.  Of course,\n   it's\
+    \ possible that the cost of checking to see if the message is\n   already in the\
+    \ local cache may exceed the cost of just fetching it,\n   so this technique should\
+    \ not be used blindly.  If the MUA implements\n   a \"move\" command, it makes\
+    \ special provisions to use this technique\n   when it knows that a copy/delete\
+    \ sequence is the result of a \"move\"\n   command.\n   Note that servers are\
+    \ not required (although they are strongly\n   encouraged with \"SHOULD language\"\
+    ) to preserve INTERNALDATE when\n   copying messages.\n   Also note that since\
+    \ it's theoretically possible for this algorithm\n   to find the wrong message\
+    \ (given sufficiently malignant Message-ID\n   headers), implementers should provide\
+    \ a way to disable this\n   optimization, both permanently and on a message-by-message\
+    \ basis.\n   Example 1: Copying a message in the absence of UIDPLUS extension.\n\
+    \   At some point in time the client has fetched the source message and\n   some\
+    \ information was cached:\n      C: C021 UID FETCH <uids> (BODY.PEEK[] INTERNALDATE\
+    \ FLAGS)\n      ...\n      S: * 27 FETCH (UID 123 INTERNALDATE \"31-May-2002 05:26:59\
+    \ -0600\"\n          FLAGS (\\Draft $MDNSent) BODY[] {1036}\n      S: ...\n  \
+    \    S: Message-Id: <20040903110856.22a127cd@chardonnay>\n      S: ...\n     \
+    \ S: ...message body...\n      S: )\n      ...\n      S: C021 OK fetch completed\n\
+    \   Later on, the client decides to copy the message:\n      C: C035 UID COPY\
+    \ 123 \"Interesting Messages\"\n      S: C035 OK Completed\n   As the server hasn't\
+    \ provided the COPYUID response code, the client\n   tries the optimization described\
+    \ above:\n      C: C036 SELECT \"Interesting Messages\"\n      ...\n      C: C037\
+    \ UID SEARCH ON 31-May-2002 HEADER\n          \"Message-Id\" \"20040903110856.22a127cd@chardonnay\"\
+    \n      S: SEARCH 12368\n      S: C037 OK completed\n   Note that if the server\
+    \ has returned multiple UIDs in the SEARCH\n   response, the client MUST NOT use\
+    \ any of the returned UID.\n"
+- title: 4.2.2.2.  Moving a Message from a Remote Mailbox to a Local
+  contents:
+  - "4.2.2.2.  Moving a Message from a Remote Mailbox to a Local\n   Moving a message\
+    \ from a remote mailbox to a local is done with FETCH\n   (that includes FLAGS\
+    \ and INTERNALDATE) followed by UID STORE <uid>\n   +FLAGS.SILENT (\\Deleted):\n\
+    \      C: A003 UID FETCH 123 (BODY.PEEK[] INTERNALDATE FLAGS)\n      S: * 27 FETCH\
+    \ (UID 123 INTERNALDATE \"31-May-2002 05:26:59 -0600\"\n          FLAGS (\\Seen\
+    \ $MDNSent) BODY[]\n      S: ...message body...\n      S: )\n      S: A003 OK\
+    \ UID FETCH completed\n      C: A004 UID STORE <uid> +FLAGS.SILENT (\\Deleted)\n\
+    \      S: A004 STORE completed\n   Note that there is no reason to fetch the message\
+    \ during\n   synchronization if it's already in the client's cache.  Also, the\n\
+    \   client SHOULD preserve delivery date in the local cache.\n"
+- title: 4.2.2.3.  Moving a Message from a Local Mailbox to a Remote
+  contents:
+  - "4.2.2.3.  Moving a Message from a Local Mailbox to a Remote\n   Moving a message\
+    \ from a local mailbox to a remote is done with\n   APPEND:\n   C: A003 APPEND\
+    \ Drafts (\\Seen $MDNSent) \"31-May-2002 05:26:59 -0600\"\n       {310}\n   S:\
+    \ + Ready for literal data\n   C: Date: Mon, 7 Feb 1994 21:52:25 -0800 (PST)\n\
+    \   C: From: Fred Foobar <foobar@blt.example.COM>\n   C: Subject: afternoon meeting\n\
+    \   C: To: mooch@owatagu.siam.edu\n   C: Message-Id: <B27397-0100000@blt.example.COM>\n\
+    \   C: MIME-Version: 1.0\n   C: Content-Type: TEXT/PLAIN; CHARSET=US-ASCII\n \
+    \  C:\n   C: Hello Joe, do you think we can meet at 3:30 tomorrow?\n   C:\n  \
+    \ S: A003 OK [APPENDUID 1022843275 77712] completed\n   The client SHOULD specify\
+    \ the delivery date from the local cache in\n   the APPEND.\n   If the [LITERAL+]\
+    \ extension is available, the client can save a\n   round-trip*:\n   C: A003 APPEND\
+    \ Drafts (\\Seen $MDNSent) \"31-May-2002 05:26:59 -0600\"\n       {310+}\n   C:\
+    \ Date: Mon, 7 Feb 1994 21:52:25 -0800 (PST)\n   C: From: Fred Foobar <foobar@blt.example.COM>\n\
+    \   C: Subject: afternoon meeting\n   C: To: mooch@owatagu.siam.edu\n   C: Message-Id:\
+    \ <B27397-0100000@blt.example.COM>\n   C: MIME-Version: 1.0\n   C: Content-Type:\
+    \ TEXT/PLAIN; CHARSET=US-ASCII\n   C:\n   C: Hello Joe, do you think we can meet\
+    \ at 3:30 tomorrow?\n   C:\n   S: A003 OK [APPENDUID 1022843275 77712] completed\n\
+    \   * Note that there is a risk that the server will reject the message\n    \
+    \ due to its size.  If this happens, the client will waste bandwidth\n     transferring\
+    \ the whole message.  If the client wouldn't have used\n     the LITERAL+, this\
+    \ could have been avoided:\n   C: A003 APPEND Drafts (\\Seen $MDNSent) \"31-May-2004\
+    \ 05:26:59 -0600\"\n       {16777215}\n   S: A003 NO Sorry, message is too big\n"
+- title: 4.2.2.4.  Moving a Message between Two Mailboxes on Different Servers
+  contents:
+  - "4.2.2.4.  Moving a Message between Two Mailboxes on Different Servers\n   Moving\
+    \ a message between two mailbox on two different servers is a\n   combination\
+    \ of the operations described in 4.2.2.2 followed by the\n   operations described\
+    \ in 4.2.2.3.\n"
+- title: 4.2.2.5.  Uploading Multiple Messages to a Remote Mailbox with
+  contents:
+  - "4.2.2.5.  Uploading Multiple Messages to a Remote Mailbox with\n          MULTIAPPEND\n\
+    \   When there is a need to upload multiple messages to a remote mailbox\n   (e.g.,\
+    \ as per 4.2.2.3), the presence of certain IMAP extensions may\n   significantly\
+    \ improve performance.  One of them is [MULTIAPPEND].\n   For some mail stores,\
+    \ opening a mailbox for appending might be\n   expensive.  [MULTIAPPEND] tells\
+    \ the server to open the mailbox once\n   (instead of opening and closing it \"\
+    n\" times per \"n\" messages to be\n   uploaded) and to keep it open while a group\
+    \ of messages is being\n   uploaded to the server.\n   Also, if the server supports\
+    \ both [MULTIAPPEND] and [LITERAL+]\n   extensions, the entire upload is accomplished\
+    \ in a single\n   command/response round-trip.\n   Note: Client implementers should\
+    \ be aware that [MULTIAPPEND] performs\n   append of multiple messages atomically.\
+    \  This means, for example, if\n   there is not enough space to save \"n\"-th\
+    \ message (or the message has\n   invalid structure and is rejected by the server)\
+    \ after successful\n   upload of \"n-1\" messages, the whole upload operation\
+    \ fails, and no\n   message will be saved in the mailbox.  Although this behavior\
+    \ might\n   be desirable in certain situations, it might not be what you want.\n\
+    \   Otherwise, the client should use the regular APPEND command (Section\n   4.2.2.3),\
+    \ possibly utilizing the [LITERAL+] extension.  See also\n   Section 5.1 for discussions\
+    \ about error recovery.\n   Note: MULTIAPPEND can be used together with the UIDPLUS\
+    \ extension in\n   a way similar to what was described in Section 4.2.1.  [MULTIAPPEND]\n\
+    \   extends the syntax of the APPENDUID response code to allow for\n   multiple\
+    \ message UIDs in the second parameter.\n   Example 2:\n   This example demonstrates\
+    \ the use of MULTIAPPEND together with\n   UIDPLUS (synchronization points where\
+    \ the client waits for\n   confirmations from the server are marked with \"<--->\"\
+    ):\n   C: A003 APPEND Jan-2002 (\\Seen $MDNSent) \"31-May-2002 05:26:59 -0600\"\
+    \n       {310}\n   <--->\n   S: + Ready for literal data\n   C: Date: Mon, 7 Feb\
+    \ 1994 21:52:25 -0800 (PST)\n   C: From: Fred Foobar <foobar@blt.example.COM>\n\
+    \   C: Subject: afternoon meeting\n   C: To: mooch@owatagu.siam.edu\n   C: Message-Id:\
+    \ <B27397-0100000@blt.example.COM>\n   C: MIME-Version: 1.0\n   C: Content-Type:\
+    \ TEXT/PLAIN; CHARSET=US-ASCII\n   C:\n   C: Hello Joe, do you think we can meet\
+    \ at 3:30 tomorrow?\n   C:  (\\Seen) \" 1-Jun-2002 22:43:04 -0800\" {286}\n  \
+    \ <--->\n   S: + Ready for literal data\n   C: Date: Mon, 7 Feb 1994 22:43:04\
+    \ -0800 (PST)\n   C: From: Joe Mooch <mooch@OWaTaGu.siam.EDU>\n   C: Subject:\
+    \ Re: afternoon meeting\n   C: To: foobar@blt.example.com\n   C: Message-Id: <a0434793874930@OWaTaGu.siam.EDU>\n\
+    \   C: MIME-Version: 1.0\n   C: Content-Type: TEXT/PLAIN; CHARSET=US-ASCII\n \
+    \  C:\n   C: 3:30 is fine with me.\n   C:\n   S: A003 OK [APPENDUID 1022843275\
+    \ 77712,77713] completed\n   The upload takes 3 round-trips.\n   Example 3:\n\
+    \   In this example, Example 2 was modified for the case when the server\n   supports\
+    \ MULTIAPPEND, LITERAL+, and UIDPLUS.  The upload takes only 1\n   round-trip.\n\
+    \   C: A003 APPEND Jan-2002 (\\Seen $MDNSent) \"31-May-2002 05:26:59 -0600\"\n\
+    \       {310+}\n   C: Date: Mon, 7 Feb 1994 21:52:25 -0800 (PST)\n   C: From:\
+    \ Fred Foobar <foobar@blt.example.COM>\n   C: Subject: afternoon meeting\n   C:\
+    \ To: mooch@owatagu.siam.edu\n   C: Message-Id: <B27397-0100000@blt.example.COM>\n\
+    \   C: MIME-Version: 1.0\n   C: Content-Type: TEXT/PLAIN; CHARSET=US-ASCII\n \
+    \  C:\n   C: Hello Joe, do you think we can meet at 3:30 tomorrow?\n   C:  (\\\
+    Seen) \" 1-Jun-2002 22:43:04 -0800\" {286+}\n   C: Date: Mon, 7 Feb 1994 22:43:04\
+    \ -0800 (PST)\n   C: From: Joe Mooch <mooch@OWaTaGu.siam.EDU>\n   C: Subject:\
+    \ Re: afternoon meeting\n   C: To: foobar@blt.example.com\n   C: Message-Id: <a0434793874930@OWaTaGu.siam.EDU>\n\
+    \   C: MIME-Version: 1.0\n   C: Content-Type: TEXT/PLAIN; CHARSET=US-ASCII\n \
+    \  C:\n   C: 3:30 is fine with me.\n   C:\n   S: A003 OK [APPENDUID 1022843275\
+    \ 77712,77713] completed\n"
+- title: 4.2.3.  Replaying Local Flag Changes
+  contents:
+  - "4.2.3.  Replaying Local Flag Changes\n   The disconnected client uses the STORE\
+    \ command to synchronize local\n   flag state with the server.  The disconnected\
+    \ client SHOULD use\n   +FLAGS.SILENT or -FLAGS.SILENT in order to set or unset\
+    \ flags\n   modified by the user while offline.  The FLAGS form MUST NOT be used,\n\
+    \   as there is a risk that this will overwrite flags on the server that\n   have\
+    \ been changed by some other client.\n   Example 4:\n   For the message with UID\
+    \ 15, the disconnected client stores the\n   following flags \\Seen and $Highest.\
+    \  The flags were modified on the\n   server by some other client: \\Seen, \\\
+    Answered, and $Highest.  While\n   offline, the user requested that the $Highest\
+    \ flags be removed and\n   that the \\Deleted flag be added.  The flag synchronization\
+    \ sequence\n   for the message should look like:\n      C: A001 UID STORE 15 +FLAGS.SILENT\
+    \ (\\Deleted)\n      S: A001 STORE completed\n      C: A002 UID STORE 15 -FLAGS.SILENT\
+    \ ($Highest)\n      S: A002 STORE completed\n   If the disconnected client is\
+    \ able to store an additional binary\n   state information (or a piece of information\
+    \ that can take a value\n   from a predefined set of values) in the local cache\
+    \ of an IMAP\n   mailbox or in a local mailbox (e.g., message priority), and if\
+    \ the\n   server supports storing of arbitrary keywords, the client MUST use\n\
+    \   keywords to store this state on the server.\n   Example 5:\n   Imagine a speculative\
+    \ mail client that can mark a message as one of\n   work-related ($Work), personal\
+    \ ($Personal), or spam ($Spam).  In\n   order to mark a message as personal, the\
+    \ client issues:\n      C: A001 UID STORE 15 +FLAGS.SILENT ($Personal)\n     \
+    \ S: A001 STORE completed\n      C: A002 UID STORE 15 -FLAGS.SILENT ($Work $Spam)\n\
+    \      S: A002 STORE completed\n   In order to mark the message as not work, not\
+    \ personal and not spam,\n   the client issues:\n      C: A003 UID STORE 15 -FLAGS.SILENT\
+    \ ($Personal $Work $Spam)\n      S: A003 STORE completed\n"
+- title: 4.2.4.  Processing Mailbox Compression (EXPUNGE) Requests
+  contents:
+  - "4.2.4.  Processing Mailbox Compression (EXPUNGE) Requests\n   A naive disconnected\
+    \ client implementation that supports compressing\n   a mailbox while offline\
+    \ may decide to issue an EXPUNGE command to the\n   server in order to expunge\
+    \ messages marked \\Deleted.  The problem\n   with this command during synchronization\
+    \ is that it permanently\n   erases all messages with the \\Deleted flag set,\
+    \ i.e., even those\n   messages that were marked as \\Deleted on the server while\
+    \ the user\n   was offline.  Doing this might result in an unpleasant surprise\
+    \ for\n   the user.\n   Fortunately the [UIDPLUS] extension can help in this case\
+    \ as well.\n   The extension introduces UID EXPUNGE command, that, unlike EXPUNGE,\n\
+    \   takes a UID set parameter, that lists UIDs of all messages that can\n   be\
+    \ expunged.  When processing this command the server erases only\n   messages\
+    \ with \\Deleted flag listed in the UID list.  Thus, messages\n   not listed in\
+    \ the UID set will not be expunged even if they have the\n   \\Deleted flag set.\n\
+    \   Example 6:\n   While the user was offline, 3 messages with UIDs 7, 27, and\
+    \ 65 were\n   marked \\Deleted when the user requested to compress the open mailbox.\n\
+    \   Another client marked a message \\Deleted on the server (UID 34).\n   During\
+    \ synchronization, the disconnected client issues:\n      C: A001 UID EXPUNGE\
+    \ 7,27,65\n      S: * ... EXPUNGE\n      S: * ... EXPUNGE\n      S: * ... EXPUNGE\n\
+    \      S: A001 UID EXPUNGE completed\n   If another client issues UID SEARCH DELETED\
+    \ command (to find all\n   messages with the \\Deleted flag) before and after\
+    \ the UID EXPUNGE, it\n   will get:\n   Before:\n      C: B001 UID SEARCH DELETED\n\
+    \      S: * SEARCH 65 34 27 7\n      S: B001 UID SEARCH completed\n   After:\n\
+    \      C: B002 UID SEARCH DELETED\n      S: * SEARCH 34\n      S: B002 UID SEARCH\
+    \ completed\n   In the absence of the [UIDPLUS] extension, the following sequence\
+    \ of\n   commands can be used as an approximation.  Note: It's possible for\n\
+    \   another client to mark additional messages as deleted while this\n   sequence\
+    \ is being performed.  In this case, these additional messages\n   will be expunged\
+    \ as well.\n   1) Find all messages marked \\Deleted on the server.\n      C:\
+    \ A001 UID SEARCH DELETED\n      S: * SEARCH 65 34 27 7\n      S: A001 UID SEARCH\
+    \ completed\n   2) Find all messages that must not be erased (for the previous\n\
+    \      example the list will consist of the message with UID 34).\n   3) Temporarily\
+    \ remove \\Deleted flag on all messages found in step 2.\n      C: A002 UID STORE\
+    \ 34 -FLAGS.SILENT (\\Deleted)\n      S: A002 UID STORE completed\n   4) Expunge\
+    \ the mailbox.\n      C: A003 EXPUNGE\n      S: * 20 EXPUNGE\n      S: * 7 EXPUNGE\n\
+    \      S: * 1 EXPUNGE\n      S: A003 EXPUNGE completed\n      Here, the message\
+    \ with UID 7 has message number 1, with UID 27 has\n      message number 7, and\
+    \ with UID 65 has message number 20.\n   5) Restore \\Deleted flag on all messages\
+    \ found when performing step\n      2.\n      C: A004 UID STORE 34 +FLAGS.SILENT\
+    \ (\\Deleted)\n      S: A004 UID STORE completed\n"
+- title: 4.2.5.  Closing a Mailbox
+  contents:
+  - "4.2.5.  Closing a Mailbox\n   When the disconnected client has to close a mailbox,\
+    \ it should not\n   use the CLOSE command, because CLOSE does a silent EXPUNGE.\
+    \  (Section\n   4.2.4 explains why EXPUNGE should not be used by a disconnected\n\
+    \   client.)  It is safe to use CLOSE only if the mailbox was opened with\n  \
+    \ EXAMINE.\n   If the mailbox was opened with SELECT, the client can use one of\
+    \ the\n   following commands to implicitly close the mailbox and prevent the\n\
+    \   silent expunge:\n   1) UNSELECT - This is a command described in [UNSELECT]\
+    \ that works as\n      CLOSE, but doesn't cause the silent EXPUNGE.  This command\
+    \ is\n      supported by the server if it reports UNSELECT in its CAPABILITY\n\
+    \      list.\n   2) SELECT <another_mailbox> - SELECT causes implicit CLOSE without\n\
+    \      EXPUNGE.\n   3) If the client intends to issue LOGOUT after closing the\
+    \ mailbox,\n      it may just issue LOGOUT, because LOGOUT causes implicit CLOSE\n\
+    \      without EXPUNGE as well.\n   4) SELECT <non_existing_mailbox> - If the\
+    \ client knows a mailbox that\n      doesn't exist or can't be selected, it MAY\
+    \ SELECT it.\n   If the client opened the mailbox with SELECT and just wants to\
+    \ avoid\n   implicit EXPUNGE without closing the mailbox, it may also use the\n\
+    \   following:\n   5) EXAMINE <mailbox> - Reselect the same mailbox in read-only\
+    \ mode.\n"
+- title: 4.3.  Details of "Normal" Synchronization of a Single Mailbox
+  contents:
+  - "4.3.  Details of \"Normal\" Synchronization of a Single Mailbox\n   The most\
+    \ common form of synchronization is where the human trusts the\n   integrity of\
+    \ the client's copy of the state of a particular mailbox\n   and simply wants\
+    \ to bring the client's cache up to date so that it\n   accurately reflects the\
+    \ mailbox's current state on the server.\n"
+- title: 4.3.1.  Discovering New Messages and Changes to Old Messages
+  contents:
+  - "4.3.1.  Discovering New Messages and Changes to Old Messages\n   Let <lastseenuid>\
+    \ represent the highest UID that the client knows\n   about in this mailbox. \
+    \ Since UIDs are allocated in strictly\n   ascending order, this is simply the\
+    \ UID of the last message in the\n   mailbox that the client knows about.  Let\
+    \ <lastseenuid+1> represent\n   <lastseenuid>'s UID plus one.  Let <descriptors>\
+    \ represent a list\n   consisting of all the FETCH data item items that the implementation\n\
+    \   considers part of the descriptor; at a minimum this is just the FLAGS\n  \
+    \ data item, but it usually also includes BODYSTRUCTURE and\n   RFC822.SIZE. \
+    \ At this step, <descriptors> SHOULD NOT include RFC822.\n   With no further information,\
+    \ the client can issue the following two\n   commands:\n      tag1 UID FETCH <lastseenuid+1>:*\
+    \ <descriptors>\n      tag2 UID FETCH 1:<lastseenuid> FLAGS\n   The first command\
+    \ will request some information about \"new\" messages\n   (i.e., messages received\
+    \ by the server since the last\n   synchronization).  It will also allow the client\
+    \ to build a message\n   number to UID map (only for new messages).  The second\
+    \ command allows\n   the client to\n      1) update cached flags for old messages;\n\
+    \      2) find out which old messages got expunged; and\n      3) build a mapping\
+    \ between message numbers and UIDs (for old\n         messages).\n   The order\
+    \ here is significant.  We want the server to start returning\n   the list of\
+    \ new message descriptors as fast as it can, so that the\n   client can start\
+    \ issuing more FETCH commands, so we start out by\n   asking for the descriptors\
+    \ of all the messages we know the client\n   cannot possibly have cached yet.\
+    \  The second command fetches the\n   information we need to determine what changes\
+    \ may have occurred to\n   messages that the client already has cached.  Note\
+    \ that the former\n   command should only be issued if the UIDNEXT value cached\
+    \ by the\n   client differs from the one returned by the server.  Once the client\n\
+    \   has issued these two commands, there's nothing more the client can do\n  \
+    \ with this mailbox until the responses to the first command start\n   arriving.\
+    \  A clever synchronization program might use this time to\n   fetch its local\
+    \ cache state from disk or to start the process of\n   synchronizing another mailbox.\n\
+    \   The following is an example of the first FETCH:\n   C: A011 UID fetch 131:*\
+    \ (FLAGS BODYSTRUCTURE INTERNALDATE\n       RFC822.SIZE)\n   Note 1: The first\
+    \ FETCH may result in the server's sending a huge\n   volume of data.  A smart\
+    \ disconnected client should use message\n   ranges (see also Section 3.2.1.2\
+    \ of [RFC2683]), so that the user is\n   able to execute a different operation\
+    \ between fetching information\n   for a group of new messages.\n   Example 7:\n\
+    \   Knowing the new UIDNEXT returned by the server on SELECT or EXAMINE\n   (<uidnext>),\
+    \ the client can split the UID range\n   <lastseenuid+1>:<uidnext> into groups,\
+    \ e.g., 100 messages.  After\n   that, the client can issue:\n      C: A011 UID\
+    \ fetch <lastseenuid+1>:<lastseenuid+100>\n          (FLAGS BODYSTRUCTURE INTERNALDATE\
+    \ RFC822.SIZE)\n      ...\n      C: A012 UID fetch <lastseenuid+101>:<lastseenuid+200>\n\
+    \          (FLAGS BODYSTRUCTURE INTERNALDATE RFC822.SIZE)\n      ...\n      ...\n\
+    \      C: A0FF UID fetch <lastseenuid+901>:<uidnext>\n          (FLAGS BODYSTRUCTURE\
+    \ INTERNALDATE RFC822.SIZE)\n   Note that unless a SEARCH command is issued, it\
+    \ is impossible to\n   determine how many messages will fall into a subrange,\
+    \ as UIDs are\n   not necessarily contiguous.\n   Note 2: The client SHOULD ignore\
+    \ any unsolicited EXPUNGE responses\n   received during the first FETCH command.\
+    \  EXPUNGE responses contain\n   message numbers that are useless to a client\
+    \ that doesn't have the\n   message-number-to-UID translation table.\n   The second\
+    \ FETCH command will result in zero or more untagged fetch\n   responses.  Each\
+    \ response will have a corresponding UID FETCH data\n   item.  All messages that\
+    \ didn't have a matching untagged FETCH\n   response MUST be removed from the\
+    \ local cache.\n   For example, if the <lastseenuid> had a value 15000 and the\
+    \ local\n   cache contained 3 messages with the UIDs 12, 777, and 14999,\n   respectively,\
+    \ then after receiving the following responses from the\n   server, the client\
+    \ must remove the message with UID 14999 from its\n   local cache.\n      S: *\
+    \ 1 FETCH (UID 12 FLAGS (\\Seen))\n      S: * 2 FETCH (UID 777 FLAGS (\\Answered\
+    \ \\Deleted))\n   Note 3: If the client is not interested in flag changes (i.e.,\
+    \ the\n   client only wants to know which old messages are still on the\n   server),\
+    \ the second FETCH command can be substituted with:\n      tag2 UID SEARCH UID\
+    \ 1:<lastseenuid>\n   This command will generate less traffic.  However, an implementor\n\
+    \   should be aware that in order to build the mapping table from message\n  \
+    \ numbers to UIDs, the output of the SEARCH command MUST be sorted\n   first,\
+    \ because there is no requirement for a server to return UIDs in\n   SEARCH response\
+    \ in any particular order.\n"
+- title: 4.3.2.  Searching for "Interesting" Messages.
+  contents:
+  - "4.3.2.  Searching for \"Interesting\" Messages.\n   This step is performed entirely\
+    \ on the client (from the information\n   received in the step described in 4.3.1),\
+    \ entirely on the server, or\n   on some combination of both.  The decision on\
+    \ what is an\n   \"interesting\" message is up to the client software and the\
+    \ human.\n   One easy criterion that should probably be implemented in any client\n\
+    \   is whether the message is \"too big\" for automatic retrieval, where\n   \"\
+    too big\" is a parameter defined in the client's configuration.\n   Another commonly\
+    \ used criterion is the age of a message.  For\n   example, the client may choose\
+    \ to download only messages received in\n   the last week (in this case, <date>\
+    \ would be today's date minus 7\n   days):\n      tag3 UID SEARCH UID <uidset>\
+    \ SINCE <date>\n   Keep in mind that a date search disregards time and time zone.\
+    \  The\n   client can avoid doing this search if it specified INTERNALDATE in\n\
+    \   <descriptors> on the step described in 4.3.1.  If the client did, it\n   can\
+    \ perform the local search on its message cache.\n   At this step, the client\
+    \ also decides what kind of information about\n   a particular message to fetch\
+    \ from the server.  In particular, even\n   for a message that is considered \"\
+    too big\", the client MAY choose to\n   fetch some part(s) of it.  For example,\
+    \ if the message is a\n   multipart/mixed containing a text part and a MPEG attachment,\
+    \ there\n   is no reason for the client not to fetch the text part.  The decision\n\
+    \   of which part should or should not be fetched can be based on the\n   information\
+    \ received in the BODYSTRUCTURE FETCH response data item\n   (i.e., if BODYSTRUCTURE\
+    \ was included in <descriptors> on the step\n   described in 4.3.1).\n"
+- title: 4.3.3.  Populating Cache with "Interesting" Messages.
+  contents:
+  - "4.3.3.  Populating Cache with \"Interesting\" Messages.\n   Once the client has\
+    \ found out which messages are \"interesting\", it\n   can start issuing appropriate\
+    \ FETCH commands for \"interesting\"\n   messages or parts thereof.\n   Note that\
+    \ fetching a message into the disconnected client's local\n   cache does NOT imply\
+    \ that the human has (or even will) read the\n   message.  Thus, the synchronization\
+    \ program for a disconnected client\n   should always be careful to use the .PEEK\
+    \ variants of the FETCH data\n   items that implicitly set the \\Seen flag.\n\
+    \   Once the last descriptor has arrived and the last FETCH command has\n   been\
+    \ issued, the client simply needs to process the incoming fetch\n   items and\
+    \ use them to update the local message cache.\n   In order to avoid deadlock problems,\
+    \ the client must give processing\n   of received messages priority over issuing\
+    \ new FETCH commands during\n   this synchronization process.  This may necessitate\
+    \ temporary local\n   queuing of FETCH requests that cannot be issued without\
+    \ causing a\n   deadlock.  In order to achieve the best use of the \"expensive\"\
+    \n   network connection, the client will almost certainly need to pay\n   careful\
+    \ attention to any flow-control information that it can obtain\n   from the underlying\
+    \ transport connection (usually a TCP connection).\n   Note: The requirement stated\
+    \ in the previous paragraph might result\n   in an unpleasant user experience,\
+    \ if followed blindly.  For example,\n   the user might be unwilling to wait for\
+    \ the client to finish\n   synchronization before starting to process the user's\
+    \ requests.  A\n   smart disconnected client should allow the user to perform\
+    \ requested\n   operations in between IMAP commands that are part of the\n   synchronization\
+    \ process.  See also Note 1 in Section 4.3.1.\n   Example 8:\n   After fetching\
+    \ a message BODYSTRUCTURE, the client discovers a\n   complex MIME message.  Then,\
+    \ it decides to fetch MIME headers of the\n   nested MIME messages and some body\
+    \ parts.\n   C: A011 UID fetch 11 (BODYSTRUCTURE)\n   S: ...\n   C: A012 UID fetch\
+    \ 11 (BODY[HEADER] BODY[1.MIME] BODY[1.1.MIME]\n       BODY[1.2.MIME] BODY[2.MIME]\
+    \ BODY[3.MIME] BODY[4.MIME]\n       BODY[5.MIME] BODY[6.MIME] BODY[7.MIME] BODY[8.MIME]\
+    \ BODY[9.MIME]\n       BODY[10.MIME] BODY[11.MIME] BODY[12.MIME] BODY[13.MIME]\n\
+    \       BODY[14.MIME] BODY[15.MIME] BODY[16.MIME] BODY[17.MIME]\n       BODY[18.MIME]\
+    \ BODY[19.MIME] BODY[20.MIME] BODY[21.MIME])\n   S: ...\n   C: A013 UID fetch\
+    \ 11 (BODY[1.1] BODY[1.2])\n   S: ...\n   C: A014 UID fetch 11 (BODY[3] BODY[4]\
+    \ BODY[5] BODY[6] BODY[7] BODY[8]\n       BODY[9] BODY[10] BODY[11] BODY[13] BODY[14]\
+    \ BODY[15] BODY[16]\n       BODY[21])\n   S: ...\n"
+- title: 4.3.4.  User-Initiated Synchronization
+  contents:
+  - "4.3.4.  User-Initiated Synchronization\n   After the client has finished the\
+    \ main synchronization process as\n   described in Sections 4.3.1-4.3.3, the user\
+    \ may optionally request\n   additional synchronization steps while the client\
+    \ is still online.\n   This is not any different from the process described in\
+    \ Sections\n   4.3.2 and 4.3.3.\n   Typical examples are:\n    1) fetch all messages\
+    \ selected in UI.\n    2) fetch all messages marked as \\Flagged on the server.\n"
+- title: '4.4.  Special Case: Descriptor-Only Synchronization'
+  contents:
+  - "4.4.  Special Case: Descriptor-Only Synchronization\n   For some mailboxes, fetching\
+    \ the descriptors might be the entire\n   synchronization step.  Practical experience\
+    \ with IMAP has shown that\n   a certain class of mailboxes (e.g., \"archival\"\
+    \ mailboxes) are used\n   primarily for long-term storage of important messages\
+    \ that the human\n   wants to have instantly available on demand but does not\
+    \ want\n   cluttering up the disconnected client's cache at any other time.\n\
+    \   Messages in this kind of mailbox would be fetched exclusively by\n   explicit\
+    \ actions queued by the local MUA.  Thus, the only\n   synchronization desirable\
+    \ on this kind of mailbox is fetching enough\n   descriptor information for the\
+    \ user to be able to identify messages\n   for subsequent download.\n   Special\
+    \ mailboxes that receive messages from a high volume, low\n   priority mailing\
+    \ list might also be in this category, at least when\n   the human is in a hurry.\n"
+- title: '4.5.  Special Case: Fast New-Only Synchronization'
+  contents:
+  - "4.5.  Special Case: Fast New-Only Synchronization\n   In some cases, the human\
+    \ might be in such a hurry that he or she\n   doesn't care about changes to old\
+    \ messages, just about new messages.\n   In this case, the client can skip the\
+    \ UID FETCH command that obtains\n   the flags and UIDs for old messages (1:<lastseenuid>).\n"
+- title: '4.6.  Special Case: Blind FETCH'
+  contents:
+  - "4.6.  Special Case: Blind FETCH\n   In some cases, the human may know (for whatever\
+    \ reason) that he or\n   she always wants to fetch any new messages in a particular\
+    \ mailbox,\n   unconditionally.  In this case, the client can just fetch the\n\
+    \   messages themselves, rather than just the descriptors, by using a\n   command\
+    \ like:\n      tag1 UID FETCH <lastseenuid+1>:* (FLAGS BODY.PEEK[])\n   Note that\
+    \ this example ignores the fact that the messages can be\n   arbitrary long. \
+    \ The disconnected client MUST always check for\n   message size before downloading,\
+    \ unless explicitly told otherwise.  A\n   well-behaved client should instead\
+    \ use something like the following:\n   1) Issue \"tag1 UID FETCH <lastseenuid+1>:*\
+    \ (FLAGS RFC822.SIZE)\".\n   2) From the message sizes returned in step 1, construct\
+    \ UID set\n      <required_messages>.\n   3) Issue \"tag2 UID FETCH <required_messages>\
+    \ (BODY.PEEK[])\".\n   or\n   1) Issue \"tag1 UID FETCH <lastseenuid+1>:* (FLAGS)\"\
+    .\n   2) Construct UID set <old_uids> from the responses of step 1.\n   3) Issue\
+    \ \"tag2 SEARCH UID <old_uids> SMALLER <message_limit>\".\n      Construct UID\
+    \ set <required_messages> from the result of the\n      SEARCH command.\n   4)\
+    \ Issue \"tag3 UID FETCH <required_messages> (BODY.PEEK[])\".\n   or\n   1) Issue\
+    \ \"tag1 UID FETCH <lastseenuid+1>:* (FLAGS\n      BODY.PEEK[]<0.<length>>)\"\
+    , where <length> should be replaced with\n      the maximal message size the client\
+    \ is willing to download.\n      Note: In response to such a command, the server\
+    \ will only return\n      partial data if the message is longer than <length>.\
+    \  It will\n      return the full message data for any message whose size is smaller\n\
+    \      than or equal to <length>.  In the former case, the client will\n     \
+    \ not be able to extract the full MIME structure of the message from\n      the\
+    \ truncated data, so the client should include BODYSTRUCTURE in\n      the UID\
+    \ FETCH command as well.\n"
+- title: 5.  Implementation Considerations
+  contents:
+  - "5.  Implementation Considerations\n   Below are listed some common implementation\
+    \ pitfalls that should be\n   considered when implementing a disconnected client.\n\
+    \   1) Implementing fake UIDs on the client.\n      A message scheduled to be\
+    \ uploaded has no UID, as UIDs are\n      selected by the server.  The client\
+    \ may implement fake UIDs\n      internally in order to reference not-yet-uploaded\
+    \ messages in\n      further operations.  (For example, a message could be scheduled\
+    \ to\n      be uploaded, but subsequently marked as deleted or copied to\n   \
+    \   another mailbox).  Here, the client MUST NOT under any\n      circumstances\
+    \ send these fake UIDs to the server.  Also, client\n      implementers should\
+    \ be reminded that according to [IMAP4] a UID is\n      a 32-bit unsigned integer\
+    \ excluding 0.  So, both 4294967295 and\n      2147483648 are valid UIDs, and\
+    \ 0 and -1 are both invalid.  Some\n      disconnected mail clients have been\
+    \ known to send negative numbers\n      (e.g., \"-1\") as message UIDs to servers\
+    \ during synchronization.\n      Situation 1: The user starts composing a new\
+    \ message, edits it,\n      saves it, continues to edit it, and saves it again.\n\
+    \      A disconnected client may record in its replay log (log of\n      operations\
+    \ to be replayed on the server during synchronization)\n      the sequence of\
+    \ operations as shown below.  For the purpose of\n      this situation, we assume\
+    \ that all draft messages are stored in\n      the mailbox called Drafts on an\
+    \ IMAP server.  We will also use the\n      following conventions:  <old_uid>\
+    \ is the UID of the intermediate\n      version of the draft when it was saved\
+    \ for the first time.  This\n      is a fake UID generated on the client.  <new_uid>\
+    \ is the UID of\n      the final version of the draft.  This is another fake UID\n\
+    \      generated on the client.\n      1) APPEND Drafts (\\Seen $MDNSent \\Drafts)\
+    \ {<nnn>}\n         ...first version of the message follows...\n      2) APPEND\
+    \ Drafts (\\Seen $MDNSent \\Drafts) {<mmm>}\n         ...final version of the\
+    \ message follows...\n      3) STORE <old_uid> +FLAGS (\\Deleted)\n      Step\
+    \ 1 corresponds to the first attempt to save the draft message,\n      step 2\
+    \ corresponds to the second attempt to save the draft\n      message, and step\
+    \ 3 deletes the first version of the draft message\n      saved in step 1.\n \
+    \     A naive disconnected client may send the command in step 3 without\n   \
+    \   replacing the fake client generated <old_uid> with the value\n      returned\
+    \ by the server in step 1.  A server will probably reject\n      this command,\
+    \ which will make the client believe that the\n      synchronization sequence\
+    \ has failed.\n   2) Section 5.1 discusses common implementation errors related\
+    \ to\n      error recovery during playback.\n   3) Don't assume that the disconnected\
+    \ client is the only client used\n      by the user.\n      Situation 2: Some\
+    \ clients may use the \\Deleted flag as an\n      indicator that the message should\
+    \ not appear in the user's view.\n      Usage of the \\Deleted flag for this purpose\
+    \ is not safe, as other\n      clients (e.g., online clients) might EXPUNGE the\
+    \ mailbox at any\n      time.\n   4) Beware of data dependencies between synchronization\
+    \ operations.\n      It might be very tempting for a client writer to perform\
+    \ some\n      optimizations on the playback log.  Such optimizations might\n \
+    \     include removing redundant operations (for example, see\n      optimization\
+    \ 2 in Section 5.3), or their reordering.\n      It is not always safe to reorder\
+    \ or remove redundant operations\n      during synchronization because some operations\
+    \ may have\n      dependencies (as Situation 3 demonstrates).  So, if in doubt,\n\
+    \      don't do this.\n      Situation 3: The user copies a message out of a mailbox\
+    \ and then\n      deletes the mailbox.\n         C: A001 SELECT Old-Mail\n   \
+    \      S: ...\n         C: A002 UID COPY 111 ToDo\n         S: A002 OK [COPYUID\
+    \ 1022843345 111 94] Copy completed\n         ...\n         C: A015 CLOSE\n  \
+    \       S: A015 OK Completed\n         C: A016 DELETE Old-Mail\n         S: A016\
+    \ OK Mailbox deletion completed successfully\n      If the client performs DELETE\
+    \ (tag A016) first and COPY (tag A002)\n      second, then the COPY fails.  Also,\
+    \ the message that the user so\n      carefully copied into another mailbox has\
+    \ been lost.\n"
+- title: 5.1.  Error Recovery during Playback
+  contents:
+  - "5.1.  Error Recovery during Playback\n   Error recovery during synchronization\
+    \ is one of the trickiest parts\n   to get right.  Below, we will discuss certain\
+    \ error conditions and\n   suggest possible choices for handling them.\n   1)\
+    \ Lost connection to the server.\n      The client MUST remember the current position\
+    \ in the playback\n      (replay) log and replay it starting from the interrupted\
+    \ operation\n      (the last command issued by the client, but not acknowledged\
+    \ by\n      the server) the next time it successfully connects to the same\n \
+    \     server.  If the connection was lost while executing a non-\n      idempotent\
+    \ IMAP command (see the definition in Section 1), then\n      when the client\
+    \ is reconnected, it MUST make sure that the\n      interrupted command was indeed\
+    \ not executed.  If it wasn't\n      executed, the client must restart playback\
+    \ from the interrupted\n      command, otherwise from the following command.\n\
+    \      Upon reconnect, care must be taken in order to properly reapply\n     \
+    \ logical operations that are represented by multiple IMAP commands,\n      e.g.,\
+    \ UID EXPUNGE emulation when UID EXPUNGE is not supported by\n      the server\
+    \ (see Section 4.2.4).\n      Once the client detects that the connection to the\
+    \ server was\n      lost, it MUST stop replaying its log.  There are existing\n\
+    \      disconnected clients that, to the great annoyance of users, pop up\n  \
+    \    an error dialog for each and every playback operation that fails.\n   2)\
+    \ Copying/appending messages to a mailbox that doesn't exist.  (The\n      server\
+    \ advertises this condition by sending the TRYCREATE response\n      code in the\
+    \ tagged NO response to the APPEND or COPY command.)\n      The user should be\
+    \ advised about the situation and be given one of\n      the following choices:\n\
+    \      a) Try to recreate a mailbox.\n      b) Copy/upload messages to another\
+    \ mailbox.\n      c) Skip copy/upload.\n      d) Abort replay.\n   3) Copying\
+    \ messages from a mailbox that doesn't exist, or renaming or\n      getting/changing\
+    \ ACLs [ACL] on a mailbox that doesn't exist:\n      a) Skip operation.\n    \
+    \  b) Abort replay.\n   4) Deleting mailboxes or deleting/expunging messages that\
+    \ no longer\n      exist.\n      This is actually is not an error and should be\
+    \ ignored by the\n      client.\n   5) Performing operations on messages that\
+    \ no longer exist.\n      a) Skip operation.\n      b) Abort replay.\n      In\
+    \ the case of changing flags on an expunged message, the client\n      should\
+    \ silently ignore the error.\n   Note 1: Several synchronization operations map\
+    \ to multiple IMAP\n   commands (for example, \"move\" described in 4.2.2).  The\
+    \ client must\n   guarantee atomicity of each such multistep operation.  For example,\n\
+    \   when performing a \"move\" between two mailboxes on the same server, if\n\
+    \   the server is unable to copy messages, the client MUST NOT attempt to\n  \
+    \ set the \\Deleted flag on the messages being copied, let alone expunge\n   them.\
+    \  However, the client MAY consider that move operation to have\n   succeeded\
+    \ even if the server was unable to set the \\Deleted flag on\n   copied messages.\n\
+    \   Note 2: Many synchronization operations have data dependencies.  A\n   failed\
+    \ operation must cause all dependent operations to fail as well.\n   The client\
+    \ should check this and MUST NOT try to perform all\n   dependent operations blindly\
+    \ (unless the user corrected the original\n   problem).  For example, a message\
+    \ may be scheduled to be appended to\n   a mailbox on the server and later on\
+    \ the appended message may be\n   copied to another mailbox.  If the APPEND operation\
+    \ fails, the client\n   must not attempt to COPY the failed message later on.\
+    \  (See also\n   Section 5, Situation 3).\n"
+- title: 5.2.  Quality of Implementation Issues
+  contents:
+  - "5.2.  Quality of Implementation Issues\n   Below, some quality of implementation\
+    \ issues are listed for\n   disconnected clients.  They will help to write a disconnected\
+    \ client\n   that works correctly, performs synchronization as quickly as possible\n\
+    \   (and thus can make the user happier as well as save her some money),\n   and\
+    \ minimizes the server load:\n   1) Don't lose information.\n      No matter how\
+    \ smart your client is in other areas, if it loses\n      information, users will\
+    \ get very upset.\n   2) Don't do work unless explicitly asked.  Be flexible.\
+    \  Ask all\n      questions BEFORE starting synchronization, if possible.\n  \
+    \ 3) Minimize traffic.\n      The client MUST NOT issue a command if the client\
+    \ already received\n      the required information from the server.\n      The\
+    \ client MUST make use of UIDPLUS extension if it is supported\n      by the server.\n\
+    \      See also optimization 1 in Section 5.3.\n   4) Minimize the number of round-trips.\n\
+    \      Round-trips kill performance, especially on links with high\n      latency.\
+    \  Sections 4.2.2.5 and 5.2 give some advice on how to\n      minimize the number\
+    \ of round-trips.\n      See also optimization 1 in Section 5.3.\n"
+- title: 5.3.  Optimizations
+  contents:
+  - "5.3.  Optimizations\n   Some useful optimizations are described in this section.\
+    \  A\n   disconnected client that supports the recommendations listed below\n\
+    \   will give the user a more pleasant experience.\n   1) The initial OK or PREAUTH\
+    \ responses may contain the CAPABILITY\n      response code as described in Section\
+    \ 7.1 of [IMAP4].  This\n      response code gives the same information as returned\
+    \ by the\n      CAPABILITY command*.  A disconnected client that pays attention\
+    \ to\n      this response code can avoid sending CAPABILITY command and will\n\
+    \      save a round-trip.\n      * Note: Some servers report in the CAPABILITY\
+    \ response code\n        extensions that are only relevant in unauthenticated\
+    \ state or in\n        all states.  Such servers usually send another CAPABILITY\n\
+    \        response code upon successful authentication using LOGIN or\n       \
+    \ AUTHENTICATE command (that negotiates no security layer; see\n        Section\
+    \ 6.2.2 of [IMAP4]).  The CAPABILITY response code sent\n        upon successful\
+    \ LOGIN/AUTHENTICATE might be different from the\n        CAPABILITY response\
+    \ code in the initial OK response, as\n        extensions only relevant for unauthenticated\
+    \ state will not be\n        advertised, and some additional extensions available\
+    \ only in\n        authenticated and/or selected state will be.\n   Example 9:\n\
+    \   S: * OK [CAPABILITY IMAP4REV1 LOGIN-REFERRALS STARTTLS\n       AUTH=DIGEST-MD5\
+    \ AUTH=SRP] imap.example.com ready\n   C: 2 authenticate DIGEST-MD5\n   S: 2 OK\
+    \ [CAPABILITY IMAP4REV1 IDLE NAMESPACE MAILBOX-REFERRALS SCAN\n       SORT THREAD=REFERENCES\
+    \ THREAD=ORDEREDSUBJECT MULTIAPPEND]\n       User authenticated (no layer)\n \
+    \  2) An advanced disconnected client may choose to optimize its replay\n    \
+    \  log.  For example, there might be some operations that are\n      redundant\
+    \ (the list is not complete):\n      a) an EXPUNGE followed by another EXPUNGE\
+    \ or CLOSE;\n      b) changing flags (other than the \\Deleted flag) on a message\
+    \ that\n         gets immediately expunged;\n      c) opening and closing the\
+    \ same mailbox.\n   When optimizing, be careful about data dependencies between\
+    \ commands.\n   For example, if the client is wishing to optimize (see case b,\
+    \ above)\n      tag1 UID STORE <uid1> +FLAGS (\\Deleted)\n      ...\n      tag2\
+    \ UID STORE <uid1> +FLAGS (\\Flagged)\n      ...\n      tag3 UID COPY <uid1> \"\
+    Backup\"\n      ...\n      tag4 UID EXPUNGE <uid1>\n   it can't remove the second\
+    \ UID STORE command because the message is\n   being copied before it gets expunged.\n\
+    \   In general, it might be a good idea to keep mailboxes open during\n   synchronization\
+    \ (see case c above), if possible.  This can be more\n   easily achieved in conjunction\
+    \ with optimization 3 described below.\n   3) Perform some synchronization steps\
+    \ in parallel, if possible.\n      Several synchronization steps don't depend\
+    \ on each other and thus\n      can be performed in parallel.  Because the server\
+    \ machine is\n      usually more powerful than the client machine and can perform\
+    \ some\n      operations in parallel, this may speed up the total time of\n  \
+    \    synchronization.\n      In order to achieve such parallelization, the client\
+    \ will have to\n      open more than one connection to the same server.  Client\
+    \ writers\n      should not forget about non-trivial cost associated with\n  \
+    \    establishing a TCP connection and performing an authentication.\n      The\
+    \ disconnected client MUST NOT use one connection per mailbox.\n      In most\
+    \ cases, it is sufficient to have two connections.  The\n      disconnected client\
+    \ SHOULD avoid selecting the same mailbox in\n      more than one connection;\
+    \ see Section 3.1.1 of [RFC2683] for more\n      details.\n      Any mailbox synchronization\
+    \ MUST start with checking the\n      UIDVALIDITY as described in Section 4.1\
+    \ of this document.  The\n      client MAY use STATUS command to check UID Validity\
+    \ of a non-\n      selected mailbox.  This is preferable to opening many connections\n\
+    \      to the same server to perform synchronization of multiple\n      mailboxes\
+    \ simultaneously.  As described in Section 5.3.10 of\n      [IMAP4], this SHOULD\
+    \ NOT be used on the selected mailbox.\n"
+- title: 6.  IMAP Extensions That May Help
+  contents:
+  - "6.  IMAP Extensions That May Help\n   The following extensions can save traffic\
+    \ and/or the number of\n   round-trips:\n   1) The use of [UIDPLUS] is discussed\
+    \ in Sections 4.1, 4.2.1, 4.2.2.1\n      and 4.2.4.\n   2) The use of the MULTIAPPEND\
+    \ and LITERAL+ extensions for uploading\n      messages is discussed in Section\
+    \ 4.2.2.5.\n   3) Use the CONDSTORE extension (see Section 6.1) for quick flag\n\
+    \      resynchronization.\n"
+- title: 6.1.  CONDSTORE Extension
+  contents:
+  - "6.1.  CONDSTORE Extension\n   An advanced disconnected mail client should use\
+    \ the [CONDSTORE]\n   extension when it is supported by the server.  The client\
+    \ must cache\n   the value from HIGHESTMODSEQ OK response code received on mailbox\n\
+    \   opening and update it whenever the server sends MODSEQ FETCH data\n   items.\n\
+    \   If the client receives NOMODSEQ OK untagged response instead of\n   HIGHESTMODSEQ,\
+    \ it MUST remove the last known HIGHESTMODSEQ value from\n   its cache and follow\
+    \ the more general instructions in Section 3.\n   When the client opens the mailbox\
+    \ for synchronization, it first\n   compares UIDVALIDITY as described in step\
+    \ d-1 in Section 3.  If the\n   cached UIDVALIDITY value matches the one returned\
+    \ by the server, the\n   client MUST compare the cached value of HIGHESTMODSEQ\
+    \ with the one\n   returned by the server.  If the cached HIGHESTMODSEQ value\
+    \ also\n   matches the one returned by the server, then the client MUST NOT\n\
+    \   fetch flags for cached messages, as they hasn't changed.  If the\n   value\
+    \ on the server is higher than the cached one, the client MAY use\n   \"SEARCH\
+    \ MODSEQ <cached-value>\" to find all messages with flags\n   changed since the\
+    \ last time the client was online and had the mailbox\n   opened.  Alternatively,\
+    \ the client MAY use \"FETCH 1:* (FLAGS)\n   (CHANGEDSINCE <cached-value>)\".\
+    \  The latter operation combines\n   searching for changed messages and fetching\
+    \ new information.\n   In all cases, the client still needs to fetch information\
+    \ about new\n   messages (if requested by the user) as well as discover which\n\
+    \   messages have been expunged.\n   Step d (\"Server-to-client synchronization\"\
+    ) in Section 4 in the\n   presence of the CONDSTORE extension is amended as follows:\n\
+    \   d) \"Server-to-client synchronization\" - For each mailbox that\n      requires\
+    \ synchronization, do the following:\n      1a) Check the mailbox UIDVALIDITY\
+    \ (see section 4.1 for more\n          details) with SELECT/EXAMINE/STATUS.\n\
+    \          If the UIDVALIDITY value returned by the server differs, the\n    \
+    \      client MUST\n          * empty the local cache of that mailbox;\n     \
+    \     * \"forget\" the cached HIGHESTMODSEQ value for the mailbox;\n         \
+    \ * remove any pending \"actions\" that refer to UIDs in that\n            mailbox\
+    \ (note that this doesn't affect actions performed on\n            client-generated\
+    \ fake UIDs; see Section 5); and\n          * skip steps 1b and 2-II;\n      1b)\
+    \ Check the mailbox HIGHESTMODSEQ.  If the cached value is the\n          same\
+    \ as the one returned by the server, skip fetching message\n          flags on\
+    \ step 2-II, i.e., the client only has to find out\n          which messages got\
+    \ expunged.\n      2) Fetch the current \"descriptors\".\n         I)  Discover\
+    \ new messages.\n         II) Discover changes to old messages and flags for new\
+    \ messages\n             using\n             \"FETCH 1:* (FLAGS) (CHANGEDSINCE\
+    \ <cached-value>)\" or\n             \"SEARCH MODSEQ <cached-value>\".\n     \
+    \        Discover expunged messages; for example, using\n             \"UID SEARCH\
+    \ 1:<lastseenuid>\".  (All messages not returned\n             in this command\
+    \ are expunged.)\n      3) Fetch the bodies of any \"interesting\" messages that\
+    \ the client\n         doesn't already have.\n         Example 10:\n         The\
+    \ UIDVALIDITY value is the same, but the HIGHESTMODSEQ value\n         has changed\
+    \ on the server while the client was offline.\n      C: A142 SELECT INBOX\n  \
+    \    S: * 172 EXISTS\n      S: * 1 RECENT\n      S: * OK [UNSEEN 12] Message 12\
+    \ is first unseen\n      S: * OK [UIDVALIDITY 3857529045] UIDs valid\n      S:\
+    \ * OK [UIDNEXT 201] Predicted next UID\n      S: * FLAGS (\\Answered \\Flagged\
+    \ \\Deleted \\Seen \\Draft)\n      S: * OK [PERMANENTFLAGS (\\Deleted \\Seen \\\
+    *)] Limited\n      S: * OK [HIGHESTMODSEQ 20010715194045007]\n      S: A142 OK\
+    \ [READ-WRITE] SELECT completed\n   After that, either:\n      C: A143 UID FETCH\
+    \ 1:* (FLAGS) (CHANGEDSINCE 20010715194032001)\n      S: * 2 FETCH (UID 6 MODSEQ\
+    \ (20010715205008000) FLAGS (\\Deleted))\n      S: * 5 FETCH (UID 9 MODSEQ (20010715195517000)\
+    \ FLAGS ($NoJunk\n          $AutoJunk $MDNSent))\n         ...\n      S: A143\
+    \ OK FETCH completed\n   or:\n      C: A143 UID SEARCH MODSEQ 20010715194032001\
+    \ UID 1:20\n      S: * SEARCH 6 9 11 12 18 19 20 23 (MODSEQ 20010917162500)\n\
+    \      S: A143 OK Search complete\n      C: A144 UID SEARCH 1:20\n      S: * SEARCH\
+    \ 6 9 ...\n      S: A144 OK FETCH completed\n"
+- title: 7.  Security Considerations
+  contents:
+  - "7.  Security Considerations\n   It is believed that this document does not raise\
+    \ any new security\n   concerns that are not already present in the base [IMAP4]\
+    \ protocol,\n   and these issues are discussed in [IMAP4].  Additional security\n\
+    \   considerations may be found in different extensions mentioned in this\n  \
+    \ document; in particular, in [UIDPLUS], [LITERAL+], [CONDSTORE],\n   [MULTIAPPEND],\
+    \ and [UNSELECT].\n   Implementers are also reminded about the importance of thorough\n\
+    \   testing.\n"
+- title: 8.  References
+  contents:
+  - '8.  References
+
+    '
+- title: 8.1.  Normative References
+  contents:
+  - "8.1.  Normative References\n   [KEYWORDS]    Bradner, S., \"Key words for use\
+    \ in RFCs to Indicate\n                 Requirement Levels\", BCP 14, RFC 2119,\
+    \ March 1997.\n   [IMAP4]       Crispin, M., \"INTERNET MESSAGE ACCESS PROTOCOL\
+    \ -\n                 VERSION 4rev1\", RFC 3501, March 2003.\n   [UIDPLUS]   \
+    \  Crispin, M., \"Internet Message Access Protocol (IMAP) -\n                \
+    \ UIDPLUS extension\", RFC 4315, December 2005.\n   [LITERAL+]    Myers, J., \"\
+    IMAP4 non-synchronizing literals\", RFC\n                 2088, January 1997.\n\
+    \   [CONDSTORE]   Melnikov, A. and S. Hole, \"IMAP Extension for\n           \
+    \      Conditional STORE Operation or Quick Flag Changes\n                 Resynchronization\"\
+    , RFC 4551, June 2006.\n   [MULTIAPPEND] Crispin, M., \"Internet Message Access\
+    \ Protocol (IMAP) -\n                 MULTIAPPEND Extension\", RFC 3502, March\
+    \ 2003.\n   [UNSELECT]    Melnikov, A., \"Internet Message Access Protocol (IMAP)\n\
+    \                 UNSELECT command\", RFC 3691, February 2004.\n   [RFC2683] \
+    \    Leiba, B., \"IMAP4 Implementation Recommendations\", RFC\n              \
+    \   2683, September 1999.\n"
+- title: 8.2.  Informative References
+  contents:
+  - "8.2.  Informative References\n   [ACL]         Melnikov, A., \"IMAP4 Access Control\
+    \ List (ACL)\n                 Extension\", RFC 4314, December 2005.\n   [IMAP-MODEL]\
+    \  Crispin, M., \"Distributed Electronic Mail Models in\n                 IMAP4\"\
+    , RFC 1733, December 1994.\n"
+- title: 9.  Acknowledgements
+  contents:
+  - "9.  Acknowledgements\n   This document is based on version 01 of the text written\
+    \ by Rob\n   Austein in November 1994.\n   The editor appreciates comments posted\
+    \ by Mark Crispin to the IMAP\n   mailing list and the comments/corrections/ideas\
+    \ received from Grant\n   Baillie, Cyrus Daboo, John G. Myers, Chris Newman, and\
+    \ Timo Sirainen.\n   The editor would also like to thank the developers of Netscape\n\
+    \   Messenger and Mozilla mail clients for providing examples of\n   disconnected\
+    \ mail clients that served as a base for many\n   recommendations in this document.\n"
+- title: Editor's Address
+  contents:
+  - "Editor's Address\n   Alexey Melnikov\n   Isode Limited\n   5 Castle Business\
+    \ Village\n   36 Station Road\n   Hampton, Middlesex\n   TW12 2BX\n   United Kingdom\n\
+    \   Phone: +44 77 53759732\n   EMail: alexey.melnikov@isode.com\n"
+- title: Full Copyright Statement
+  contents:
+  - "Full Copyright Statement\n   Copyright (C) The Internet Society (2006).\n   This\
+    \ document is subject to the rights, licenses and restrictions\n   contained in\
+    \ BCP 78, and except as set forth therein, the authors\n   retain all their rights.\n\
+    \   This document and the information contained herein are provided on an\n  \
+    \ \"AS IS\" basis and THE CONTRIBUTOR, THE ORGANIZATION HE/SHE REPRESENTS\n  \
+    \ OR IS SPONSORED BY (IF ANY), THE INTERNET SOCIETY AND THE INTERNET\n   ENGINEERING\
+    \ TASK FORCE DISCLAIM ALL WARRANTIES, EXPRESS OR IMPLIED,\n   INCLUDING BUT NOT\
+    \ LIMITED TO ANY WARRANTY THAT THE USE OF THE\n   INFORMATION HEREIN WILL NOT\
+    \ INFRINGE ANY RIGHTS OR ANY IMPLIED\n   WARRANTIES OF MERCHANTABILITY OR FITNESS\
+    \ FOR A PARTICULAR PURPOSE.\n"
+- title: Intellectual Property
+  contents:
+  - "Intellectual Property\n   The IETF takes no position regarding the validity or\
+    \ scope of any\n   Intellectual Property Rights or other rights that might be\
+    \ claimed to\n   pertain to the implementation or use of the technology described\
+    \ in\n   this document or the extent to which any license under such rights\n\
+    \   might or might not be available; nor does it represent that it has\n   made\
+    \ any independent effort to identify any such rights.  Information\n   on the\
+    \ procedures with respect to rights in RFC documents can be\n   found in BCP 78\
+    \ and BCP 79.\n   Copies of IPR disclosures made to the IETF Secretariat and any\n\
+    \   assurances of licenses to be made available, or the result of an\n   attempt\
+    \ made to obtain a general license or permission for the use of\n   such proprietary\
+    \ rights by implementers or users of this\n   specification can be obtained from\
+    \ the IETF on-line IPR repository at\n   http://www.ietf.org/ipr.\n   The IETF\
+    \ invites any interested party to bring to its attention any\n   copyrights, patents\
+    \ or patent applications, or other proprietary\n   rights that may cover technology\
+    \ that may be required to implement\n   this standard.  Please address the information\
+    \ to the IETF at\n   ietf-ipr@ietf.org.\n"
+- title: Acknowledgement
+  contents:
+  - "Acknowledgement\n   Funding for the RFC Editor function is provided by the IETF\n\
+    \   Administrative Support Activity (IASA).\n"

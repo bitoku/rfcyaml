@@ -1,0 +1,1111 @@
+- title: __initial_text__
+  contents:
+  - "                T/TCP -- TCP Extensions for Transactions\n                  \
+    \      Functional Specification\n"
+- title: Status of this Memo
+  contents:
+  - "Status of this Memo\n   This memo describes an Experimental Protocol for the\
+    \ Internet\n   community, and requests discussion and suggestions for improvements.\n\
+    \   It does not specify an Internet Standard.  Distribution is unlimited.\n"
+- title: Abstract
+  contents:
+  - "Abstract\n   This memo specifies T/TCP, an experimental TCP extension for\n \
+    \  efficient transaction-oriented (request/response) service.  This\n   backwards-compatible\
+    \ extension could fill the gap between the current\n   connection-oriented TCP\
+    \ and the datagram-based UDP.\n   This work was supported in part by the National\
+    \ Science Foundation\n   under Grant Number NCR-8922231.\n"
+- title: Table of Contents
+  contents:
+  - "Table of Contents\n Security Considerations ..........................................\
+    \ 38\n Author's Address ................................................. 38\n"
+- title: 1. INTRODUCTION
+  contents:
+  - "1. INTRODUCTION\n   TCP was designed to around the virtual circuit model, to\
+    \ support\n   streaming of data.  Another common mode of communication is a\n\
+    \   client-server interaction, a request message followed by a response\n   message.\
+    \  The request/response paradigm is used by application-layer\n   protocols that\
+    \ implement transaction processing or remote procedure\n   calls, as well as by\
+    \ a number of network control and management\n   protocols (e.g., DNS and SNMP).\
+    \  Currently, many Internet user\n   programs that need request/response communication\
+    \ use UDP, and when\n   they require transport protocol functions such as reliable\
+    \ delivery\n   they must effectively build their own private transport protocol\
+    \ at\n   the application layer.\n   Request/response, or \"transaction-oriented\"\
+    , communication has the\n   following features:\n   (a)  The fundamental interaction\
+    \ is a request followed by a response.\n   (b)  An explicit open or close phase\
+    \ may impose excessive overhead.\n   (c)  At-most-once semantics is required;\
+    \ that is, a transaction must\n        not be \"replayed\" as the result of a\
+    \ duplicate request packet.\n   (d)  The minimum transaction latency for a client\
+    \ should be RTT +\n        SPT, where RTT is the round-trip time and SPT is the\
+    \ server\n        processing time.\n   (e)  In favorable circumstances, a reliable\
+    \ request/response\n        handshake should be achievable with exactly one packet\
+    \ in each\n        direction.\n   This memo concerns T/TCP, an backwards-compatible\
+    \ extension of TCP to\n   provide efficient transaction-oriented service in addition\
+    \ to\n   virtual-circuit service.  T/TCP provides all the features listed\n  \
+    \ above, except for (e); the minimum exchange for T/TCP is three\n   segments.\n\
+    \   In this memo, we use the term \"transaction\" for an elementary\n   request/response\
+    \ packet sequence.  This is not intended to imply any\n   of the semantics often\
+    \ associated with application-layer transaction\n   processing, like 3-phase commits.\
+    \  It is expected that T/TCP can be\n   used as the transport layer underlying\
+    \ such an application-layer\n   service, but the semantics of T/TCP is limited\
+    \ to transport-layer\n   services such as reliable, ordered delivery and at-most-once\n\
+    \   operation.\n   An earlier memo [RFC-1379] presented the concepts involved\
+    \ in T/TCP.\n   However, the real-world usefulness of these ideas depends upon\n\
+    \   practical issues like implementation complexity and performance.  To\n   help\
+    \ explore these issues, this memo presents a functional\n   specification for\
+    \ a particular embodiment of the ideas presented in\n   RFC-1379.  However, the\
+    \ specific algorithms in this memo represent a\n   later evolution than RFC-1379.\
+    \  In particular, Appendix A in RFC-1379\n   explained the difficulties in truncating\
+    \ TIME-WAIT state.  However,\n   experience with an implementation of the RFC-1379\
+    \ algorithms in a\n   workstation later showed that accumulation of TCB's in TIME-WAIT\n\
+    \   state is an intolerable problem; this necessity led to a simple\n   solution\
+    \ for truncating TIME-WAIT state, described in this memo.\n   Section 2 introduces\
+    \ the T/TCP extensions, and section 3 contains the\n   complete specification\
+    \ of T/TCP.  Section 4 discusses some\n   implementation issues, and Appendix\
+    \ A contains an algorithmic\n   summary.  This document assumes familiarity with\
+    \ the standard TCP\n   specification [STD-007].\n"
+- title: 2.  OVERVIEW
+  contents:
+  - "2.  OVERVIEW\n   The TCP protocol is highly symmetric between the two ends of\
+    \ a\n   connection.  This symmetry is not lost in T/TCP; for example, T/TCP\n\
+    \   supports TCP's symmetric simultaneous open from both sides (Section\n   2.3\
+    \ below).  However, transaction sequences use T/TCP in a highly\n   unsymmetrical\
+    \ manner.  It is convenient to use the terms \"client\n   host\" and \"server\
+    \ host\" for the host that initiates a connection and\n   the host that responds,\
+    \ respectively.\n   The goal of T/TCP is to allow each transaction, i.e., each\n\
+    \   request/response sequence, to be efficiently performed as a single\n   incarnation\
+    \ of a TCP connection.  Standard TCP imposes two\n   performance problems for\
+    \ transaction-oriented communication.  First,\n   a TCP connection is opened with\
+    \ a \"3-way handshake\", which must\n   complete successfully before data can\
+    \ be transferred.  The 3-way\n   handshake adds an extra RTT (round trip time)\
+    \ to the latency of a\n   transaction.\n   The second performance problem is that\
+    \ closing a TCP connection\n   leaves one or both ends in TIME-WAIT state for\
+    \ a time 2*MSL, where\n   MSL is the maximum segment lifetime (defined to be 120\
+    \ seconds).\n   TIME-WAIT state severely limits the rate of successive transactions\n\
+    \   between the same (host,port) pair, since a new incarnation of the\n   connection\
+    \ cannot be opened until the TIME-WAIT delay expires.  RFC-\n   1379 explained\
+    \ why the alternative approach, using a different user\n   port for each transaction\
+    \ between a pair of hosts, also limits the\n   transaction rate: (1) the 16-bit\
+    \ port space limits the rate to\n   2**16/240 transactions per second, and (2)\
+    \ more practically, an\n   excessive amount of kernel space would be occupied\
+    \ by TCP state\n   blocks in TIME-WAIT state [RFC-1379].\n   T/TCP solves these\
+    \ two performance problems for transactions, by (1)\n   bypassing the 3-way handshake\
+    \ (3WHS) and (2) shortening the delay in\n   TIME-WAIT state.\n   2.1  Bypassing\
+    \ the Three-Way Handshake\n      T/TCP introduces a 32-bit incarnation number,\
+    \ called a \"connection\n      count\" (CC), that is carried in a TCP option in\
+    \ each segment.  A\n      distinct CC value is assigned to each direction of an\
+    \ open\n      connection.  A T/TCP implementation assigns monotonically\n    \
+    \  increasing CC values to successive connections that it opens\n      actively\
+    \ or passively.\n      T/TCP uses the monotonic property of CC values in initial\
+    \ <SYN>\n      segments to bypass the 3WHS, using a mechanism that we call TCP\n\
+    \      Accelerated Open (TAO).  Under the TAO mechanism, a host caches a\n   \
+    \   small amount of state per remote host.  Specifically, a T/TCP host\n     \
+    \ that is acting as a server keeps a cache containing the last valid\n      CC\
+    \ value that it has received from each different client host.  If\n      an initial\
+    \ <SYN> segment (i.e., a segment containing a SYN bit but\n      no ACK bit) from\
+    \ a particular client host carries a CC value\n      larger than the corresponding\
+    \ cached value, the monotonic property\n      of CC's ensures that the <SYN> segment\
+    \ must be new and can\n      therefore be accepted immediately.  Otherwise, the\
+    \ server host\n      does not know whether the <SYN> segment is an old duplicate\
+    \ or was\n      simply delivered out of order; it therefore executes a normal\
+    \ 3WHS\n      to validate the <SYN>.  Thus, the TAO mechanism provides an\n  \
+    \    optimization, with the normal TCP mechanism as a fallback.\n      The CC\
+    \ value carried in non-<SYN> segments is used to protect\n      against old duplicate\
+    \ segments from earlier incarnations of the\n      same connection (we call such\
+    \ segments 'antique duplicates' for\n      short).  In the case of short connections\
+    \ (e.g., transactions),\n      these CC values allow TIME-WAIT state delay to\
+    \ be safely discuss\n      in Section 2.3.\n      T/TCP defines three new TCP\
+    \ options, each of which carries one\n      32-bit CC value.  These options are\
+    \ named CC, CC.NEW, and CC.ECHO.\n      The CC option is normally used; CC.NEW\
+    \ and CC.ECHO have special\n      functions, as follows.\n      (a)  CC.NEW\n\
+    \           Correctness of the TAO mechanism requires that clients\n         \
+    \  generate monotonically increasing CC values for successive\n           connection\
+    \ initiations.  These values can be generated using\n           a simple global\
+    \ counter.  There are certain circumstances\n           (discussed below in Section\
+    \ 2.2) when the client knows that\n           monotonicity may be violated; in\
+    \ this case, it sends a CC.NEW\n           rather than a CC option in the initial\
+    \ <SYN> segment.\n           Receiving a CC.NEW causes the server to invalidate\
+    \ its cache\n           entry and do a 3WHS.\n      (b)  CC.ECHO\n           When\
+    \ a server host sends a <SYN,ACK> segment, it echoes the\n           connection\
+    \ count from the initial <SYN> in a CC.ECHO option,\n           which is used\
+    \ by the client host to validate the <SYN,ACK>\n           segment.\n      Figure\
+    \ 1 illustrates the TAO mechanism bypassing a 3WHS.  The\n      cached CC values,\
+    \ denoted by cache.CC[host], are shown on each\n      side.  The server host compares\
+    \ the new CC value x in segment #1\n      against x0, its cached value for client\
+    \ host A; this comparison is\n      called the \"TAO test\".  Since x > x0, the\
+    \ <SYN> must be new and\n      can be accepted immediately; the data in the segment\
+    \ can therefore\n      be delivered to the user process B, and the cached value\
+    \ is\n      updated.  If the TAO test failed (x <= x0), the server host would\n\
+    \      do a normal three-way handshake to validate the <SYN> segment, but\n  \
+    \    the cache would not be updated.\n          TCP A  (Client)              \
+    \                TCP B (Server)\n          _______________                   \
+    \           ______________\n                                                 \
+    \         cache.CC[A]\n                                                      \
+    \      V\n                                                          [ x0 ]\n \
+    \       #1        -->  <SYN, data1, CC=x> -->  (TAO test OK (x > x0) =>\n    \
+    \                                                 data1->user_B and\n        \
+    \                                             cache.CC[A]= x; )\n            \
+    \                                               [ x ]\n        #2       <-- <SYN,\
+    \ ACK(data1), data2, CC=y, CC.ECHO=x> <--\n            (data2->user_A;)\n    \
+    \          Figure 1. TAO: Three-Way Handshake is Bypassed\n      The CC value\
+    \ x is echoed in a CC.ECHO option in the <SYN,ACK>\n      segment (#2); the client\
+    \ side uses this option to validate the\n      segment.  Since segment #2 is valid,\
+    \ its data2 is delivered to the\n      client user process.  Segment #2 also carries\
+    \ B's CC value; this\n      is used by A to validate non-SYN segments from B,\
+    \ as explained in\n      Section 2.4.\n      Implementing the T/TCP extensions\
+    \ expands the connection control\n      block (TCB) to include the two CC values\
+    \ for the connection; call\n      these variables TCB.CCsend and TCB.CCrecv (or\
+    \ CCsend, CCrecv for\n      short).  For example, the sequence shown in Figure\
+    \ 1 sets\n      TCB.CCsend = x and TCB.CCrecv = y at host A, and vice versa at\n\
+    \      host B.  Any segment that is received with a CC option containing\n   \
+    \   a value SEG.CC different from TCB.CCsend will be rejected as an\n      antique\
+    \ duplicate.\n   2.2  Transaction Sequences\n      T/TCP applies the TAO mechanism\
+    \ described in the previous section\n      to perform a transaction sequence.\
+    \  Figure 2 shows a minimal\n      transaction, when the request and response\
+    \ data can each fit into\n      a single segment.  This requires three segments\
+    \ and completes in\n      one round-trip time (RTT).  If the TAO test had failed\
+    \ on segment\n      #1, B would have queued data1 and the FIN for later processing,\n\
+    \      and then it would have returned a <SYN,ACK> segment to A, to\n      perform\
+    \ a normal 3WHS.\n       TCP A  (Client)                                    TCP\
+    \ B (Server)\n       _______________                                    ______________\n\
+    \       CLOSED                                                     LISTEN\n  \
+    \ #1  SYN-SENT*        --> <SYN,data1,FIN,CC=x> -->         CLOSE-WAIT*\n    \
+    \                                                       (TAO test OK)\n      \
+    \                                                   (data1->user_B)\n        \
+    \                                                   <-- LAST-ACK*\n   #2  TIME-WAIT\
+    \   <-- <SYN,ACK(FIN),data2,FIN,CC=y,CC.ECHO=x>\n     (data2->user_A)\n   #3 \
+    \ TIME-WAIT          --> <ACK(FIN),CC=x> -->                 CLOSED\n       (timeout)\n\
+    \         CLOSED\n             Figure 2: Minimal T/TCP Transaction Sequence\n\
+    \      T/TCP extensions require additional connection states, e.g., the\n    \
+    \  SYN-SENT*, CLOSE-WAIT*, and LAST-ACK* states shown in Figure 2.\n      Section\
+    \ 3.3 describes these new connection states.\n      To obtain the minimal 3-segment\
+    \ sequence shown in Figure 2, the\n      server host must delay acknowledging\
+    \ segment #1 so the response\n      may be piggy-backed on segment #2.  If the\
+    \ application takes\n      longer than this delay to compute the response, the\
+    \ normal TCP\n      retransmission mechanism in TCP B will send an acknowledgment\
+    \ to\n      forestall a retransmission from TCP A.  Figure 3 shows an example\n\
+    \      of a slow server application.  Although the sequence in Figure 3\n    \
+    \  does contain a 3-way handshake, the TAO mechanism has allowed the\n      request\
+    \ data to be accepted immediately, so that the client still\n      sees the minimum\
+    \ latency.\n       TCP A  (Client)                                    TCP B (Server)\n\
+    \       _______________                                    ______________\n  \
+    \     CLOSED                                                     LISTEN\n   #1\
+    \  SYN-SENT*       --> <SYN,data1,FIN,CC=x> -->          CLOSE-WAIT*\n       \
+    \                                                 (TAO test OK =>\n          \
+    \                                                data1->user_B)\n            \
+    \                                                   (timeout)\n   #2  FIN-WAIT-1\
+    \  <-- <SYN,ACK(FIN),CC=y,CC.ECHO=x> <--     CLOSE-WAIT*\n   #3  FIN-WAIT-1  \
+    \    --> <ACK(SYN),FIN,CC=x> -->            CLOSE-WAIT\n   #4  TIME-WAIT   <--\
+    \ <ACK(FIN),data2,FIN,CC=y> <--            LAST-ACK\n       (data2->user_A)\n\
+    \   #5  TIME_WAIT       --> <ACK(FIN),CC=x> -->                    CLOSED\n  \
+    \       (timeout)\n        CLOSED\n                  Figure 3: Acknowledgment\
+    \ Timeout in Server\n   2.3  Protocol Correctness\n      This section fills in\
+    \ more details of the TAO mechanism and\n      provides an informal sketch of\
+    \ why the T/TCP protocol works.\n      CC values are 32-bit integers.  The TAO\
+    \ test requires the same\n      kind of modular arithmetic that is used to compare\
+    \ two TCP\n      sequence numbers.  We assume that the boundary between y < z\
+    \ and z\n      < y for two CC values y and z occurs when they differ by 2**31,\n\
+    \      i.e., by half the total CC space.\n      The essential requirement for\
+    \ correctness of T/TCP is this:\n           CC values must advance at a rate slower\
+    \ than 2**31      [R1]\n           counts per 2*MSL\n      where MSL denotes the\
+    \ maximum segment lifetime in the Internet.\n      The requirement [R1] is easily\
+    \ met with a 32-bit CC.  For example,\n      it will allow 10**6 transactions\
+    \ per second with the very liberal\n      MSL of 1000 seconds [RFC-1379].  This\
+    \ is well in excess of the\n      transaction rates achievable with current operating\
+    \ systems and\n      network latency.\n      Assume for the present that successive\
+    \ connections from client A\n      to server B contain only monotonically increasing\
+    \ CC values.  That\n      is, if x(i) and x(i+1) are CC values carried in two\
+    \ successive\n      initial <SYN> segments from the same host, then x(i+1) > x(i).\n\
+    \      Assuming the requirement [R1], the CC space cannot wrap within the\n  \
+    \    range of segments that can be outstanding at one time.  Therefore,\n    \
+    \  those successive <SYN> segments from a given host that have not\n      exceeded\
+    \ their MSL must contain an ordered set of CC values:\n             x(1) < x(2)\
+    \ < x(3) ... < x(n),\n      where the modular comparisons have been replaced by\
+    \ simple\n      arithmetic comparisons. Here x(n) is the most recent acceptable\n\
+    \      <SYN>, which is cached by the server.  If the server host receives\n  \
+    \    a <SYN> segment containing a CC option with value y where y >\n      x(n),\
+    \ that <SYN> must be newer; an antique duplicate SYN with CC\n      value greater\
+    \ than x(n) must have exceeded its MSL and vanished.\n      Hence, monotonic CC\
+    \ values and the TAO test prevent erroneous\n      replay of antique <SYN>s.\n\
+    \      There are two possible reasons for a client to generate non-\n      monotonic\
+    \ CC values: (a) the client may have crashed and\n      restarted, causing the\
+    \ generated CC values to jump backwards; or\n      (b) the generated CC values\
+    \ may have wrapped around the finite\n      space.  Wraparound may occur because\
+    \ CC generation is global to\n      all connections.  Suppose that host A sends\
+    \ a transaction to B,\n      then sends more than 2**31 transactions to other\
+    \ hosts, and\n      finally sends another transaction to B.  From B's viewpoint,\
+    \ CC\n      will have jumped backward relative to its cached value.\n      In\
+    \ either of these two cases, the server may see the CC value jump\n      backwards\
+    \ only after an interval of at least MSL since the last\n      <SYN> segment from\
+    \ the same client host.  In case (a), client host\n      restart, this is because\
+    \ T/TCP retains TCP's explicit \"Quiet Time\"\n      of an MSL interval [STD-007].\
+    \  In case (b). wrap around, [R1]\n      ensures that a time of at least MSL must\
+    \ have passed before the CC\n      space wraps around.  Hence, there is no possibility\
+    \ that a TAO\n      test will succeed erroneously due to either cause of non-\n\
+    \      monotonicity; i.e., there is no chance of replays due to TAO.\n      However,\
+    \ although CC values jumping backwards will not cause an\n      error, it may\
+    \ cause a performance degradation due to unnecessary\n      3WHS's.  This results\
+    \ from the generated CC values jumping\n      backwards through approximately\
+    \ half their range, so that all\n      succeeding TAO tests fail until the generated\
+    \ CC values catch up\n      to the cached value.  To avoid this degradation, a\
+    \ client host\n      sends a CC.NEW option instead of a CC option in the case\
+    \ of either\n      system restart or CC wraparound.  Receiving CC.NEW forces a\
+    \ 3WHS,\n      but when this 3WHS completes successfully the server cache is\n\
+    \      updated to the new CC value.  To detect CC wraparound, the client\n   \
+    \   must cache the last CC value it sent to each server.  It therefore\n     \
+    \ maintains cache.CCsent[B] for each server B.  If this cached value\n      is\
+    \ undefined or if it is larger than the next CC value generated\n      at the\
+    \ client, then the client sends a CC.NEW instead of a CC\n      option in the\
+    \ next SYN segment.\n      This is illustrated in Figure 4, which shows the scenario\
+    \ for the\n      first transaction from A to B after the client host A has crashed\n\
+    \      and recovered.  A similar sequence occurs if x is not greater than\n  \
+    \    cache.CCsent[B], i.e., if there is a wraparound of the generated\n      CC\
+    \ values.  Because segment #1 contains a CC.NEW option, the\n      server host\
+    \ invalidates the cache entry and does a 3WHS; however,\n      it still sets B's\
+    \ TCB.CCrecv for this connection to x.  TCP B uses\n      this CCrecv value to\
+    \ validate the <ACK> segment (#3) that\n      completes the 3WHS.  Receipt of\
+    \ this segment updates cache.CC[A],\n      since the cache entry was previously\
+    \ undefined.  (If a 3WHS always\n      updated the cache, then out-of-order SYN\
+    \ segments could cause the\n      cached value to jump backwards, possibly allowing\
+    \ replays).\n      Finally, the CC.ECHO option in the <SYN,ACK> segment #2 defines\n\
+    \      A's cache.CCsent entry.\n      This algorithm delays updating cache.CCsent[]\
+    \ until the <SYN> has\n      been ACK'd.  This allows the undefined cache.CCsent\
+    \ value to used\n      as a a \"first-time switch\" to reliable resynchronization\
+    \ of the\n      cached value at the server after a crash or wraparound.\n    \
+    \  When we use the term \"cache\", we imply that the value can be\n      discarded\
+    \ at any time without introducing erroneous behavior\n      although it may degrade\
+    \ performance.\n      (a)  If a server host receives an initial <SYN> from client\
+    \ A but\n           has no cached value cache.CC[A], the server simply forces\
+    \ a\n           3WHS to validate the <SYN> segment.\n      (b)  If a client host\
+    \ has no cached value cache.CCsent[B] when it\n           needs to send an initial\
+    \ <SYN> segment, the client simply\n           sends a CC.NEW option in the segment.\
+    \  This forces a 3WHS at\n           the server.\n          TCP A  (Client)  \
+    \                              TCP B (Server)\n          _______________     \
+    \                           ______________\n          cache.CCsent[B]        \
+    \                           cache.CC[A]\n              V                     \
+    \                             V\n        (Crash and restart)\n            [ ??\
+    \ ]                                            [ x0 ]\n        #1         -->\
+    \ <SYN, data1,CC.NEW=x> -->      (invalidate cache;\n                        \
+    \                                    queue data1;\n                          \
+    \                              3-way handshake)\n            [ ?? ]          \
+    \                                  [ ?? ]\n        #2          <-- <SYN, ACK(data1),CC=y,CC.ECHO=x>\
+    \ <--\n          (cache.CCsent[B]= x;)\n            [ x ]                    \
+    \                         [ ?? ]\n        #3                  --> <ACK(SYN),CC=x>\
+    \ -->       data1->user_B;\n                                                 \
+    \        cache.CC[A]= x;\n            [ x ]                                  \
+    \            [ x ]\n                      Figure 4.  Client Host Restarting\n\
+    \      So far, we have considered only correctness of the TAO mechanism\n    \
+    \  for bypassing the 3WHS.  We must also protect a connection against\n      antique\
+    \ duplicate non-SYN segments.  In standard TCP, such\n      protection is one\
+    \ of the functions of the TIME-WAIT state delay.\n      (The other function is\
+    \ the TCP full-duplex close semantics, which\n      we need to preserve; that\
+    \ is discussed below in Section 2.5).  In\n      order to achieve a high rate\
+    \ of transaction processing, it must be\n      possible to truncate this TIME-WAIT\
+    \ state delay without exposure\n      to antique duplicate segments [RFC-1379].\n\
+    \      For short connections (e.g., transactions), the CC values assigned\n  \
+    \    to each direction of the connection can be used to protect against\n    \
+    \  antique duplicate non-SYN segments.  Here we define \"short\" as a\n      duration\
+    \ less than MSL.  Suppose that there is a connection that\n      uses the CC values\
+    \ TCB.CCsend = x and TCB.CCrecv = y.  By the\n      requirement [R1], neither\
+    \ x nor y can be reused for a new\n      connection from the same remote host\
+    \ for a time at least 2*MSL.\n      If the connection has been in existence for\
+    \ a time less than MSL,\n      then its CC values will not be reused for a period\
+    \ that exceeds\n      MSL, and therefore all antique duplicates with that CC value\
+    \ must\n      vanish before it is reused.  Thus, for \"short\" connections we\
+    \ can\n      guard against antique non-SYN segments by simply checking the CC\n\
+    \      value in the segment againsts TCB.CCrecv.  Note that this check\n     \
+    \ does not use the monotonic property of the CC values, only that\n      they\
+    \ not cycle in less than 2*MSL.  Again, the quiet time at\n      system restart\
+    \ protects against errors due to crash with loss of\n      state.\n      If the\
+    \ connection duration exceeds MSL, safety from old duplicates\n      still requires\
+    \ a TIME-WAIT delay of 2*MSL.  Thus, truncation of\n      TIME-WAIT state is only\
+    \ possible for short connections.  (This\n      problem has also been noticed\
+    \ by Shankar and Lee [ShankarLee93]).\n      This difference in behavior for long\
+    \ and for short connections\n      does create a slightly complex service model\
+    \ for applications\n      using T/TCP.  An application has two different strategies\
+    \ for\n      multiple connections.  For \"short\" connections, it should use a\n\
+    \      fixed port pair and use the T/TCP mechanism to get rapid and\n      efficient\
+    \ transaction processing.  For connections whose durations\n      are of the order\
+    \ of MSL or longer, it should use a different user\n      port for each successive\
+    \ connection, as is the current practice\n      with unmodified TCP.  The latter\
+    \ strategy will cause excessive\n      overhead (due to TCB's in TIME-WAIT state)\
+    \ if it is applied to\n      high-frequency short connections.  If an application\
+    \ makes the\n      wrong choice, its attempt to open a new connection may fail\
+    \ with a\n      \"busy\" error.  If connection durations may range between long\
+    \ and\n      short, an application may have to be able to switch strategies\n\
+    \      when one fails.\n   2.4  Truncating TIME-WAIT State\n      Truncation of\
+    \ TIME-WAIT state is necessary to achieve high\n      transaction rates.  As Figure\
+    \ 2 illustrates, a standard\n      transaction leaves the client end of the connection\
+    \ in TIME-WAIT\n      state.  This section explains the protocol implications\
+    \ of\n      truncating TIME-WAIT state, when it is allowed (i.e., when the\n \
+    \     connection has been in existence for less than MSL).  In this\n      case,\
+    \ the client host should be able to interrupt TIME-WAIT state\n      to initiate\
+    \ a new incarnation of the same connection (i.e., using\n      the same host and\
+    \ ports).  This will send an initial <SYN>\n      segment.\n      It is possible\
+    \ for the new <SYN> to arrive at the server before\n      the retransmission state\
+    \ from the previous incarnation is gone, as\n      shown in Figure 5.  Here the\
+    \ final <ACK> (segment #3) from the\n      previous incarnation is lost, leaving\
+    \ retransmission state at B.\n      However, the client received segment #2 and\
+    \ thinks the transaction\n      completed successfully, so it can initiate a new\
+    \ transaction by\n      sending <SYN> segment #4.  When this <SYN> arrives at\
+    \ the server\n      host, it must implicitly acknowledge segment #2, signalling\n\
+    \      success to the server application, deleting the old TCB, and\n      creating\
+    \ a new TCB, as shown in Figure 5.  Still assuming that the\n      new <SYN> is\
+    \ known to be valid, the server host marks the new\n      connection half-synchronized\
+    \ and delivers data3 to the server\n      application.  (The details of how this\
+    \ is accomplished are\n      presented in Section 3.3.)\n      The earlier discussion\
+    \ of the TAO mechanism assumed that the\n      previous incarnation was closed\
+    \ before a new <SYN> arrived at the\n      server.  However, TAO cannot be used\
+    \ to validate the <SYN> if\n      there is still state from the previous incarnation,\
+    \ as shown in\n      Figure 5; in this case, it would be exceedingly awkward to\
+    \ perform\n      a 3WHS if the TAO test should fail.  Fortunately, a modified\n\
+    \      version of the TAO test can still be performed, using the state in\n  \
+    \    the earlier TCB rather than the cached state.\n      (A)  If the <SYN> segment\
+    \ contains a CC or CC.NEW option, the\n           value SEG.CC from this option\
+    \ is compared with TCB.CCrecv,\n           the CC value in the still-existing\
+    \ state block of the\n           previous incarnation.  If SEG.CC > TCB.CCrecv,\
+    \ the new <SYN>\n           segment must be valid.\n      (B)  Otherwise, the\
+    \ <SYN> is an old duplicate and is simply\n           discarded.\n      Truncating\
+    \ TIME-WAIT state may be looked upon as composing an\n      extended state machine\
+    \ that joins the state machines of the two\n      incarnations, old and new. \
+    \ It may be described by introducing new\n      intermediate states (which we\
+    \ call I-states), with transitions\n      that join the two diagrams and share\
+    \ some state from each.  I-\n      states are detailed in Section 3.3.\n     \
+    \ Notice also segment #2' in Figure 5.  TCP's mechanism to recover\n      from\
+    \ half-open connections (see Figure 10 of [STD-007]) cause TCP\n      A to send\
+    \ a RST when 2' arrives, which would incorrectly make B\n      think that the\
+    \ previous transaction did not complete successfully.\n      The half-open recovery\
+    \ mechanism must be defeated in this case, by\n      A ignoring segment #2'.\n\
+    \      TCP A  (Client)                                     TCP B (Server)\n  \
+    \    _______________                                     ______________\n    \
+    \  CLOSED                                                      LISTEN\n  #1  \
+    \              --> <...,FIN,CC=x> -->                     LAST-ACK*\n  #2    \
+    \     <-- <...ACK(FIN),data2,FIN,CC=y,CC.ECHO=x>  <---  LAST-ACK*\n      TIME-WAIT\n\
+    \    (data2->user_A)\n  #3  TIME-WAIT          --> <ACK(FIN),CC=x> --> X (DROP)\n\
+    \      (New Active Open)                           (New Passive Open)\n  #4  SYN-SENT*\
+    \    -->  <SYN, data3,CC=z> ...\n                                            \
+    \                   LISTEN-LA\n  #2' (discard) <-- <...ACK(FIN),data2,FIN,CC=y>\
+    \ <--- (retransmit)\n  #4  SYN-SENT*        ... <SYN,data3,CC=z> -->         \
+    \   ESTABLISHED*\n                                                    SYN OK (see\
+    \ text) =>\n                                                            {Ack seg\
+    \ #2;\n                                                         Delete old TCB;\n\
+    \                                                         Create new TCB;\n  \
+    \                                                      data3 -> user_B;\n    \
+    \                                                    cache.CC[A]= z;}\n      \
+    \  Figure 5: Truncating TIME-WAIT State: SYN as Implicit ACK\n   2.5  Transition\
+    \ to Standard TCP Operation\n      T/TCP includes all normal TCP semantics, and\
+    \ it will continue to\n      operate exactly like TCP when the particular assumptions\
+    \ for\n      transactions do not hold.  There is no limit on the size of an\n\
+    \      individual transaction, and behavior of T/TCP should merge\n      seamlessly\
+    \ from pure transaction operation as shown in Figure 2,\n      to pure streaming\
+    \ mode for sending large files.  All the sequences\n      shown in [STD-007] are\
+    \ still valid, and the inherent symmetry of\n      TCP is preserved.\n      Figure\
+    \ 6 shows a possible sequence when the request and response\n      messages each\
+    \ require two segments.  Segment #2 is a non-SYN\n      segment that contains\
+    \ a TCP option.  To avoid compatibility\n      problems with existing TCP implementations,\
+    \ the client side should\n      send segment #2 only if cache.CCsent[B] is defined,\
+    \ i.e., only if\n      host A knows that host B plays the new game.\n        \
+    \  TCP A  (Client)                                 TCP B (Server)\n          _______________\
+    \                                 ______________\n          CLOSED           \
+    \                                       LISTEN\n       #1  SYN-SENT*       -->\
+    \ <SYN,data1,CC=x>  -->        ESTABLISHED*\n                                \
+    \                       (TAO test OK =>\n                                    \
+    \                    data1-> user)\n       #2  SYN-SENT*       --> <data2,FIN,CC=x>\
+    \  -->         CLOSE-WAIT*\n                                                 \
+    \      (data2-> user)\n                                                      \
+    \       CLOSE-WAIT*\n       #3  FIN-WAIT-2  <-- <SYN,ACK(FIN),data3,CC=y,CC.ECHO=x>\
+    \ <--\n            (data3->user)\n       #4  TIME_WAIT   <-- <ACK(FIN),data4,FIN,CC=y>\
+    \ <--       LAST-ACK*\n            (data4->user)\n       #5  TIME-WAIT       -->\
+    \ <ACK(FIN),CC=x> -->                CLOSED\n            Figure 6. Multi-Packet\
+    \ Request/Response Sequence\n      Figure 7 shows a more complex example, one\
+    \ possible sequence with\n      TAO combined with simultaneous open and close.\
+    \  This may be\n      compared with Figure 8 of [STD-007].\n          TCP A  \
+    \                                                  TCP B\n          _______________\
+    \                                 ______________\n          CLOSED           \
+    \                                       CLOSED\n      #1  SYN-SENT*         -->\
+    \ <SYN,data1,FIN,CC=x> ...\n      #2  CLOSING*     <-- <SYN,data2,FIN,CC=y> <--\
+    \            SYN-SENT*\n          (TAO test OK =>\n           data2->user_A\n\
+    \      #3  CLOSING*      --> <FIN,ACK(FIN),CC=x,CC.ECHO=y> ...\n      #1'    \
+    \                   ... <SYN,data1,FIN,CC=x> -->    CLOSING*\n               \
+    \                                        (TAO test OK =>\n                   \
+    \                                     data1->user_B)\n      #4  TIME-WAIT   <--\
+    \ <FIN,ACK(FIN),CC=y,CC.ECHO=x> <--     CLOSING*\n      #5  TIME-WAIT    --> <ACK(FIN),CC=x>\
+    \ ...\n      #3'              ... <FIN,ACK(FIN),CC=x,CC.ECHO=y> -->   TIME-WAIT\n\
+    \      #6  TIME-WAIT            <-- <ACK(FIN),CC=y> <---        TIME-WAIT\n  \
+    \    #5' TIME-WAIT               ... <ACK(FIN),CC=x> -->      TIME-WAIT\n    \
+    \      (timeout)                                            (timeout)\n      \
+    \      CLOSED                                                CLOSED\n        \
+    \          Figure 7: Simultaneous Open and Close\n"
+- title: 3.  FUNCTIONAL SPECIFICATION
+  contents:
+  - "3.  FUNCTIONAL SPECIFICATION\n   3.1  Data Structures\n      A connection count\
+    \ is an unsigned 32-bit integer, with the value\n      zero excluded.  Zero is\
+    \ used to denote an undefined value.\n      A host maintains a global connection\
+    \ count variable CCgen, and\n      each connection control block (TCB) contains\
+    \ two new connection\n      count variables, TCB.CCsend and TCB.CCrecv.  Whenever\
+    \ a TCB is\n      created for the active or passive end of a new connection, CCgen\n\
+    \      is incremented by 1 and placed in TCB.CCsend of the TCB; however,\n   \
+    \   if the previous CCgen value was 0xffffffff (-1), then the next\n      value\
+    \ should be 1.  TCB.CCrecv is initialized to zero (undefined).\n      T/TCP adds\
+    \ a per-host cache to TCP.  An entry in this cache for\n      foreign host fh\
+    \ includes two CC values, cache.CC[fh] and\n      cache.CCsent[fh].  It may include\
+    \ other values, as discussed in\n      Sections 4.3 and 4.4.  According to [STD-007],\
+    \ a TCP is not\n      permitted to send a segment larger than the default size\
+    \ 536,\n      unless it has received a larger value in an MSS (Maximum Segment\n\
+    \      Size) option.  This could constrain the client to use the default\n   \
+    \   MSS of 536 bytes for every request.  To avoid this constraint, a\n      T/TCP\
+    \ may cache the MSS option values received from remote hosts,\n      and we allow\
+    \ a TCP to use a cached MSS option value for the\n      initial SYN segment.\n\
+    \      When the client sends an initial <SYN> segment containing data, it\n  \
+    \    does not have a send window for the server host.  This is not a\n      great\
+    \ difficulty; we simply define a default initial window; our\n      current suggestion\
+    \ is 4K.  Such a non-zero default should be be\n      conditioned upon the existence\
+    \ of a cached connection count for\n      the foreign host, so that data may be\
+    \ included on an initial SYN\n      segment only if cache.CC[foreign host] is\
+    \ non-zero.\n      In TCP, the window is dynamically adjusted to provide congestion\n\
+    \      control/avoidance [Jacobson88].  It is possible that a particular\n   \
+    \   path might not be able to absorb an initial burst of 4096 bytes\n      without\
+    \ congestive losses.  If this turns out to be a problem, it\n      should be possible\
+    \ to cache the congestion threshold for the path\n      and use this value to\
+    \ determine the maximum size of the initial\n      packet burst created by a request.\n\
+    \   3.2  New TCP Options\n      Three new TCP options are defined: CC, CC.NEW,\
+    \ and CC.ECHO.  Each\n      carries a connection count SEG.CC.  The complete rules\
+    \ for sending\n      and processing these options are given in Section 3.4 below.\n\
+    \      CC Option\n         Kind: 11\n         Length: 6\n            +--------+--------+--------+--------+--------+--------+\n\
+    \            |00001011|00000110|    Connection Count:  SEG.CC      |\n       \
+    \     +--------+--------+--------+--------+--------+--------+\n             Kind=11\
+    \  Length=6\n         This option may be sent in an initial SYN segment, and it\
+    \ may\n         be sent in other segments if a CC or CC.NEW option has been\n\
+    \         received for this incarnation of the connection.  Its SEG.CC\n     \
+    \    value is the TCB.CCsend value from the sender's TCB.\n      CC.NEW Option\n\
+    \         Kind: 12\n         Length: 6\n            +--------+--------+--------+--------+--------+--------+\n\
+    \            |00001100|00000110|    Connection Count:  SEG.CC      |\n       \
+    \     +--------+--------+--------+--------+--------+--------+\n             Kind=12\
+    \  Length=6\n         This option may be sent instead of a CC option in an initial\n\
+    \         <SYN> segment (i.e., SYN but not ACK bit), to indicate that the\n  \
+    \       SEG.CC value may not be larger than the previous value.  Its\n       \
+    \  SEG.CC value is the TCB.CCsend value from the sender's TCB.\n      CC.ECHO\
+    \ Option\n         Kind: 13\n         Length: 6\n            +--------+--------+--------+--------+--------+--------+\n\
+    \            |00001101|00000110|    Connection Count:  SEG.CC      |\n       \
+    \     +--------+--------+--------+--------+--------+--------+\n             Kind=13\
+    \  Length=6\n         This option must be sent (in addition to a CC option) in\
+    \ a\n         segment containing both a SYN and an ACK bit, if the initial\n \
+    \        SYN segment contained a CC or CC.NEW option.  Its SEG.CC value\n    \
+    \     is the SEG.CC value from the initial SYN.\n         A CC.ECHO option should\
+    \ be sent only in a <SYN,ACK> segment and\n         should be ignored if it is\
+    \ received in any other segment.\n   3.3  Connection States\n      T/TCP requires\
+    \ new connection states and state transitions.\n      Figure 8 shows the resulting\
+    \ finite state machine; see [RFC-1379]\n      for a detailed development.  If\
+    \ all state names ending in stars\n      are removed from Figure 8, the state\
+    \ diagram reduces to the\n      standard TCP state machine (see Figure 6 of [STD-007]),\
+    \ with two\n      exceptions:\n      *    STD-007 shows a direct transition from\
+    \ SYN-RECEIVED to FIN-\n           WAIT-1 state when the user issues a CLOSE call.\
+    \  This\n           transition is suspect; a more accurate description of the\n\
+    \           state machine would seem to require the intermediate SYN-\n      \
+    \     RECEIVED* state shown in Figure 8.\n      *    In STD-007, a user CLOSE\
+    \ call in SYN-SENT state causes a\n           direct transition to CLOSED state.\
+    \  The extended diagram of\n           Figure 8 forces the connection to open\
+    \ before it closes,\n           since calling CLOSE to terminate the request in\
+    \ SYN-SENT\n           state is normal behavior for a transaction client.  In\
+    \ the\n           case that no data has been sent in SYN-SENT state, it is\n \
+    \          reasonable for a user CLOSE call to immediately enter CLOSED\n    \
+    \       state and delete the TCB.\n      Each of the new states in Figure 8 bears\
+    \ a starred name, created\n      by suffixing a star onto a standard TCP state.\
+    \  Each \"starred\"\n      state bears a simple relationship to the corresponding\
+    \ \"unstarred\"\n      state.\n      o    SYN-SENT* and SYN-RECEIVED* differ from\
+    \ the SYN-SENT and\n           SYN-RECEIVED state, respectively, in recording\
+    \ the fact that\n           a FIN needs to be sent.\n      o    The other starred\
+    \ states indicate that the connection is\n           half-synchronized (hence,\
+    \ a SYN bit needs to be sent).\n      ________      g        ________\n     |\
+    \        |<------------|        |\n     | CLOSED |------------>| LISTEN |\n  \
+    \   |________|  h    ------|________|\n          |          /        |     |\n\
+    \          |         /        i|    j|\n          |        /          |     |\n\
+    \         a|     a'/           |    _V______               ________\n        \
+    \  |      /     j      |   |ESTAB-  |       e'    | CLOSE- |\n          |    \
+    \ /  -----------|-->| LISHED*|------------>|   WAIT*|\n          |    /  /   \
+    \        |   |________|             |________|\n          |   /  /           \
+    \ |    |     |                |     |\n          |  /  /             |    |  \
+    \  c|              d'|    c|\n      ____V_V_ /       _______V    |   __V_____\
+    \           |   __V_____\n     | SYN-   |   b'  |  SYN-  |c  |  |ESTAB-  |  e\
+    \       |  | CLOSE- |\n     |   SENT |------>|RECEIVED|---|->|  LISHED|----------|->|\
+    \   WAIT |\n     |________|       |________|   |  |________|          |  |________|\n\
+    \        |               |          |     |                |        |\n      \
+    \  |               |          |     |              __V_____   |\n        |   \
+    \            |          |     |             | LAST-  |  |\n      d'|         \
+    \    d'|        d'|    d|             |  ACK*  |  |\n        |               |\
+    \          |     |             |________|  |\n        |               |      \
+    \    |     |                    |    |\n        |               |    ______V_\
+    \    |        ________    |c'  |d\n        |          k    |   |  FIN-  |   |\
+    \  e''' |        |   |    |\n        |        -------|-->| WAIT-1*|---|------>|CLOSING*|\
+    \   |    |\n        |       /       |   |________|   |       |________|   |  \
+    \  |\n        |      /        |          |     |            |       |    |\n \
+    \       |     /         |        c'|     |          c'|       |    |\n     ___V___\
+    \ /      ____V___       V_____V_       ____V___    V____V__\n    | SYN-   | b''\
+    \ |  SYN-  |  c  |  FIN-  | e'' |        |  | LAST-  |\n    |  SENT* |---->|RECEIVD*|---->|\
+    \ WAIT-1 |---->|CLOSING |  |   ACK  |\n    |________|     |________|     |________|\
+    \     |________|  |________|\n                                        |      \
+    \         |           |\n                                       f|           \
+    \   f|         f'|\n                                     ___V____       ____V___\
+    \     ___V____\n                                    |  FIN-  | e   |TIME-   |\
+    \ T |        |\n                                    | WAIT-2 |---->|   WAIT |-->|\
+    \ CLOSED |\n                                    |________|     |________|   |________|\n\
+    \                 Figure 8A: Basic T/TCP State Diagram\n    ________________________________________________________________\n\
+    \   |                                                                |\n   | \
+    \       Label          Event / Action                           |\n   |      \
+    \  _____          ________________________                 |\n   |           \
+    \                                                     |\n   |          a     \
+    \       Active OPEN / create TCB, snd SYN        |\n   |          a'         \
+    \  Active OPEN / snd SYN                    |\n   |          b            rcv\
+    \ SYN [no TAO]/ snd ACK(SYN)           |\n   |          b'           rcv SYN [no\
+    \ TAO]/ snd SYN,ACK(SYN)       |\n   |          b''          rcv SYN [no TAO]/\
+    \ snd SYN,FIN,ACK(SYN)   |\n   |          c            rcv ACK(SYN) /        \
+    \                   |\n   |          c'           rcv ACK(SYN) / snd FIN     \
+    \              |\n   |          d            CLOSE / snd FIN                 \
+    \         |\n   |          d'           CLOSE / snd SYN,FIN                  \
+    \    |\n   |          e            rcv FIN / snd ACK(FIN)                   |\n\
+    \   |          e'           rcv FIN / snd SYN,ACK(FIN)               |\n   | \
+    \         e''          rcv FIN / snd FIN,ACK(FIN)               |\n   |      \
+    \    e'''         rcv FIN / snd SYN,FIN,ACK(FIN)           |\n   |          f\
+    \            rcv ACK(FIN) /                           |\n   |          f'    \
+    \       rcv ACK(FIN) / delete TCB                |\n   |          g          \
+    \  CLOSE / delete TCB                       |\n   |          h            passive\
+    \ OPEN / create TCB                |\n   |          i (= b')     rcv SYN [no TAO]/\
+    \ snd SYN,ACK(SYN)       |\n   |          j            rcv SYN [TAO OK] / snd\
+    \ SYN,ACK(SYN)      |\n   |          k            rcv SYN [TAO OK] / snd SYN,FIN,ACK(SYN)\
+    \  |\n   |          T            timeout=2MSL / delete TCB                |\n\
+    \   |                                                                |\n   | \
+    \                                                               |\n   |      \
+    \    Figure 8B.  Definition of State Transitions           |\n   |________________________________________________________________|\n\
+    \      This simple correspondence leads to an alternative state model,\n     \
+    \ which makes it easy to incorporate the new states in an existing\n      implementation.\
+    \  Each state in the extended FSM is defined by the\n      triplet:\n        \
+    \  (old_state, SENDSYN, SENDFIN)\n      where 'old_state' is a standard TCP state\
+    \ and SENDFIN and SENDSYN\n      are Boolean flags see Figure 9.  The SENDFIN\
+    \ flag is turned on (on\n      the client side) by a SEND(...  EOF=YES) call,\
+    \ to indicate that a\n      FIN should be sent in a state which would not otherwise\
+    \ send a\n      FIN.  The SENDSYN flag is turned on when the TAO test succeeds\
+    \ to\n      indicate that the connection is only half synchronized; as a\n   \
+    \   result, a SYN will be sent in a state which would not otherwise\n      send\
+    \ a SYN.\n       ________________________________________________________________\n\
+    \      |                                                                |\n  \
+    \    |   New state:         Old_state:    SENDSYN:      SENDFIN:      |\n    \
+    \  |  __________         __________      ______        ______       |\n      |\
+    \                                                                |\n      |  SYN-SENT*\
+    \     =>   SYN-SENT        FALSE          TRUE        |\n      |             \
+    \                                                   |\n      |  SYN-RECEIVED*\
+    \ =>   SYN-RECEIVED    FALSE          TRUE        |\n      |                 \
+    \                                               |\n      |  ESTABLISHED*  => \
+    \  ESTABLISHED      TRUE         FALSE        |\n      |                     \
+    \                                           |\n      |  CLOSE-WAIT*   =>   CLOSE-WAIT\
+    \       TRUE         FALSE        |\n      |                                 \
+    \                               |\n      |  LAST-ACK*     =>   LAST-ACK      \
+    \   TRUE         FALSE        |\n      |                                     \
+    \                           |\n      |  FIN-WAIT-1*   =>   FIN-WAIT-1       TRUE\
+    \         FALSE        |\n      |                                            \
+    \                    |\n      |  CLOSING*      =>   CLOSING          TRUE    \
+    \     FALSE        |\n      |                                                \
+    \                |\n      |                                                  \
+    \              |\n      |           Figure 9: Alternative State Definitions  \
+    \            |\n      |________________________________________________________________|\n\
+    \      Here is a more complete description of these boolean variables.\n     \
+    \ *    SENDFIN\n           SENDFIN is turned on by the SEND(...EOF=YES) call,\
+    \ and turned\n           off when FIN-WAIT-1 state is entered.  It may only be\
+    \ on in\n           SYN-SENT* and SYN-RECEIVED* states.\n           SENDFIN has\
+    \ two effects.  First, it causes a FIN to be sent\n           on the last segment\
+    \ of data from the user.  Second, it causes\n           the SYN-SENT[*] and SYN-RECEIVED[*]\
+    \ states to transition\n           directly to FIN-WAIT-1, skipping ESTABLISHED\
+    \ state.\n      *    SENDSYN\n           The SENDSYN flag is turned on when an\
+    \ initial SYN segment is\n           received and passes the TAO test.  SENDSYN\
+    \ is turned off when\n           the SYN is acknowledged (specifically, when there\
+    \ is no RST\n           or SYN bit and SEG.UNA < SND.ACK).\n           SENDSYN\
+    \ has three effects.  First, it causes the SYN bit to\n           be set in segments\
+    \ sent with the initial sequence number\n           (ISN).  Second, it causes\
+    \ a transition directly from LISTEN\n           state to ESTABLISHED*, if there\
+    \ is no FIN bit, or otherwise\n           to CLOSE-WAIT*.  Finally, it allows\
+    \ data to be received and\n           processed (passed to the application) even\
+    \ if the segment\n           does not contain an ACK bit.\n      According to\
+    \ the state model of the basic TCP specification [STD-\n      007], the server\
+    \ side must explicitly issued a passive OPEN call,\n      creating a TCB in LISTEN\
+    \ state, before an initial SYN may be\n      accepted.  To accommodate truncation\
+    \ of TIME-WAIT state within\n      this model, it is necessary to add the five\
+    \ \"I-states\" shown in\n      Figure 10.  The I-states are:  LISTEN-LA, LISTEN-LA*,\
+    \ LISTEN-CL,\n      LISTEN-CL*, and LISTEN-TW.  These are 'bridge states' between\
+    \ two\n      successive the state diagrams of two successive incarnations.\n \
+    \     Here D is the duration of the previous connection, i.e., the\n      elapsed\
+    \ time since the connection opened.  The transitions labeled\n      with lower-case\
+    \ letters are taken from Figure 8.\n      Fortunately, many TCP implementations\
+    \ have a different user\n      interface model, in which the use can issue a generic\
+    \ passive open\n      (\"listen\") call; thereafter, when a matching initial SYN\
+    \ arrives,\n      a new TCB in LISTEN state is automatically generated.  With\
+    \ this\n      user model, the I-states of Figure 10 are unnecessary.\n      For\
+    \ example, suppose an initial SYN segment arrives for a\n      connection that\
+    \ is in LAST-ACK state.  If this segment carries a\n      CC option and if SEG.CC\
+    \ is greater than TCB.CCrecv in the existing\n      TCB, the \"q\" transition\
+    \ shown in Figure 10 can be made directly\n      from the LAST-ACK state.  That\
+    \ is, the previous TCB is processed\n      as if an ACK(FIN) had arrived, causing\
+    \ the user to be notified of\n      a successful CLOSE and the TCB to be deleted.\
+    \  Then processing of\n      the new SYN segment is repeated, using a new TCB\
+    \ that is generated\n      automatically.  The same principle can be used to avoid\n\
+    \      implementing any of the I-states.\n ______________________________\n"
+- title: '| P: Passive OPEN /            |'
+  contents:
+  - '| P: Passive OPEN /            |
+
+    '
+- title: '|                              |'
+  contents:
+  - '|                              |
+
+    '
+- title: '| Q: Rcv SYN, special TAO test |                     d''|     d|'
+  contents:
+  - '| Q: Rcv SYN, special TAO test |                     d''|     d|
+
+    '
+- title: '|     (see text) / Delete TCB, |    ________        ___V____  |'
+  contents:
+  - '|     (see text) / Delete TCB, |    ________        ___V____  |
+
+    '
+- title: '|     create TCB, snd SYN      |   |LISTEN- |  P   | LAST-  | |'
+  contents:
+  - '|     create TCB, snd SYN      |   |LISTEN- |  P   | LAST-  | |
+
+    '
+- title: '|                              |   |   LA*  |<-----|  ACK*  | |'
+  contents:
+  - '|                              |   |   LA*  |<-----|  ACK*  | |
+
+    '
+- title: '| Q'': (same as Q) if D < MSL   |   |________|      |________| |'
+  contents:
+  - '| Q'': (same as Q) if D < MSL   |   |________|      |________| |
+
+    '
+- title: '|                              |    |     |            |      |'
+  contents:
+  - '|                              |    |     |            |      |
+
+    '
+- title: '| R: Rcv ACK(FIN) / Delete TCB,|   Q|   c''|          c''|      |'
+  contents:
+  - '| R: Rcv ACK(FIN) / Delete TCB,|   Q|   c''|          c''|      |
+
+    '
+- title: '|     create TCB               |    |     |            |      |'
+  contents:
+  - '|     create TCB               |    |     |            |      |
+
+    '
+- title: '|                              |    |  ___V____        V______V'
+  contents:
+  - '|                              |    |  ___V____        V______V
+
+    '
+- title: '| S'': Active OPEN if D < MSL / |    | |LISTEN- |  P   | LAST-  |'
+  contents:
+  - '| S'': Active OPEN if D < MSL / |    | |LISTEN- |  P   | LAST-  |
+
+    '
+- title: '|     Delete TCB, create TCB,  |    | |  LA    |<-----|   ACK  |'
+  contents:
+  - '|     Delete TCB, create TCB,  |    | |  LA    |<-----|   ACK  |
+
+    '
+- title: '|     snd SYN.                 |    | |________|      |________|'
+  contents:
+  - '|     snd SYN.                 |    | |________|      |________|
+
+    '
+- title: '|______________________________|    |  |     |            |'
+  contents:
+  - "|______________________________|    |  |     |            |\n               \
+    \                     | Q|    R|           f|\n         ________        ________\
+    \   |  |     |            |\n   e''' |        |  P   |LISTEN- |  |  |     V  \
+    \          V\n   ---->|CLOSING*|----->|   CL*  |  |  |   LISTEN       CLOSED\n\
+    \        |________|      |________|  |  |\n             |            |   Q|  \
+    \  |  |\n           c'|          c'|    V    V  V\n             |            |\
+    \   ESTABLISHED*\n         ____V___         V_______\n    e'' |        |  P  \
+    \  |LISTEN- |\n   ---->|CLOSING |------>|   CL   |\n        |________|       |________|\n\
+    \             |           R|     Q|\n            f|            V      V\n    \
+    \         |         LISTEN   ESTABLISHED*\n         ____V___                _________\n\
+    \     e  |TIME-   |  P           | LISTEN- |\n   ---->|   WAIT |------------->|\
+    \    TW   |\n        |________|              |_________|\n        /     |    \
+    \              |    |  |\n     S'/     T|                 T|  Q'|  |S'\n     \
+    \ |  _____V_      h     _____V__  |  V\n      | |        |-------->|        |\
+    \ |  SYN-SENT\n      | | CLOSED |<--------| LISTEN | |\n      | |________|   ------|________|\
+    \ |\n      |   |        /        |   j|    |\n      |  a|     a'/        i|  \
+    \  V    V\n      |   |      /          |   ESTABLISHED*\n      V   V     V   \
+    \        V\n        SYN-SENT           ...\n             Figure 10: I-States for\
+    \ TIME-WAIT Truncation\n   3.4  T/TCP Processing Rules\n      This section summarizes\
+    \ the rules for sending and processing the\n      T/TCP options.\n      INITIALIZATION\n\
+    \         I1:  All cache entries cache.CC[*] and cache.CCsent[*] are\n       \
+    \       undefined (zero) when a host system initializes, and CCgen\n         \
+    \     is set to a non-zero value.\n         I2:  A new TCB is initialized with\
+    \ TCB.CCrecv = 0 and\n              TCB.CCsend = current CCgen value; CCgen is\
+    \ then\n              incremented.  If the result is zero, CCgen is incremented\n\
+    \              again.\n      SENDING SEGMENTS\n         S1:  Sending initial <SYN>\
+    \ Segment\n              An initial <SYN> segment is sent with either a CC option\n\
+    \              or a CC.NEW option.  If cache.CCsent[fh] is undefined or\n    \
+    \          if TCB.CCsend < cache.CCsent[fh], then the option\n              CC.NEW(TCB.CCsend)\
+    \ is sent and cache.CCsent[fh] is set to\n              zero.  Otherwise, the\
+    \ option CC(TCB.CCsend) is sent and\n              cache.CCsent[fh] is set to\
+    \ CCsend.\n         S2:  Sending <SYN,ACK> Segment\n              If the sender's\
+    \ TCB.CCrecv is non-zero, then a <SYN,ACK>\n              segment is sent with\
+    \ both a CC(TCB.CCsend) option and a\n              CC.ECHO (TCB.CCrecv) option.\n\
+    \         S3:  Sending Non-SYN Segment\n              A non-SYN segment is sent\
+    \ with a CC(TCB.CCsend) option if\n              the TCB.CCrecv value is non-zero,\
+    \ or if the state is SYN-\n              SENT or SYN-SENT* and cache.CCsent[fh]\
+    \ is non-zero (this\n              last is required to send CC options in the\
+    \ segments\n              following the first of a multi-segment request message;\n\
+    \              see segment #2 in Figure 6).\n      RECEIVING INITIAL <SYN> SEGMENT\n\
+    \         Suppose that a server host receives a segment containing a SYN\n   \
+    \      bit but no ACK bit in LISTEN, SYN-SENT, or SYN-SENT* state.\n         R1.1:If\
+    \ the <SYN> segment contains a CC or CC.NEW option,\n              SEG.CC is stored\
+    \ into TCB.CCrecv of the new TCB.\n         R1.2:If the segment contains a CC\
+    \ option and if the local cache\n              entry cache.CC[fh] is defined and\
+    \ if\n              SEG.CC > cache.CC[fh], then the TAO test is passed and the\n\
+    \              connection is half-synchronized in the incoming direction.\n  \
+    \            The server host replaces the cache.CC[fh] value by SEG.CC,\n    \
+    \          passes any data in the segment to the user, and processes\n       \
+    \       a FIN bit if present.\n              Acknowledgment of the SYN is delayed\
+    \ to allow piggybacking\n              on a response segment.\n         R1.3:If\
+    \ SEG.CC <= cache.CC[fh] (the TAO test has failed), or if\n              cache.CC[fh]\
+    \ is undefined, or if there is no CC option\n              (but possibly a CC.NEW\
+    \ option), the server host proceeds\n              with normal TCP processing.\
+    \  If the connection was in\n              LISTEN state, then the host executes\
+    \ a 3-way handshake\n              using the standard TCP rules.  In the SYN-SENT\
+    \ or SYN-\n              SENT* state (i.e., the simultaneous open case), the TCP\n\
+    \              sends ACK(SYN) and enters SYN-RECEIVED state.\n         R1.4:If\
+    \ there is no CC option (but possibly a CC.NEW option),\n              then the\
+    \ server host sets cache.CC[fh] undefined (zero).\n              Receiving an\
+    \ ACK for a SYN (following application of rule\n              R1.3) will update\
+    \ cache.CC[fh], by rule R3.\n         Suppose that an initial <SYN> segment containing\
+    \ a CC or CC.NEW\n         option arrives in an I-state (i.e., a state with a\
+    \ name of the\n         form 'LISTEN-xx', where xx is one of TW, LA, L8, CL, or\
+    \ CL*):\n         R1.5:If the state is LISTEN-TW, then the duration of the\n \
+    \             current connection is compared with MSL.  If duration >\n      \
+    \        MSL then send a RST:\n                <SEQ=0><ACK=SEG.SEQ+SEG.LEN><CTL=RST,ACK>\n\
+    \              drop the packet, and return.\n         R1.6:Perform a special TAO\
+    \ test: compare SEG.CC with\n              TCB.CCrecv.\n              If SEG.CC\
+    \ is greater, then processing is performed as if\n              an ACK(FIN) had\
+    \ arrived:  signal the application that the\n              previous close completed\
+    \ successfully and delete the\n              previous TCB.  Then create a new\
+    \ TCB in LISTEN state and\n              reprocess the SYN segment against the\
+    \ new TCB.\n              Otherwise, silently discard the segment.\n      RECEIVING\
+    \ <SYN,ACK> SEGMENT\n         Suppose that a client host receives a <SYN,ACK>\
+    \ segment for a\n         connection in SYN-SENT or SYN-SENT* state.\n       \
+    \  R2.1:If SEG.ACK is not acceptable (see [STD-007]) and\n              cache.CCsent[fh]\
+    \ is non-zero, then simply drop the segment\n              without sending a RST.\
+    \  (The new SYN that the client is\n              (re-)transmitting will eventually\
+    \ acknowledge any\n              outstanding data and FIN at the server.)\n  \
+    \       R2.2:If the segment contains a CC.ECHO option whose SEG.CC is\n      \
+    \        different from TCB.CCsend, then the segment is\n              unacceptable\
+    \ and is dropped.\n         R2.3:If cache.CCsent[fh] is zero, then it is set to\
+    \ TCB.CCsend.\n         R2.4:If the segment contains a CC option, its SEG.CC is\
+    \ stored\n              into TCB.CCrecv of the TCB.\n      RECEIVING <ACK> SEGMENT\
+    \ IN SYN-RECEIVED STATE\n         R3.1:If a segment contains a CC option whose\
+    \ SEG.CC differs\n              from TCB.CCrecv, then the segment is unacceptable\
+    \ and is\n              dropped.\n         R3.2:Otherwise, a 3-way handshake has\
+    \ completed successfully at\n              the server side.  If the segment contains\
+    \ a CC option and\n              if cache.CC[fh] is zero, then cache.CC[fh] is\
+    \ replaced by\n              TCB.CCrecv.\n      RECEIVING OTHER SEGMENT\n    \
+    \     R4:  Any other segment received with a CC option is\n              unacceptable\
+    \ if SEG.CC differs from TCB.CCrecv.  However,\n              a RST segment is\
+    \ exempted from this test.\n      OPEN REQUEST\n         To allow truncation of\
+    \ TIME-WAIT state, the following changes\n         are made in the state diagram\
+    \ for OPEN requests (see Figure\n         10):\n         O1.1:A new passive open\
+    \ request is allowed in any of the\n              states: LAST-ACK, LAST-ACK*,\
+    \ CLOSING, CLOSING*, or TIME-\n              WAIT.  This causes a transition to\
+    \ the corresponding I-\n              state (see Figure 10), which retains the\
+    \ previous state,\n              including the retransmission queue and timer.\n\
+    \         O1.2 A new active open request is allowed in TIME-WAIT or\n        \
+    \      LISTEN-TW state, if the elapsed time since the current\n              connection\
+    \ opened is less than MSL.  The result is to\n              delete the old TCB\
+    \ and create a new one, send a new SYN\n              segment, and enter SYN-SENT\
+    \ or SYN-SENT* state (depending\n              upon whether or not the SYN segment\
+    \ contains a FIN bit).\n      Finally, T/TCP has a provision to improve performance\
+    \ for the case\n      of a client that \"sprays\" transactions rapidly using many\n\
+    \      different server hosts and/or ports.  If TCB.CCrecv in the TCB is\n   \
+    \   non-zero (and still assuming that the connection duration is less\n      than\
+    \ MSL), then the TIME-WAIT delay may be set to min(K*RTO,\n      2*MSL).  Here\
+    \ RTO is the measured retransmission timeout time and\n      the constant K is\
+    \ currently specified to be 8.\n   3.5  User Interface\n      STD-007 defines\
+    \ a prototype user interface (\"transport service\")\n      that implements the\
+    \ virtual circuit service model [STD-007,\n      Section 3.8].  One addition to\
+    \ this interface in required for\n      transaction processing: a new Boolean\
+    \ flag \"end-of-file\" (EOF),\n      added to the SEND call.  A generic SEND call\
+    \ becomes:\n        Send\n          Format:  SEND (local connection name, buffer\
+    \ address,\n               byte count, PUSH flag, URGENT flag, EOF flag [,timeout])\n\
+    \      The following text would be added to the description of SEND in\n     \
+    \ [STD-007]:\n          If the EOF (End-Of-File) flag is set, any remaining queued\n\
+    \          data is pushed and the connection is closed.  Just as with the\n  \
+    \        CLOSE call, all data being sent is delivered reliably before\n      \
+    \    the close takes effect, and data may continue to be received\n          on\
+    \ the connection after completion of the SEND call.\n      Figure 8A shows a skeleton\
+    \ sequence of user calls by which a\n      client could initiate a transaction.\
+    \  The SEND call initiates a\n      transaction request to the foreign socket\
+    \ (host and port)\n      specified in the passive OPEN call.  The predicate \"\
+    recv_EOF\"\n      tests whether or not a FIN has been received on the connection;\n\
+    \      this might be implemented using the STATUS command of [STD-007],\n    \
+    \  or it might be implemented by some operating-system-dependent\n      mechanism.\
+    \  When recv_EOF returns TRUE, the connection has been\n      completely closed\
+    \ and the client end of the connection is in\n      TIME-WAIT state.\n     __________________________________________________________________\n\
+    \    |                                                                  |\n  \
+    \  |                                                                  |\n    |\
+    \ OPEN(local_port, foreign_socket, PASSIVE) -> conn_name;          |\n    |  \
+    \                                                                |\n    | SEND(conn_name,\
+    \ request_buffer, length,                          |\n    |                  \
+    \                  PUSH=YES, URG=NO, EOF=YES);   |\n    |                    \
+    \                                              |\n    | while (not recv_EOF(conn_name))\
+    \ {                                |\n    |                                  \
+    \                                |\n    |    RECEIVE(conn_name, reply_buffer,\
+    \ length) -> count;            |\n    |                                      \
+    \                            |\n    |    <Process reply_buffer.>             \
+    \                          |\n    | }                                        \
+    \                        |\n    |                                            \
+    \                      |\n    |                                              \
+    \                    |\n    |             Figure 8A: Client Side User Interface\
+    \                |\n    |__________________________________________________________________|\n\
+    \      If a client is going to send a rapid series of such requests to\n     \
+    \ the same foreign_socket, it should use the same local_port for\n      all. \
+    \ This will allow truncation of TIME-WAIT state.  Otherwise,\n      it could leave\
+    \ local_port wild, allowing TCP to choose successive\n      local ports for each\
+    \ call, realizing that each transaction may\n      leave behind a significant\
+    \ control block overhead in the kernel.\n      Figure 8B shows a basic sequence\
+    \ of server calls.  The server\n      application waits for a request to arrive\
+    \ and then reads and\n      processes it until a FIN arrives (recv_EOF returns\
+    \ TRUE).  At this\n      time, the connection is half-closed.  The SEND call used\
+    \ to return\n      the reply completes the close in the other direction.  It should\n\
+    \      be noted that the use of SEND(... EOF=YES) in Figure 4B instead of\n  \
+    \    a SEND, CLOSE sequence is only an optimization; it allows\n      piggybacking\
+    \ the FIN in order to minimize the number of segments.\n      It should have little\
+    \ effect on transaction latency.\n     __________________________________________________________________\n\
+    \    |                                                                  |\n  \
+    \  |                                                                  |\n    |\
+    \ OPEN(local_port, ANY_SOCKET, PASSIVE) -> conn_name;              |\n    |  \
+    \                                                                |\n    | <Wait\
+    \ for connection to open.>                                   |\n    |        \
+    \                                                          |\n    | STATUS(conn_name)\
+    \ -> foreign_socket                              |\n    |                    \
+    \                                              |\n    | while (not recv_EOF(conn_name))\
+    \ {                                |\n    |                                  \
+    \                                |\n    |    RECEIVE(conn_name, request_buffer,\
+    \ length) -> count;          |\n    |                                        \
+    \                          |\n    |     <Process request_buffer.>            \
+    \                        |\n    | }                                          \
+    \                      |\n    |                                              \
+    \                    |\n    | <Compute reply and store into reply_buffer.>   \
+    \                  |\n    |                                                  \
+    \                |\n    | SEND(conn_name, reply_buffer, length,              \
+    \              |\n    |                                  PUSH=YES, URG=NO, EOF=YES);\
+    \     |\n    |                                                               \
+    \   |\n    |                                                                 \
+    \ |\n    |             Figure 8B: Server Side User Interface                |\n\
+    \    |__________________________________________________________________|\n"
+- title: 4.  IMPLEMENTATION ISSUES
+  contents:
+  - "4.  IMPLEMENTATION ISSUES\n   4.1  RFC-1323 Extensions\n      A recently-proposed\
+    \ set of TCP enhancements [RFC-1323] defines a\n      Timestamps option, which\
+    \ carries two 32-bit timestamp values.\n      This option is used to accurately\
+    \ measure round-trip time (RTT).\n      The same option is also used in a procedure\
+    \ known as \"PAWS\"\n      (Protect Against Wrapped Sequence) to prevent erroneous\
+    \ data\n      delivery due to a combination of old duplicate segments and\n  \
+    \    sequence number reuse at very high bandwidths.  The approach to\n      transactions\
+    \ specified in this memo is independent of the RFC-1323\n      enhancements, but\
+    \ implementation of RFC-1323 is desirable for all\n      TCP's.\n      The RFC-1323\
+    \ extensions share several common implementation issues\n      with the T/TCP\
+    \ extensions.  Both require that TCP headers carry\n      options.  Accommodating\
+    \ options in TCP headers requires changes in\n      the way that the maximum segment\
+    \ size is determined, to prevent\n      inadvertent IP fragmentation.  Both require\
+    \ some additional state\n      variable in the TCB, which may or may not cause\
+    \ implementation\n      difficulties.\n   4.2  Minimal Packet Sequence\n     \
+    \ Most TCP implementations will require some small modifications to\n      allow\
+    \ the minimal packet sequence for a transaction shown in\n      Figure 2.\n  \
+    \    Many TCP implementations contain a mechanism to delay\n      acknowledgments\
+    \ of some subset of the data segments, to cut down\n      on the number of acknowledgment\
+    \ segments and to allow piggybacking\n      on the reverse data flow (typically\
+    \ character echoes).  To obtain\n      minimal packet exchanges for transactions,\
+    \ it is necessary to\n      delay the acknowledgment of some control bits, in\
+    \ an analogous\n      manner.  In particular, the <SYN,ACK> segment that is to\
+    \ be sent\n      in ESTABLISHED* or CLOSE-WAIT* state should be delayed.  Note\
+    \ that\n      the amount of delay is determined by the minimum RTO at the\n  \
+    \    transmitter; it is a parameter of the communication protocol,\n      independent\
+    \ of the application.  We propose to use the same delay\n      parameter (and\
+    \ if possible, the same mechanism) that is used for\n      delaying data acknowledgments.\n\
+    \      To get the FIN piggy-backed on the reply data (segment #3 in\n      Figure\
+    \ 2), thos implementations that have an implied PUSH=YES on\n      all SEND calls\
+    \ will need to augment the user interface so that\n      PUSH=NO can be set for\
+    \ transactions.\n   4.3  RTT Measurement\n      Transactions introduce new issues\
+    \ into the problem of measuring\n      round trip times [Jacobson88].\n      (a)\
+    \  With the minimal 3-segment exchange, there can be exactly one\n           RTT\
+    \ measurement in each direction for each transaction.\n           Since dynamic\
+    \ estimation of RTT cannot take place within a\n           single transaction,\
+    \ it must take place across successive\n           transactions.  Therefore, cacheing\
+    \ the measured RTT and RTT\n           variance values is essential for transaction\
+    \ processing; in\n           normal virtual circuit communication, such cacheing\
+    \ is only\n           desirable.\n      (b)  At the completion of a transaction,\
+    \ the values for RTT and\n           RTT variance that are retained in the cache\
+    \ must be some\n           average of previous values with the values measured\
+    \ during\n           the transaction that is completing.  This raises the question\n\
+    \           of the time constant for this average; quite different\n         \
+    \  dynamic considerations hold for transactions than for file\n           transfers,\
+    \ for example.\n      (c)  An RTT measurement by the client will yield the value:\n\
+    \                  T = RTT + min(SPT, ATO),\n           where SPT (server processing\
+    \ time) was defined in the\n           introduction, and ATO is the timeout period\
+    \ for sending a\n           delayed ACK.  Thus, the measured RTT includes SPT,\
+    \ which may\n           be arbitrarily variable; however, the resulting variability\n\
+    \           of the measured T cannot exceed ATO. (In a popular TCP\n         \
+    \  implementation, for example, ATO = 200ms, so that the\n           variance\
+    \ of SPT makes a relatively small contribution to the\n           variance of\
+    \ RTT.)\n      (d)  Transactions sample the RTT at random times, which are\n \
+    \          determined by the client and the server applications rather\n     \
+    \      than by the network dynamics.  When there are long pauses\n           between\
+    \ transactions, cached path properties will be poor\n           predictors of\
+    \ current values in the network.\n      Thus, the dynamics of RTT measurement\
+    \ for transactions differ from\n      those for virtual circuits.  RTT measurements\
+    \ should work\n      correctly for very short connections but reduce to the current\
+    \ TCP\n      algorithms for long-lasting connections.  Further study is this\n\
+    \      issue is needed.\n   4.4  Cache Implementation\n      This extension requires\
+    \ a per-host cache of connection counts.\n      This cache may also contain values\
+    \ of the smoothed RTT, RTT\n      variance, congestion avoidance threshold, and\
+    \ MSS values.\n      Depending upon the implementation details, it may be simplest\
+    \ to\n      build a new cache for these values; another possibility is to use\n\
+    \      the routing cache that should already be included in the host\n      [RFC-1122].\n\
+    \      Implementation of the cache may be simplified because it is\n      consulted\
+    \ only when a connection is established; thereafter, the\n      CC values relevant\
+    \ to the connection are kept in the TCB.  This\n      means that a cache entry\
+    \ may be safely reused during the lifetime\n      of a connection, avoiding the\
+    \ need for locking.\n   4.5  CPU Performance\n      TCP implementations are customarily\
+    \ optimized for streaming of\n      data at high speeds, not for opening or closing\
+    \ connections.\n      Jacobson's Header Prediction algorithm [Jacobson90] handles\
+    \ the\n      simple common cases of in-sequence data and ACK segments when\n \
+    \     streaming data.  To provide good performance for transactions, an\n    \
+    \  implementation might be able to do an analogous \"header\n      prediction\"\
+    \ specifically for the minimal request and the response\n      segments.\n   \
+    \   The overhead of UDP provides a lower bound on the overhead of\n      TCP-based\
+    \ transaction processing.  It will probably not be\n      possible to reach this\
+    \ bound for TCP transactions, since opening a\n      TCP connection involves creating\
+    \ a significant amount of state\n      that is not required by UDP.\n      McKenney\
+    \ and Dove [McKenney92] have pointed out that transaction\n      processing applications\
+    \ of TCP can stress the performance of the\n      demultiplexing algorithm, i.e.,\
+    \ the algorithm used to look up the\n      TCB when a segment arrives.  They advocate\
+    \ the use of hash-table\n      techniques rather than a linear search.  The effect\
+    \ of\n      demultiplexing on performance may become especially acute for a\n\
+    \      transaction client using the extended TCP described here, due to\n    \
+    \  TCB's left in TIME-WAIT state.  A high rate of transactions from a\n      given\
+    \ client will leave a large number of TCB's in TIME-WAIT\n      state, until their\
+    \ timeout expires.  If the TCP implementation\n      uses a linear search for\
+    \ demultiplexing, all of these control\n      blocks must be traversed in order\
+    \ to discover that the new\n      association does not exist.  In this circumstance,\
+    \ performance of\n      a hash table lookup should not degrade severely due to\n\
+    \      transactions.\n   4.6  Pre-SYN Queue\n      Suppose that segment #1 in\
+    \ Figure 4 is lost in the network; when\n      segment #2 arrives in LISTEN state,\
+    \ it will be ignored by the TCP\n      rules (see [STD-007] p.66, \"fourth other\
+    \ text and control\"), and\n      must be retransmitted.  It would be possible\
+    \ for the server side\n      to queue any ACK-less data segments received in LISTEN\
+    \ state and\n      to \"replay\" the segments in this queue when a SYN segment\
+    \ does\n      arrive.  A data segment received with an ACK bit, which is the\n\
+    \      normal case for existing TCP's, would still a generate RST\n      segment.\n\
+    \      Note that queueing segments in LISTEN state is different from\n      queueing\
+    \ out-of-order segments after the connection is\n      synchronized.  In LISTEN\
+    \ state, the sequence number corresponding\n      to the left window edge is not\
+    \ yet known, so that the segment\n      cannot be trimmed to fit within the window\
+    \ before it is queued.\n      In fact, no processing should be done on a queued\
+    \ segment while\n      the connection is still in LISTEN state.  Therefore, a\
+    \ new \"pre-\n      SYN queue\" would be needed.  A timeout would be required,\
+    \ to flush\n      the Pre-SYN Queue in case a SYN segment was not received.\n\
+    \      Although implementation of a pre-SYN queue is not difficult in BSD\n  \
+    \    TCP, its limited contribution to throughput probably does not\n      justify\
+    \ the effort.\n"
+- title: 6.  ACKNOWLEDGMENTS
+  contents:
+  - "6.  ACKNOWLEDGMENTS\n   I am very grateful to Dave Clark for pointing out bugs\
+    \ in RFC-1379\n   and for helping me to clarify the model.  I also wish to thank\
+    \ Greg\n   Minshall, whose probing questions led to further elucidation of the\n\
+    \   issues in T/TCP.\n"
+- title: 7.  REFERENCES
+  contents:
+  - "7.  REFERENCES\n    [Jacobson88] Jacobson, V., \"Congestion Avoidance and Control\"\
+    , ACM\n      SIGCOMM '88, Stanford, CA, August 1988.\n    [Jacobson90] Jacobson,\
+    \ V., \"4BSD Header Prediction\", Comp Comm\n      Review, v. 20, no. 2, April\
+    \ 1990.\n    [McKenney92]  McKenney, P., and K. Dove, \"Efficient Demultiplexing\n\
+    \      of Incoming TCP Packets\", ACM SIGCOMM '92, Baltimore, MD, October\n  \
+    \    1992.\n    [RFC-1122]  Braden, R., Ed., \"Requirements for Internet Hosts\
+    \ --\n      Communications Layers\", STD-3, RFC-1122, USC/Information Sciences\n\
+    \      Institute, October 1989.\n    [RFC-1323]  Jacobson, V., Braden, R., and\
+    \ D. Borman, \"TCP Extensions\n      for High Performance, RFC-1323, LBL, USC/Information\
+    \ Sciences\n      Institute, Cray Research, February 1991.\n    [RFC-1379]  Braden,\
+    \ R., \"Transaction TCP -- Concepts\", RFC-1379,\n      USC/Information Sciences\
+    \ Institute, September 1992.\n    [ShankarLee93]  Shankar, A. and D. Lee, \"Modulo-N\
+    \ Incarnation\n      Numbers for Cache-Based Transport Protocols\", Report CS-TR-3046/\n\
+    \      UIMACS-TR-93-24, University of Maryland, March 1993.\n    [STD-007]  Postel,\
+    \ J., \"Transmission Control Protocol - DARPA\n      Internet Program Protocol\
+    \ Specification\", STD-007, RFC-793,\n      USC/Information Sciences Institute,\
+    \ September 1981.\n"
+- title: APPENDIX A.  ALGORITHM SUMMARY
+  contents:
+  - "APPENDIX A.  ALGORITHM SUMMARY\n   This appendix summarizes the additional processing\
+    \ rules introduced\n   by T/TCP.  We define the following symbols:\n   Options\n\
+    \       CC(SEG.CC):         TCP Connection Count (CC) Option\n       CC.NEW(SEG.CC):\
+    \     TCP CC.NEW option\n       CC.ECHO(SEG.CC):    TCP CC.ECHO option\n     \
+    \      Here SEG.CC is option value in segment.\n   Per-Connection State Variables\
+    \ in TCB\n       CCsend:             CC value to be sent in segments\n       CCrecv:\
+    \             CC value to be received in segments\n       Elapsed:           \
+    \ Duration of connection\n   Global Variables:\n       CCgen:              CC\
+    \ generator variable\n       cache.CC[fh]:       Cache entry: Last CC value received.\n\
+    \       cache.CCsent[fh]:   Cache entry: Last CC value sent.\n   PSEUDO-CODE SUMMARY:\n\
+    \   Passive OPEN => {\n       Create new TCB;\n   }\n   Active OPEN => {\n   \
+    \    <Create new TCB>\n       CCrecv = 0;\n       CCsend = CCgen;\n       If (CCgen\
+    \ == 0xffffffff) then Set CCgen = 1;\n                                else Set\
+    \ CCgen = CCgen + 1.\n       <Send initial {SYN} segment (see below)>\n   }\n\
+    \   Send initial {SYN} segment => {\n       If (cache.CCsent[fh] == 0 OR CCsend\
+    \ < cache.CCsent[fh] ) then {\n             Include CC.NEW(CCsend) option in segment;\n\
+    \             Set cache.CCsent[fh] = 0;\n       }\n       else {\n           \
+    \  Include CC(CCsend) option in segment;\n             Set cache.CCsent[fh] =\
+    \ CCsend;\n       }\n    }\n   Send {SYN,ACK} segment => {\n       If (CCrecv\
+    \ != 0) then\n             Include CC(CCsend), CC.ECHO(CCrecv) options in segment.\n\
+    \   }\n   Receive {SYN} segment in LISTEN, SYN-SENT, or SYN-SENT* state => {\n\
+    \       If state == LISTEN then {\n             CCrecv = 0;\n             CCsend\
+    \ = CCgen;\n             If (CCgen == 0xffffffff) then Set CCgen = 1;\n      \
+    \                                else Set CCgen = CCgen + 1.\n       }\n     \
+    \  If (Segment contains CC option  OR\n             Segment contains CC.NEW option)\
+    \ then\n                   Set CCrecv = SEG.CC.\n       if (Segment contains CC\
+    \ option  AND\n             cache.CC[fh] != 0  AND\n                   SEG.CC\
+    \ > cache.CC[fh] ) then {  /* TAO Test OK */\n             Set cache.CC[fh] =\
+    \ CCrecv;\n             <Mark connection half-synchronized>\n             <Process\
+    \ data and/or FIN and return>\n       }\n       If (Segment does not contain CC\
+    \ option)  then\n             Set cache.CC[fh] = 0;\n       <Do normal TCP processing\
+    \ and return>.\n   }\n   Receive {SYN} segment in LISTEN-TW, LISTEN-LA, LISTEN-LA*,\
+    \ LISTEN-CL,\n       or LISTEN-CL* state => {\n       If ( (Segment contains CC\
+    \ option AND CCrecv != 0 )  then  {\n             If (state = LISTEN-TW AND Elapsed\
+    \ > MSL ) then\n                   <Send RST, drop segment, and return>.\n   \
+    \          if (SEG.CC > CCrecv )  then {\n                   <Implicitly ACK FIN\
+    \ and data in retransmission queue>;\n                   <Close and delete TCB>;\n\
+    \                   <Reprocess segment>.\n                           /* Expect\
+    \ to match new TCB\n                            * in LISTEN state.\n         \
+    \                   */\n              }\n       }\n       else\n             <Drop\
+    \ segment>.\n   }\n   Receive {SYN,ACK} segment => {\n       if (Segment contains\
+    \ CC.ECHO option  AND\n                   SEG.CC != CCsend) then\n           \
+    \  <Send a reset and discard segment>.\n       if (Segment contains CC option)\
+    \ then {\n             Set CCrecv = SEG.CC.\n             if (cache.CC[fh] is\
+    \ undefined) then\n                   Set cache.CC[fh] = CCrecv.\n       }\n \
+    \  }\n   Send non-SYN segment => {\n       if (CCrecv != 0  OR\n             (cache.CCsent[fh]\
+    \ != 0  AND\n              state is SYN-SENT or SYN-SENT*)) then\n           \
+    \       Include CC(CCsend) option in segment.\n   }\n   Receive non-SYN segment\
+    \ in SYN-RECEIVED state => {\n       if (Segment contains CC option  AND  RST\
+    \ bit is off) {\n               if (SEG.CC != CCrecv)  then\n                \
+    \     <Segment is unacceptable; drop it and send an\n                       ACK\
+    \ segment, as in normal TCP processing>.\n               if (cache.CC[fh] is undefined)\
+    \  then\n                     Set cache.CC[fh] = CCrecv.\n       }\n   }\n   Receive\
+    \ non-SYN segment in (state >= ESTABLISHED) => {\n       if (Segment contains\
+    \ CC option  AND  RST bit is off) {\n               if (SEG.CC != CCrecv)  then\n\
+    \                     <Segment is unacceptable; drop it and send an\n        \
+    \               ACK segment, as in normal TCP processing>.\n       }\n   }\n"
+- title: Security Considerations
+  contents:
+  - "Security Considerations\n   Security issues are not discussed in this memo.\n"
+- title: Author's Address
+  contents:
+  - "Author's Address\n   Bob Braden\n   University of Southern California\n   Information\
+    \ Sciences Institute\n   4676 Admiralty Way\n   Marina del Rey, CA 90292\n   Phone:\
+    \ (310) 822-1511\n   EMail: Braden@ISI.EDU\n"

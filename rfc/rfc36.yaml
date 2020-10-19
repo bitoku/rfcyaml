@@ -1,0 +1,193 @@
+- title: __initial_text__
+  contents:
+  - '                             Protocol Notes
+
+    '
+- title: I Overview
+  contents:
+  - "I Overview\n  --------\n   The network protocol provides three facilities:\n\
+    \         1.  Connection establishment\n         2.  Flow control\n         3.\
+    \  Reconnection\n   Reconnection is considered separately from connection establishment\n\
+    \   partly because of the complexity of reconnection and partly because I\n  \
+    \ don't have enough experience with the protocol to present these\n   concepts\
+    \ in an integrated fashion.\n   Connection Establishment\n   ------------------------\n\
+    \   Connection establishment works essentially the same as in NWG/RFC\n   #33.\
+    \  The major change is that a more general form of switching is\n   provided independently\
+    \ of establishment, so establishment is\n   simplified by not including switching\
+    \ procedures.\n   A rough scenario for connection establishment follows:\n   1.\
+    \  Process PA in host A grabs socket SA and requests connection with\n       socket\
+    \ SB.  Process PA accomplishes this through a system call.\n   2.  Concurrently\
+    \ with the above, process PB in host B grabs socket SB\n       and requests connection\
+    \ with socket SA.\n   3.  In response to process PA's request, the network control\
+    \ program\n       in host A (referred to as NCPA) sends a Request-for-Connection\n\
+    \       (RFC) command to host B.  NCPB in host B sends a similar command\n   \
+    \    to host A.  No ordering is implied: NCPB may send the command to\n      \
+    \ NCPA before or after receiving the command from NCPA.\n   4.  NCPA and NCPB\
+    \ are both aware the connection is established when\n       each has received\
+    \ a RFC command and each has received the RFNM\n       for the one it has sent.\
+    \  They then notify processes PA and PB,\n       respectively, that the connection\
+    \ is established.\n   One of the rules adhered to is that either SA is a send\
+    \ socket and SB\n   is a receive socket or vice versa.  This condition is sometimes\n\
+    \   stated as \"SA and SB must be  a send/receive pair.\"\n   5.  The sending\
+    \ process may now send.\n   Flow Control\n   ------------\n   In order to prevent\
+    \ a sending process from flooding a receiving\n   processes it is necessary for\
+    \ the receiving process to be able to\n   stop the flow(*).  Flow control is integrated\
+    \ into the network RFNM\n   handling.  When a receiving host wishes to inhibit\
+    \ flow on a\n   particular link, the host sends a special message to its IMP which\n\
+    \   causes the next RFNM on that link to be modified.  The sending host\n   interprets\
+    \ this message as a RFNM and as a request to stop sending.\n   A confirming control\
+    \ command is returned.\n   When the receiving host is ready to receive again,\
+    \ it sends a command\n   (RSM) telling the sending host to resume sending.\n \
+    \  Reconnection\n   ------------\n   For a great many reasons it is desirable\
+    \ to be able to switch one (or\n   both) ends of a connection from one socket\
+    \ to another.  Depending\n   upon the restrictions placed upon the switching process,\
+    \ it may be\n   easy or hard to implement.  To achieve maximum generality, I present\n\
+    \   here a scheme for dynamic reconnection, which means that reconnection\n  \
+    \ can take place even after flow has started.  It may turn out that for\n   the\
+    \ majority of cases, this scheme is much more expensive than it\n   needs to be;\
+    \ however, the following virtues are claimed:\n      1. All various forms of switching\
+    \ connections are provided.\n      2. Reconnection introduces no overhead in the\
+    \ processing of\n         messages sent over a connection i.e., the whole cost\
+    \ is borne\n         in processing the protocol.\n   ---------------------------------------------------\n\
+    \   *BB&N argues that unlimited buffering should be provided.  It is\n   possible\
+    \ that this would be a proper strategy: but it is foreign to\n   my way of thinking,\
+    \ and I have based the protocol design on the\n   assumption that only a small\
+    \ buffer is provided on the receive end of\n   each connection.\n"
+- title: II  Data Structures
+  contents:
+  - "II  Data Structures\n    ---------------\n    1.  Connection Table\n    2.  Process\
+    \ Table\n    3.  Input Link Table\n    4.  Output Link Table\n    5.  Link Assignment\
+    \ Table\n   Connection Table\n   ----------------\n   This holds all information\
+    \ pertaining to local sockets, particularly\n   whether a socket is engaged in\
+    \ a connection, and if so, what state\n   the connection is in.  Entries are keyed\
+    \ by local socket, but other\n   tables have pointers into this table also.  (See\
+    \ the Process Table,\n   Input Link Table, and Output Link Table.)\n   Each entry\
+    \ contains the following information:\n         a)  local socket (key)\n     \
+    \    b)  foreign socket\n         c)  link\n         d)  connection state\n  \
+    \       e)  flow state and buffer control\n         f)  pointer to user's process\n\
+    \         g)  reconnection control state\n         h)  queue of waiting callers\n\
+    \   The local socket is a 32 bit number.  If no entry exists for a\n   particular\
+    \ socket, it may be created with null values.\n   The foreign socket is a 40 bit\
+    \ number.  This field will be unassigned\n   if no connection is established.\n\
+    \   The link is an 8 bit number and is the link over which data is sent\n   from\
+    \ the sender to the receiver.  A socket is a receive socket iff\n   its low-order\
+    \ bit is zero.\n   Connection state refers to whether a connection is open or\
+    \ not, etc.\n   The following possibilities may occur.\n         a)  local process\
+    \ has requested a connection\n         b)  foreign process(es) has/have requested\
+    \ a connection\n         c)  connection established\n         d)  reconnection\
+    \ in progress\n         e)  close waiting\n         f)  reconnection waiting\n\
+    \   Flow state and buffer control refer to checking for RFNM's sending\n   and\
+    \ accepting cease, suspend and resume commands, and keeping track\n   of incoming\
+    \ or outgoing data.\n   A pointer to the user's process is necessary if the process\
+    \ has\n   requested a connection.\n   If reconnection is in progress, it is necessary\
+    \ to keep track of the\n   sequence of events.  A socket engaged in reconnection\
+    \ is either an\n   end or a middle.  If it's a middle, it is necessary to store\
+    \ the\n   eight bit name of the other middle attached to the same process, and\n\
+    \   to record receipt of END and RDY commands.\n   Finally, if RFC's are received\
+    \ either when the socket is busy or when\n   no process has engaged it, the RFC's\
+    \ are stacked first-in-first-out\n   on a queue for the named local socket.\n\
+    \   Process Table\n   -------------\n   This table associates a process with a\
+    \ socket.  It is used to process\n   system calls.\n   Input Link Table\n   ----------------\n\
+    \   This table associates receive links with local sockets.  It is used\n   to\
+    \ decide for whom incoming messages are destined.\n   Output Link Table\n   -----------------\n\
+    \   This table associates send links with local sockets.  It is used to\n   interpret\
+    \ RFNM's and RSM commands.\n   Link Assignment Table\n   ---------------------\n\
+    \   Links are assigned by receivers.  This table shows which links are\n   free.\n"
+- title: III   Control Commands
+  contents:
+  - "III   Control Commands\n      ----------------\n                          Command\
+    \ Summary\n   0         <NOP>\n   1         <RFC> <me> <you>   or   <RFC> <me>\
+    \ <you> <link>\n   2         <CLS> <me> <you>\n   3         <RSM> <link>\n   4\
+    \         <SPD> <link>\n   5         <FND> <me> <you> <asker>\n   6         <END>\
+    \ <link> <end>\n   7         <RDY> <link>\n   8         <ASG> <me> <you> <link>\n\
+    \                               Commands\n"
+- title: No Operation
+  contents:
+  - "No Operation\n   Form:    NOP\n            NOP  is X'00'\n   Purpose:  This command\
+    \ is included for completeness and\n             convenience.\n"
+- title: Request for connection
+  contents:
+  - "Request for connection\n   Form:    <RFC> <my socket>  <your socket>\n     or\
+    \     <RFC> <my socket>  <your socket>  <link>\n            <RFC> is X'01'\n \
+    \           <my socket> is a 32 bit socket number local to the\n            sender\n\
+    \            <your socket> is a 32 bit socket number local to the\n          \
+    \  receiver\n            <link> is an eight bit link number.\n            <my\
+    \ socket> and your socket must be a send/receive pair.\n            <link> is\
+    \ included if and only if <my socket> is a\n            receive socket\n   Purpose:\
+    \  This command is used to initiate a connection.  When\n             two hosts\
+    \ have exchanged  RFC  commands with the same\n             arguments (reversed),\
+    \ the connection is established.\n             Links are assigned by the receiver.\n"
+- title: Close
+  contents:
+  - "Close\n   Form:    <CLS> <my socket> <your socket>\n            <CLS> is X'02'\n\
+    \            <my socket> and <your socket> are the same as for <RFC>\n   Purpose:\
+    \  This command is used to block a connection.  It may\n             also be used\
+    \ to abort the establishment of a connection\n             or to refuse a request.\
+    \  It may happen that no\n             connection between the named sockets was\
+    \ established,\n             or was in the process of being established.  In this\n\
+    \             event, the <CLS> should be discarded.\n"
+- title: Resume
+  contents:
+  - "Resume\n   Form:    <RSM> <link>\n            <RSM> is X'03'\n   Purpose:  This\
+    \ command is sent by a receiving host to cause the\n             sending host\
+    \ to resume transmission on the named link.\n             A sending host suspends\
+    \ sending if it receives a\n             special RFNM for some message.  (Special\
+    \ RFNM's are\n             generated by the receiving IMP upon request by its\n\
+    \             host.)\n"
+- title: Suspended
+  contents:
+  - "Suspended\n   Form:    <SPD> <link>\n            <SPD> is X'04'\n   Purpose:\
+    \  This command is sent by a sending host to acknowledge\n             that it\
+    \ has stopped sending over the named link.\n             Transmission will resume\
+    \ if a <RSM> command is\n             received.\n"
+- title: Final End
+  contents:
+  - "Final End\n   Form:    <FND> <my socket> <your socket> <asker>\n            <FND>\
+    \ is X'05'\n            <my socket> is a 32 bit socket number of a socket local\n\
+    \            to the sender\n            <your socket> is a 32 bit socket number\
+    \ of a socket\n            local to the receiver\n            <my socket> and\
+    \ <your socket> form a send/receive pair.\n            A connection should be\
+    \ established between them.\n            <asker> is a 40 bit socket number of\
+    \ the same type as\n            <my socket>\n   Purpose:  If a process decides\
+    \ to short-circuit itself by connecting\n             one of its receive sockets\
+    \ to one of its send sockets, the\n             NCP sends out two <FND> commands\
+    \ -- one in each direction.\n             Each one has <asker> initialized to\
+    \ <my socket>.\n             Upon receiving an <FND> command, the NCP checks its\
+    \ <your\n             socket>.  If <your socket> is already engaged in a\n   \
+    \          reconnection, the command is passed on with a new <my\n           \
+    \  socket> and <your socket>.  However, before it is passed\n             on,\
+    \ the <asker> is compared with the new <my socket>.  If\n             they are\
+    \ equal, a loop has been detected and both sockets\n             are closed.\n\
+    \             If <your socket> is not engaged in a reconnection, it is\n     \
+    \        marked as the end of a chain of reconnections and an <END>\n        \
+    \     is sent back.\n             If the connection named is not in progress,\
+    \ a <CLS> is sent\n             back and the <FND> is discarded.\n"
+- title: End Found
+  contents:
+  - "End Found\n   Form:    <END> <link> <end socket>\n            <END> is X'06'\n\
+    \            <link> is an 8 bit link\n            <end socket> is a 40 bit socket\n\
+    \   Purpose:  This command indicates which socket is at the end of a\n       \
+    \      chain of reconnections.  It is generated at <end\n             socket>\
+    \ and passed back to the other terminal socket\n             via all the intermediate\
+    \ sockets.  If <end socket> is a\n             send socket, <link> refers to a\
+    \ connection with the\n             send socket in the sending host and the receive\
+    \ socket\n             in the receiving host.  If <end socket> is a receive\n\
+    \             socket, <link> refers to a connection with the send\n          \
+    \   socket in the receiving host and the receive socket in\n             the sending\
+    \ hose.  (\"sending\" end \"receiving\" refer to\n             the transmission\
+    \ of this control command.)\n"
+- title: Ready
+  contents:
+  - "Ready\n   Form:    <RDY> <link>\n            <RDY> is X'07'\n            <link>\
+    \ is an 8 bit link number\n   Purpose:  This command is sent from a send socket\
+    \ to a receive\n             socket to indicate that all messages have been\n\
+    \             forwarded and that reconnection may occur.\n"
+- title: Assign New Link
+  contents:
+  - "Assign New Link\n   Form:    <ASG> <my socket> <your socket> <link>\n       \
+    \     <ASG> is X'08'\n   Purpose:  This command completes a reconnection.  It\
+    \ is sent from\n             a receive socket to a send socket after the receive\n\
+    \             socket has received a <RDY>.  A new link is assigned\n         \
+    \    and transmission commences.\n          [ This RFC was put into machine readable\
+    \ form for entry ]\n           [ into the online RFC archives by Marc Blanchett\
+    \ 3/00 ]\n"

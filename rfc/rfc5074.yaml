@@ -1,0 +1,333 @@
+- title: __initial_text__
+  contents:
+  - '                   DNSSEC Lookaside Validation (DLV)
+
+    '
+- title: Status of This Memo
+  contents:
+  - "Status of This Memo\n   This memo provides information for the Internet community.\
+    \  It does\n   not specify an Internet standard of any kind.  Distribution of\
+    \ this\n   memo is unlimited.\n"
+- title: Abstract
+  contents:
+  - "Abstract\n   DNSSEC Lookaside Validation (DLV) is a mechanism for publishing\
+    \ DNS\n   Security (DNSSEC) trust anchors outside of the DNS delegation chain.\n\
+    \   It allows validating resolvers to validate DNSSEC-signed data from\n   zones\
+    \ whose ancestors either aren't signed or don't publish\n   Delegation Signer\
+    \ (DS) records for their children.\n"
+- title: Table of Contents
+  contents:
+  - "Table of Contents\n   1.  Introduction  . . . . . . . . . . . . . . . . . . .\
+    \ . . . . . . 2\n   2.  Architecture  . . . . . . . . . . . . . . . . . . . .\
+    \ . . . . . 2\n   3.  DLV Domains . . . . . . . . . . . . . . . . . . . . . .\
+    \ . . . . 3\n   4.  Overview of Validator Behavior  . . . . . . . . . . . . .\
+    \ . . . 3\n   5.  Details of Validator Behavior . . . . . . . . . . . . . . .\
+    \ . . 4\n   6.  Aggressive Negative Caching . . . . . . . . . . . . . . . . .\
+    \ . 5\n     6.1.  Implementation Notes  . . . . . . . . . . . . . . . . . . .\
+    \ 5\n   7.  Overlapping DLV Domains . . . . . . . . . . . . . . . . . . . . 6\n\
+    \   8.  Optimization  . . . . . . . . . . . . . . . . . . . . . . . . . 7\n  \
+    \ 9.  Security Considerations . . . . . . . . . . . . . . . . . . . . 7\n   10.\
+    \ IANA Considerations . . . . . . . . . . . . . . . . . . . . . . 8\n   11. References\
+    \  . . . . . . . . . . . . . . . . . . . . . . . . . . 8\n     11.1. Normative\
+    \ References  . . . . . . . . . . . . . . . . . . . 8\n     11.2. Informative\
+    \ References  . . . . . . . . . . . . . . . . . . 9\n   Appendix A.  Acknowledgments\
+    \  . . . . . . . . . . . . . . . . . . .10\n"
+- title: 1.  Introduction
+  contents:
+  - "1.  Introduction\n   DNSSEC [RFC4033] [RFC4034] [RFC4035] authenticates DNS data\
+    \ by\n   building public-key signature chains along the DNS delegation chain\n\
+    \   from a trust anchor.\n   In the present world, with the DNS root and many\
+    \ key top level\n   domains unsigned, the only way for a validating resolver\n\
+    \   (\"validator\") to validate the many DNSSEC-signed zones is to maintain\n\
+    \   a sizable collection of preconfigured trust anchors.  Maintaining\n   multiple\
+    \ preconfigured trust anchors in each DNSSEC-aware validator\n   presents a significant\
+    \ management challenge.\n   This document describes a way to publish trust anchors\
+    \ in the DNS\n   outside of the normal delegation chain, as a way to easily configure\n\
+    \   many validators within an organization or to \"outsource\" trust anchor\n\
+    \   management.\n   Some design trade-offs leading to the mechanism presented\
+    \ here are\n   described in [INI1999-19].\n   The key words \"MUST\", \"MUST NOT\"\
+    , \"REQUIRED\", \"SHALL\", \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\"\
+    , \"MAY\", and \"OPTIONAL\" in this\n   document are to be interpreted as described\
+    \ in RFC 2119 [RFC2119].\n"
+- title: 2.  Architecture
+  contents:
+  - "2.  Architecture\n   DNSSEC Lookaside Validation allows a set of domains, called\
+    \ \"DLV\n   domains\", to publish secure entry points for zones that are not their\n\
+    \   own children.\n   With DNSSEC, validators may expect a zone to be secure when\n\
+    \   validators have one of two things: a preconfigured trust anchor for\n   the\
+    \ zone or a validated Delegation Signer (DS) record for the zone in\n   the zone's\
+    \ parent (which presumes a preconfigured trust anchor for\n   the parent or another\
+    \ ancestor).  DLV adds a third mechanism: a\n   validated entry in a DLV domain\
+    \ (which presumes a preconfigured trust\n   anchor for the DLV domain).  Whenever\
+    \ a DLV domain contains a DLV\n   RRset for a zone, a validator may expect the\
+    \ named zone to be signed.\n   Absence of a DLV RRset for a zone does not necessarily\
+    \ mean that the\n   zone should be expected to be insecure; if the validator has\
+    \ another\n   reason to believe the zone should be secured, validation of that\n\
+    \   zone's data should still be attempted.\n"
+- title: 3.  DLV Domains
+  contents:
+  - "3.  DLV Domains\n   A DLV domain includes trust statements about descendants\
+    \ of a single\n   zone, called the 'target' zone.  For example, the DLV domain\n\
+    \   trustbroker.example.com could target the org zone and the DLV domain\n   bar.example.com\
+    \ could target the root.\n   A DLV domain contains one or more DLV records [RFC4431]\
+    \ for each of\n   the target's descendant zones that have registered security\n\
+    \   information with it.  For a given zone, the corresponding name in the\n  \
+    \ DLV domain is formed by replacing the target zone name with the DLV\n   domain\
+    \ name.\n   For example, assuming the DLV domain trustbroker.example.com targets\n\
+    \   the org zone, any DLV records corresponding to the zone example.org\n   can\
+    \ be found at example.trustbroker.example.com.  DLV records\n   corresponding\
+    \ to the org zone can be found at the apex of\n   trustbroker.example.com.\n \
+    \  As another example, assuming the DLV domain bar.example.com targets\n   the\
+    \ root zone, DLV records corresponding to the zone example.org can\n   be found\
+    \ at example.org.bar.example.com.  DLV records corresponding\n   to the org zone\
+    \ can be found at org.bar.example.com, and DLV records\n   corresponding to the\
+    \ root zone itself can be found at the apex of\n   bar.example.com.\n   A DLV\
+    \ domain need not contain data other than DLV records,\n   appropriate DNSSEC\
+    \ records validating that data, the apex NS and SOA\n   records, and, optionally,\
+    \ delegations.  In most cases, the operator\n   of a DLV domain will probably\
+    \ not want to include any other RR types\n   in the DLV domain.\n   To gain full\
+    \ benefit from aggressive negative caching, described in\n   Section 6, a DLV\
+    \ domain SHOULD NOT use minimally-covering NSEC\n   records, as described in [RFC4470],\
+    \ and it SHOULD NOT use NSEC3\n   records, as described in [NSEC3].\n"
+- title: 4.  Overview of Validator Behavior
+  contents:
+  - "4.  Overview of Validator Behavior\n   To minimize the load on the DLV domain's\
+    \ authoritative servers as\n   well as query response time, a validator SHOULD\
+    \ first attempt\n   validation using any applicable (non-DLV) trust anchors. \
+    \ If the\n   validation succeeds (with a result of Secure), DLV processing need\n\
+    \   not occur.\n   When configured with a trust anchor for a DLV domain, a validator\n\
+    \   SHOULD attempt to validate all responses at and below the target of\n   that\
+    \ DLV domain.\n   To do validation using DLV, a validator looks for a (validated)\
+    \ DLV\n   RRset applicable to the query, as described in the following section,\n\
+    \   and uses it as though it were a DS RRset to validate the answer using\n  \
+    \ the normal procedures in Section 5 of RFC 4035.\n   For each response, the validator\
+    \ attempts validation using the\n   \"closest enclosing\" DLV RRset in the DLV\
+    \ domain, which is the DLV\n   RRset with the longest name that matches the query\
+    \ or could be an\n   ancestor of the QNAME.  For example, assuming the DLV domain\n\
+    \   trustbroker.example.com targets the org zone, and there exist DLV\n   RRsets\
+    \ named trustbroker.example.com (applicable to org),\n   example.trustbroker.example.com\
+    \ (applicable to example.org), and\n   sub.example.trustbroker.example.com (applicable\
+    \ to sub.example.org),\n   a validator would use the sub.example.trustbroker.example.com\
+    \ DLV\n   RRset for validating responses to a query for sub.example.org.\n   The\
+    \ choice of which DLV record(s) to use has a significant impact on\n   the query\
+    \ load seen at DLV domains' authoritative servers.  The\n   particular DLV selection\
+    \ rule described in this document results in a\n   higher query load than some\
+    \ other selection rules, but it has some\n   advantages in terms of the security\
+    \ policies that it can implement.\n   More detailed discussion of this DLV selection\
+    \ rule as well as\n   several alternatives that were considered along the way\
+    \ can be found\n   in [INI1999-19].\n"
+- title: 5.  Details of Validator Behavior
+  contents:
+  - "5.  Details of Validator Behavior\n   As above, to minimize the load on the DLV\
+    \ domain's authoritative\n   servers as well as query response time, a validator\
+    \ SHOULD first\n   attempt validation using any applicable (non-DLV) trust anchors.\
+    \  If\n   the validation succeeds (with a result of Secure), DLV processing\n\
+    \   need not occur.\n   To find the closest enclosing DLV RRset for a given query,\
+    \ the\n   validator starts by looking for a DLV RRset corresponding to the\n \
+    \  QNAME.  If it doesn't find a DLV RRset for that name (as confirmed by\n   the\
+    \ presence of a validated NSEC record) and that name is not the\n   apex of the\
+    \ DLV domain, the validator removes the leading label from\n   the name and tries\
+    \ again.  This process is repeated until a DLV RRset\n   is found or it is proved\
+    \ that there is no enclosing DLV RRset\n   applicable to the QNAME.  In all cases,\
+    \ a validator SHOULD check its\n   cache for the desired DLV RRset before issuing\
+    \ a query.  Section 8\n   discusses a slight optimization to this strategy.\n\
+    \   Having found the closest enclosing DLV RRset or received proof that\n   no\
+    \ applicable DLV RRset exists, the validator MUST validate the RRset\n   or non-existence\
+    \ proof using the normal procedures in Section 5 of\n   RFC 4035.  In particular,\
+    \ any delegations within the DLV domain need\n   to be followed, with normal DNSSEC\
+    \ validation applied.  If validation\n   of the DLV RRset leads to a result of\
+    \ Bogus, then it MUST NOT be used\n   and the validation result for the original\
+    \ response SHOULD be Bogus,\n   also.  If validation of the DLV RRset leads to\
+    \ a result of Insecure\n   (i.e., the DLV record is in an unsecured portion of\
+    \ the DLV domain),\n   then it MUST NOT be used and the validation result for\
+    \ the original\n   response SHOULD be Insecure, also.  (It should be very odd,\
+    \ indeed,\n   to find part of a DLV domain marked as Insecure: this is likely\
+    \ to\n   happen only when there are delegations within the DLV domain and some\n\
+    \   portions of that domain use different cryptographic signing\n   algorithms.)\
+    \  If the validation of the DLV RRset leads to a result of\n   Secure, the validator\
+    \ then treats that DLV RRset as though it were a\n   DS RRset for the applicable\
+    \ zone and attempts validation using the\n   procedures described in Section 5\
+    \ of RFC 4035.\n   In the interest of limiting complexity, validators SHOULD NOT\
+    \ attempt\n   to use DLV to validate data from another DLV domain.\n"
+- title: 6.  Aggressive Negative Caching
+  contents:
+  - "6.  Aggressive Negative Caching\n   To minimize load on authoritative servers\
+    \ for DLV domains,\n   particularly those with few entries, DLV validators SHOULD\
+    \ implement\n   aggressive negative caching, as defined in this section.\n   Previously,\
+    \ cached negative responses were indexed by QNAME, QCLASS,\n   QTYPE, and the\
+    \ setting of the CD bit (see RFC 4035, Section 4.7), and\n   only queries matching\
+    \ the index key would be answered from the cache.\n   With aggressive negative\
+    \ caching, the validator, in addition to\n   checking to see if the answer is\
+    \ in its cache before sending a query,\n   checks to see whether any cached and\
+    \ validated NSEC record denies the\n   existence of the sought record(s).\n  \
+    \ Using aggressive negative caching, a validator will not make queries\n   for\
+    \ any name covered by a cached and validated NSEC record.\n   Furthermore, a validator\
+    \ answering queries from clients will\n   synthesize a negative answer whenever\
+    \ it has an applicable validated\n   NSEC in its cache unless the CD bit was set\
+    \ on the incoming query.\n"
+- title: 6.1.  Implementation Notes
+  contents:
+  - "6.1.  Implementation Notes\n   Implementing aggressive negative caching suggests\
+    \ that a validator\n   will need to build an ordered data structure of NSEC records\
+    \ in order\n   to efficiently find covering NSEC records.  Only NSEC records from\n\
+    \   DLV domains need to be included in this data structure.\n   Also note that\
+    \ some DLV validator implementations do not synthesize\n   negative answers to\
+    \ insert into outgoing responses -- they only use\n   aggressive negative caching\
+    \ when looking up DLV RRs as part of their\n   internal DLV validation.\n"
+- title: 7.  Overlapping DLV Domains
+  contents:
+  - "7.  Overlapping DLV Domains\n   It is possible to have multiple DLV domains targeting\
+    \ overlapping\n   portions of the DNS hierarchy.  For example, two DLV domains,\
+    \ perhaps\n   operated by different parties, might target the org zone, or one\
+    \ DLV\n   domain might target the root while another targets org.\n   If a validator\
+    \ supports multiple DLV domains, the choice of\n   precedence in case of overlap\
+    \ is left up to the implementation and\n   SHOULD be exposed as a configuration\
+    \ option to the user (as compared\n   to the choice of DLV records within each\
+    \ domain, a precedence for\n   which is clearly specified in this document). \
+    \ As a very simple\n   default, a validator could give precedence to the most\
+    \ specific DLV\n   domain.\n   Some other reasonable options include:\n   1. \
+    \ Searching all applicable DLV domains until an applicable DLV\n       record\
+    \ is found that results in a successful validation of the\n       response.  In\
+    \ the case where no applicable DLV record is found in\n       any DLV domain,\
+    \ the answer will be treated as Unsecure.\n   2.  Applying some sort of precedence\
+    \ to the DLV domains based on\n       their perceived trustworthiness.\n   3.\
+    \  Searching all applicable DLV domains for applicable DLV records\n       and\
+    \ using only the most specific of those DLV records.\n   4.  If multiple DLV domains\
+    \ provide applicable DLV records, use a\n       threshold or scoring system (e.g.,\
+    \ \"best 2 out of 3\") to\n       determine the validation result.\n   The above\
+    \ list is surely not complete, and it's possible for\n   validators to have different\
+    \ precedence rules and configuration\n   options for these cases.  [INI1999-19]\
+    \ discusses different policies\n   for selecting from multiple DLV records within\
+    \ the same DLV domain.\n   That discussion may also be applicable to the question\
+    \ of which DLV\n   domain to use and may be of interest to implementers of validators\n\
+    \   that support multiple DLV domains.\n"
+- title: 8.  Optimization
+  contents:
+  - "8.  Optimization\n   This section documents an optimization to further reduce\
+    \ query load\n   on DLV servers and improve validator response time.\n   Authoritative\
+    \ servers, when processing a query for a DLV RRset,\n   SHOULD include all DLV\
+    \ RRsets potentially applicable to a query\n   (specifically, all DLV RRsets applicable\
+    \ to the QNAME and any of its\n   ancestors) in the Additional section of the\
+    \ response as well as NSEC\n   records proving the non-existence of any other\
+    \ applicable DLV records\n   in the DLV domain.  Authoritative servers need only\
+    \ include DLV\n   RRsets they're aware of -- RRsets in sub-zones may be omitted.\n\
+    \   Validators still seek out of the closest enclosing DLV RRset first.\n   If\
+    \ they receive any data about other DLV RRsets in the zone, they MAY\n   cache\
+    \ and use it (assuming that it validates), thus avoiding further\n   round-trips\
+    \ to the DLV domain's authoritative servers.\n"
+- title: 9.  Security Considerations
+  contents:
+  - "9.  Security Considerations\n   Validators MUST NOT use a DLV record unless it\
+    \ has been successfully\n   authenticated.  Normally, validators will have a trust\
+    \ anchor for the\n   DLV domain and use DNSSEC to validate the data in it.\n \
+    \  Aggressive negative caching increases the need for validators to do\n   some\
+    \ basic validation of incoming NSEC records before caching them.\n   In particular,\
+    \ the 'next name' field in the NSEC record MUST be\n   within the zone that generated\
+    \ (and signed) the NSEC.  Otherwise, a\n   malicious zone operator could generate\
+    \ an NSEC that reaches out of\n   its zone -- into its ancestor zones, even up\
+    \ into the root zone --\n   and use that NSEC to spoof away any name that sorts\
+    \ after the name of\n   the NSEC.  We call these overreaching NSECs.  More insidiously,\
+    \ an\n   attacker could use an overreaching NSEC in combination with a signed\n\
+    \   wildcard record to substitute a signed positive answer in place of\n   the\
+    \ real data.  This checking is not a new requirement -- these\n   attacks are\
+    \ a risk even without aggressive negative caching.\n   However, aggressive negative\
+    \ caching makes the checking more\n   important.  Before aggressive negative caching,\
+    \ NSECs were cached\n   only as metadata associated with a particular query. \
+    \ An overreaching\n   NSEC that resulted from a broken zone signing tool or some\n\
+    \   misconfiguration would only be used by a cache for those queries that\n  \
+    \ it had specifically made before.  Only an overreaching NSEC actively\n   served\
+    \ by an attacker could cause misbehavior.  With aggressive\n   negative caching,\
+    \ an overreaching NSEC can cause broader problems\n   even in the absence of an\
+    \ active attacker.  This threat can be easily\n   mitigated by checking the bounds\
+    \ on the NSEC.\n   As a reminder, validators MUST NOT use the mere presence of\
+    \ an RRSIG\n   or apex DNSKEY RRset as a trigger for doing validation, whether\n\
+    \   through the normal DNSSEC hierarchy or DLV.  Otherwise, an attacker\n   might\
+    \ perpetrate a downgrade attack by stripping off those RRSIGs or\n   DNSKEYs.\n\
+    \   Section 8 of RFC 4034 describes security considerations specific to\n   the\
+    \ DS RR.  Those considerations are equally applicable to DLV RRs.\n   Of particular\
+    \ note, the key tag field is used to help select DNSKEY\n   RRs efficiently, but\
+    \ it does not uniquely identify a single DNSKEY\n   RR.  It is possible for two\
+    \ distinct DNSKEY RRs to have the same\n   owner name, the same algorithm type,\
+    \ and the same key tag.  An\n   implementation that uses only the key tag to select\
+    \ a DNSKEY RR might\n   select the wrong public key in some circumstances.\n \
+    \  For further discussion of the security implications of DNSSEC, see\n   RFCs\
+    \ 4033, 4034, and 4035.\n"
+- title: 10.  IANA Considerations
+  contents:
+  - "10.  IANA Considerations\n   DLV makes use of the DLV resource record (RR type\
+    \ 32769) previously\n   assigned in [RFC4431].\n"
+- title: 11.  References
+  contents:
+  - '11.  References
+
+    '
+- title: 11.1.  Normative References
+  contents:
+  - "11.1.  Normative References\n   [RFC2119]     Bradner, S., \"Key words for use\
+    \ in RFCs to Indicate\n                 Requirement Levels\", BCP 14, RFC 2119,\
+    \ March 1997.\n   [RFC4033]     Arends, R., Austein, R., Larson, M., Massey, D.,\
+    \ and S.\n                 Rose, \"DNS Security Introduction and Requirements\"\
+    ,\n                 RFC 4033, March 2005.\n   [RFC4034]     Arends, R., Austein,\
+    \ R., Larson, M., Massey, D., and S.\n                 Rose, \"Resource Records\
+    \ for the DNS Security\n                 Extensions\", RFC 4034, March 2005.\n\
+    \   [RFC4035]     Arends, R., Austein, R., Larson, M., Massey, D., and S.\n  \
+    \               Rose, \"Protocol Modifications for the DNS Security\n        \
+    \         Extensions\", RFC 4035, March 2005.\n   [RFC4431]     Andrews, M. and\
+    \ S. Weiler, \"The DNSSEC Lookaside\n                 Validation (DLV) DNS Resource\
+    \ Record\", RFC 4431,\n                 February 2006.\n"
+- title: 11.2.  Informative References
+  contents:
+  - "11.2.  Informative References\n   [INI1999-19]  Weiler, S., \"Deploying DNSSEC\
+    \ Without a Signed Root\",\n                 Technical Report 1999-19, Information\
+    \ Networking\n                 Institute, Carnegie Mellon University, April 2004.\n\
+    \   [NSEC3]       Laurie, B., Sisson, G., Arends, R., and D. Blacka,\n       \
+    \          \"DNSSEC Hashed Authenticated Denial of Existence\", Work\n       \
+    \          in Progress, July 2007.\n   [RFC4470]     Weiler, S. and J. Ihren,\
+    \ \"Minimally Covering NSEC\n                 Records and DNSSEC On-line Signing\"\
+    , RFC 4470,\n                 April 2006.\n"
+- title: Appendix A.  Acknowledgments
+  contents:
+  - "Appendix A.  Acknowledgments\n   Johan Ihren, Paul Vixie, and Suzanne Woolf contributed\
+    \ significantly\n   to the exploration of possible validator algorithms that led\
+    \ to this\n   design.  More about those explorations is documented in [INI1999-19].\n\
+    \   Johan Ihren and the editor share the blame for aggressive negative\n   caching.\n\
+    \   Thanks to David B. Johnson and Marvin Sirbu for their patient review\n   of\
+    \ [INI1999-19] which led to this specification being far more\n   complete.\n\
+    \   Thanks to Mark Andrews, Rob Austein, David Blacka, Stephane\n   Bortzmeyer,\
+    \ Steve Crocker, Wes Hardaker, Alfred Hoenes, Russ Housley,\n   Peter Koch, Olaf\
+    \ Kolkman, Juergen Quittek, and Suzanne Woolf for\n   their valuable comments\
+    \ on this document.\n"
+- title: Author's Address
+  contents:
+  - "Author's Address\n   Samuel Weiler\n   SPARTA, Inc.\n   7110 Samuel Morse Drive\n\
+    \   Columbia, Maryland  21046\n   US\n   EMail: weiler@tislabs.com\n"
+- title: Full Copyright Statement
+  contents:
+  - "Full Copyright Statement\n   Copyright (C) The IETF Trust (2007).\n   This document\
+    \ is subject to the rights, licenses and restrictions\n   contained in BCP 78,\
+    \ and except as set forth therein, the authors\n   retain all their rights.\n\
+    \   This document and the information contained herein are provided on an\n  \
+    \ \"AS IS\" basis and THE CONTRIBUTOR, THE ORGANIZATION HE/SHE REPRESENTS\n  \
+    \ OR IS SPONSORED BY (IF ANY), THE INTERNET SOCIETY, THE IETF TRUST AND\n   THE\
+    \ INTERNET ENGINEERING TASK FORCE DISCLAIM ALL WARRANTIES, EXPRESS\n   OR IMPLIED,\
+    \ INCLUDING BUT NOT LIMITED TO ANY WARRANTY THAT THE USE OF\n   THE INFORMATION\
+    \ HEREIN WILL NOT INFRINGE ANY RIGHTS OR ANY IMPLIED\n   WARRANTIES OF MERCHANTABILITY\
+    \ OR FITNESS FOR A PARTICULAR PURPOSE.\n"
+- title: Intellectual Property
+  contents:
+  - "Intellectual Property\n   The IETF takes no position regarding the validity or\
+    \ scope of any\n   Intellectual Property Rights or other rights that might be\
+    \ claimed to\n   pertain to the implementation or use of the technology described\
+    \ in\n   this document or the extent to which any license under such rights\n\
+    \   might or might not be available; nor does it represent that it has\n   made\
+    \ any independent effort to identify any such rights.  Information\n   on the\
+    \ procedures with respect to rights in RFC documents can be\n   found in BCP 78\
+    \ and BCP 79.\n   Copies of IPR disclosures made to the IETF Secretariat and any\n\
+    \   assurances of licenses to be made available, or the result of an\n   attempt\
+    \ made to obtain a general license or permission for the use of\n   such proprietary\
+    \ rights by implementers or users of this\n   specification can be obtained from\
+    \ the IETF on-line IPR repository at\n   http://www.ietf.org/ipr.\n   The IETF\
+    \ invites any interested party to bring to its attention any\n   copyrights, patents\
+    \ or patent applications, or other proprietary\n   rights that may cover technology\
+    \ that may be required to implement\n   this standard.  Please address the information\
+    \ to the IETF at\n   ietf-ipr@ietf.org.\n"

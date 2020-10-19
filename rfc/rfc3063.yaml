@@ -1,0 +1,1335 @@
+- title: __initial_text__
+  contents:
+  - '                     MPLS Loop Prevention Mechanism
+
+    '
+- title: Status of this Memo
+  contents:
+  - "Status of this Memo\n   This memo defines an Experimental Protocol for the Internet\n\
+    \   community.  It does not specify an Internet standard of any kind.\n   Discussion\
+    \ and suggestions for improvement are requested.\n   Distribution of this memo\
+    \ is unlimited.\n"
+- title: Copyright Notice
+  contents:
+  - "Copyright Notice\n   Copyright (C) The Internet Society (2001).  All Rights Reserved.\n"
+- title: Abstract
+  contents:
+  - "Abstract\n   This paper presents a simple mechanism, based on \"threads\", which\
+    \ can\n   be used to prevent Multiprotocol Label Switching (MPLS) from setting\n\
+    \   up label switched path (LSPs) which have loops.  The mechanism is\n   compatible\
+    \ with, but does not require, VC merge.  The mechanism can\n   be used with either\
+    \ the ordered downstream-on-demand allocation or\n   ordered downstream allocation.\
+    \  The amount of information that must\n   be passed in a protocol message is\
+    \ tightly bounded (i.e., no path-\n   vector is used).  When a node needs to change\
+    \ its next hop, a\n   distributed procedure is executed, but only nodes which\
+    \ are\n   downstream of the change are involved.\n"
+- title: Table of Contents
+  contents:
+  - "Table of Contents\n   1      Introduction ..........................................\
+    \  2\n   2      Basic definitions .....................................  3\n \
+    \  3      Thread basics .........................................  5\n   3.1 \
+    \   Thread attributes .....................................  5\n   3.2    Thread\
+    \ loop ...........................................  7\n   3.3    Primitive thread\
+    \ actions ..............................  7\n   3.4    Examples of primitive thread\
+    \ actions  ................. 10\n   4      Thread algorithm ......................................\
+    \ 14\n   5      Applicability of the algorithm ........................ 14\n \
+    \  5.1    LSP Loop prevention/detection ......................... 15\n   5.2 \
+    \   Using old path while looping on new path .............. 15\n   5.3    How\
+    \ to deal with ordered downstream allocation ........ 15\n   5.4    How to realize\
+    \ load splitting ......................... 15\n   6      Why this works ........................................\
+    \ 16\n   6.1    Why a thread with unknown hop count is extended ....... 16\n \
+    \  6.2    Why a rewound thread cannot contain a loop ............ 17\n   6.2.1\
+    \  Case1: LSP with known link hop counts ................. 17\n   6.2.1  Case2:\
+    \ LSP with unknown link hop counts ............... 17\n   6.3    Why L3 loop is\
+    \ detected ............................... 17\n   6.4    Why L3 loop is not mis-detected\
+    \ ....................... 17\n   6.5    How a stalled thread automatically recovers\
+    \ from loop . 18\n   6.6    Why different colored threads do not chase each other\
+    \ . 18\n   7      Loop prevention examples .............................. 19\n\
+    \   7.1    First example ......................................... 19\n   7.2\
+    \    Second example ........................................ 23\n   8      Thread\
+    \ control block .................................. 24\n   8.1    Finite state\
+    \ machine .................................. 25\n   9      Comparison with path-vector/diffusion\
+    \ method .......... 28\n   10     Security Considerations ...............................\
+    \ 29\n   11     Intellectual Property Considerations .................. 29\n \
+    \  12     Acknowledgments ....................................... 29\n   13  \
+    \   Authors' Addresses .................................... 30\n   14     References\
+    \ ............................................ 30\n   Appendix A   Further discussion\
+    \ of the algorithm ............. 31\n   Full Copyright Statement .....................................\
+    \ 44\n"
+- title: 1.  Introduction
+  contents:
+  - "1.  Introduction\n   This paper presents a simple mechanism, based on \"threads\"\
+    , which can\n   be used to prevent MPLS from setting up label switched paths (LSPs)\n\
+    \   which have loops.\n   When an LSR finds that it has a new next hop for a particular\
+    \ FEC\n   (Forwarding Equivalence Class) [1], it creates a thread and extends\n\
+    \   it downstream.  Each such thread is assigned a unique \"color\", such\n  \
+    \ that no two threads in the network can have the same color.\n   For a given\
+    \ LSP, once a thread is extended to a particular next hop,\n   no other thread\
+    \ is extended to that next hop unless there is a change\n   in the hop count from\
+    \ the furthest upstream node.  The only state\n   information that needs to be\
+    \ associated with a particular next hop\n   for a particular LSP is the thread\
+    \ color and hop count.\n   If there is a loop, then some thread will arrive back\
+    \ at an LSR\n   through which it has already passed.  This is easily detected,\
+    \ since\n   each thread has a unique color.\n   Section 3 and 4 provide procedures\
+    \ for determining that there is no\n   loop.  When this is determined, the threads\
+    \ are \"rewound\" back to the\n   point of creation.  As they are rewound, labels\
+    \ get assigned.  Thus\n   labels are NOT assigned until loop freedom is guaranteed.\n\
+    \   While a thread is extended, the LSRs through which it passes must\n   remember\
+    \ its color and hop count, but when the thread has been\n   rewound, they need\
+    \ only remember its hop count.\n   The thread mechanism works if some, all, or\
+    \ none of the LSRs in the\n   LSP support VC-merge.  It can also be used with\
+    \ either the ordered\n   downstream on-demand label allocation or ordered downstream\n\
+    \   unsolicited label allocation [2,3].  The mechanism can also be\n   applicable\
+    \ to loop detection, old path retention, and load-splitting.\n   The state information\
+    \ which must be carried in protocol messages, and\n   which must be maintained\
+    \ internally in state tables, is of fixed\n   size, independent of the network\
+    \ size.  Thus the thread mechanism is\n   more scalable than alternatives which\
+    \ require that path-vectors be\n   carried.\n   To set up a new LSP after a routing\
+    \ change, the thread mechanism\n   requires communication only between nodes which\
+    \ are downstream of the\n   point of change.  There is no need to communicate\
+    \ with nodes that are\n   upstream of the point of change.  Thus the thread mechanism\
+    \ is more\n   robust than alternatives which require that a diffusion computation\n\
+    \   be performed (see section 9).\n"
+- title: 2. Basic definitions
+  contents:
+  - "2. Basic definitions\n   LSP\n      We will use the term LSP to refer to a multipoint-to-point\
+    \ tree\n      whose root is the egress node.  See section 3.5 of [3].\n      In\
+    \ the following, we speak as if there were only a single LSP\n      being set\
+    \ up in the network.  This allows us to talk of incoming\n      and outgoing links\
+    \ without constantly saying something like \"for\n      the same LSP.\n   Incoming\
+    \ Link, Upstream Link\n   Outgoing Link, Downstream Link\n      At a given node,\
+    \ a given LSP will have one or more incoming, or\n      upstream links, and one\
+    \ outgoing or downstream link.  A \"link\" is\n      really an abstract relationship\
+    \ with an \"adjacent\" LSR; it is an\n      \"edge\" in the \"tree\", and not\
+    \ necessarily a particular concrete\n      entity like an \"interface\".\n   Leaf\
+    \ Node, Ingress Node\n      A node which has no upstream links.\n   Eligible Leaf\
+    \ Node\n      A node which is capable of being a leaf node.  For example, a node\n\
+    \      is not an eligible leaf node if it is not allowed to directly\n      inject\
+    \ L3 packets created or received at the node into its\n      outgoing link.\n\
+    \   Link Hop Count\n      Every link is labeled with a \"link hop count\".  This\
+    \ is the number\n      of hops between the given link and the leaf node which\
+    \ is furthest\n      upstream of the given link.  At any node, the link hop count\
+    \ for\n      the downstream link is one more than the largest of the hop counts\n\
+    \      associated with the upstream links.\n      We define the quantity \"Hmax\"\
+    \ at a given node to be the maximum of\n      all the incoming link hop counts.\
+    \  Note that, the link hop count\n      of the downstream link is equal to Hmax+1.\
+    \  At a leaf node, Hmax\n      is set to be zero.\n      An an example of link\
+    \ hop counts is shown in Fig.1.\n                    1   2\n                 \
+    \  A---B---C       K\n                           |       |\n                 \
+    \          |3      |1\n                           |       |\n                \
+    \           | 4   5 | 6   7\n                           D---G---H---I---J\n  \
+    \                         |\n                           |2\n                 \
+    \        1 |\n                       E---F\n                 Fig.1  Example of\
+    \ link hop counts\n   Next Hop Acquisition\n      Node N thought that FEC F was\
+    \ unreachable, but now has a next hop\n      for it.\n   Next Hop Loss\n     \
+    \ Node N thought that node A was the next hop for FEC F, but now no\n      longer\
+    \ has the next hop for FEC F.  A node loses a next hop\n      whenever the next\
+    \ hop goes down.\n   Next Hop Change\n      At node N, the next hop for FEC F\
+    \ changes from node A to node B,\n      where A is different than B.  A next hop\
+    \ change event can be seen\n      as a combination of a next hop loss event on\
+    \ the old next hop and\n      a next hop acquisition event on the new next hop.\n"
+- title: 3. Thread basics
+  contents:
+  - "3. Thread basics\n   A thread is a sequence of messages used to set up an LSP,\
+    \ in the\n   \"ordered downstream-on-demand\" (ingress-initiated ordered control)\n\
+    \   style.\n"
+- title: 3.1.  Thread attributes
+  contents:
+  - "3.1.  Thread attributes\n   There are three attributes related to threads.  They\
+    \ may be encoded\n   into a single thread object as:\n    0 1 2 3 4 5 6 7 8 9\
+    \ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1\n   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \   |                                                               |\n   +  \
+    \                           Color                             +\n   |        \
+    \                                                       |\n   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \   |   Hop Count   |      TTL      |           Reserved            |\n   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \   Thread Color\n      Every time a path control message is initiated by a node,\
+    \ the node\n      assigns a unique \"color\" to it.  This color is to be unique\
+    \ in\n      both time and space: its encoding consists of an IP address of the\n\
+    \      node concatenated with a unique event identifier from a numbering\n   \
+    \   space maintained by the node.  The path setup messages that the\n      node\
+    \ sends downstream will contain this color.  Also, when the\n      node sends\
+    \ such a message downstream, it will remember the color,\n      and this color\
+    \ becomes the color of the downstream link.\n      When a colored message is received,\
+    \ its color becomes the color of\n      the incoming link.  The thread which consists\
+    \ of messages of a\n      certain color will be known as a thread of that color.\n\
+    \      special color value \"transparent\"(=all 0's) is reserved.\n      One possible\
+    \ method for unique color assignment is, starting the\n      event identifier\
+    \ from its initial value, and incrementing it by\n      one (modulo its maximum\
+    \ value) each time a color is assigned.  In\n      this method, the initial event\
+    \ identifier is either selected at\n      random or assigned to be larger than\
+    \ the largest event identifier\n      used on the previous system incarnation.\n\
+    \   Thread Hop Count\n      In order to maintain link hop counts, we need to carry\
+    \ hop counts\n      in the path control messages.  For instance, a leaf node would\n\
+    \      assign a hop count of 1 to its downstream link, and would store\n     \
+    \ that value into a path setup message it sends downstream.  When a\n      path\
+    \ setup message is sent downstream, a node would assign a hop\n      count which\
+    \ is one more than the largest of the incoming link hop\n      counts, to its\
+    \ downstream link, and  would store that value into a\n      path setup message\
+    \ it sends downstream.  Once the value is stored\n      in a path control message,\
+    \ we may refer to it has a \"thread hop\n      count\".\n      A special hop count\
+    \ value \"unknown\"(=0xff), which is larger than\n      any other known value,\
+    \ is used when a loop is found.  Once the\n      thread hop count is \"unknown\"\
+    , it is not increased any more as the\n      thread is extended.\n   Thread TTL\n\
+    \      To avoid infinite looping of control messages in some cases, a\n      thread\
+    \ TTL is used.  When a node creates a path control message\n      and sends it\
+    \ downstream, it sets a TTL to the message, and the TTL\n      is decremented\
+    \ at each hop.  When the TTL reaches 0, the message\n      is not forwarded any\
+    \ more.  Unlike the thread hop counts and the\n      thread colors, the thread\
+    \ TTLs do not needs to be stored in\n      incoming links.\n"
+- title: 3.2.  Thread loop
+  contents:
+  - "3.2.  Thread loop\n   When the same colored thread is received on multiple incoming\
+    \ links,\n   or the received thread color was assigned by the receiving node,\
+    \ it\n   is said that the thread forms a loop.  A thread creator can tell\n  \
+    \ whether it assigned the received thread color by checking the IP\n   address\
+    \ part of the received thread color.\n"
+- title: 3.3.  Primitive thread actions
+  contents:
+  - "3.3.  Primitive thread actions\n   Five primitive actions are defined in order\
+    \ to prevent LSP loops by\n   using threads: \"extending\", \"rewinding\", \"\
+    withdrawing\", \"merging\",\n   and \"stalling\".  This section describes only\
+    \ each primitive action\n   and does not describe how these primitive actions\
+    \ are combined and\n   how the algorithm totally works.  The main body of the\
+    \ algorithm is\n   described in section 4.\n   Thread Extending\n      When a\
+    \ node starts to send a path setup message to its next hop\n      with a set of\
+    \ thread attributes, it is said that \"the node creates\n      a thread and extends\
+    \ it downstream\".  When a node receives a path\n      setup message from an upstream\
+    \ node with a set of thread\n      attributes and forwards it downstream, it is\
+    \ said that \"the node\n      receives a thread and extends it downstream\". \
+    \ The color and hop\n      count of the thread become the color and hop count\
+    \ of the outgoing\n      link.  Whenever a thread is received on a particular\
+    \ link, the\n      color and hop count of that thread become the color and hop\
+    \ count\n      of that incoming link, replacing any color and hop count that the\n\
+    \      link may have had previously.\n      For example, when an ingress node\
+    \ initiates a path setup, it\n      creates a thread and extends it downstream\
+    \ by sending a path setup\n      message.  The thread hop count is set to be 1,\
+    \ and the thread\n      color is set to be the ingress node's address with an\
+    \ appropriate\n      event identifier, and the thread TTL is set to be its maximum\n\
+    \      value.\n      When a node receives a thread and extends it downstream,\
+    \ the node\n      either (i) extends the thread without changing color, or (ii)\n\
+    \      extend the thread with changing color.  The received thread is\n      extended\
+    \ with changing color if it is received on a new incoming\n      link and extended\
+    \ on an already existing outgoing link, otherwise,\n      it is extended without\
+    \ changing color.  When a thread is extended\n      with changing color, a new\
+    \ colored thread is created and extended.\n      Thread creation does not occur\
+    \ only at leaf nodes.  If an\n      intermediate node has an incoming link, it\
+    \ will create and extend\n      a new thread whenever it acquires a new next hop.\n\
+    \      When a node notifies a next hop node of a decrease of the link hop\n  \
+    \    count, if it is not extending a colored thread, a transparent\n      thread\
+    \ is extended.\n   Thread Merging\n      When a node which has a colored outgoing\
+    \ link receives a new\n      thread, it does not necessarily extend the new thread.\
+    \  It may\n      instead 'merge' the new threads into the existing outgoing thread.\n\
+    \      In this case, no messages are sent downstream.  Also, if a new\n      incoming\
+    \ thread is extended downstream, but there are already\n      other incoming threads,\
+    \ these other incoming threads are\n      considered to be merged into the new\
+    \ outgoing thread.\n      Specifically, a received thread is merged if all the\
+    \ following\n      conditions hold:\n      o  A colored thread is received by\
+    \ node N, AND\n      o  The thread does not form a loop, AND\n      o  N is not\
+    \ an egress node, AND\n      o  N's outgoing link is colored, AND\n      o  N's\
+    \ outgoing link hop count is at least one greater than the\n         hop count\
+    \ of the newly received thread.\n      When an outgoing thread rewinds (see below),\
+    \ any incoming threads\n      which have been merged with it will rewind as well.\n\
+    \   Thread Stalling\n      When a colored thread is received, if the thread forms\
+    \ a loop, the\n      received thread color and hop count are stored on the receiving\n\
+    \      link without being extended.  This is the special case of thread\n    \
+    \  merging applied only for threads forming a loop and referred to as\n      the\
+    \ \"thread stalling\", and the incoming link storing the stalled\n      thread\
+    \ is called \"stalled incoming link\".  A distinction is made\n      between stalled\
+    \ incoming links and unstalled incoming links.\n   Thread Rewinding\n      When\
+    \ a thread reaches a node which satisfies a particular loop-\n      free condition,\
+    \ the node returns an acknowledgment message back to\n      the message initiator\
+    \ in the reverse path on which the thread was\n      extended.  The transmission\
+    \ of the acknowledgment messages is the\n      \"rewinding\" of the thread.\n\
+    \      The loop-free condition is:\n      o  A colored thread is received by the\
+    \ egress node, OR\n      o  All of the following conditions hold:\n         (a)\
+    \ A colored thread is received by node N, AND\n         (b) N's outgoing link\
+    \ is transparent, AND\n         (c) N's outgoing link hop count is at least one\
+    \ greater than\n             the hop count of the newly received thread.\n   \
+    \   When a node rewinds a thread which was received on a particular\n      link,\
+    \ it changes the color of that link to transparent.\n      If there is a link\
+    \ from node M to node N, and M has extended a\n      colored thread to N over\
+    \ that link, and M determines (by receiving\n      a message from N) that N has\
+    \ rewound that thread, then M sets the\n      color of its outgoing link to transparent.\
+    \  M then continues\n      rewinding the thread, and in addition, rewinds any\
+    \ other incoming\n      thread which had been merged with the thread being rewound,\n\
+    \      including stalled threads.\n      Each node can start label switching after\
+    \ the thread colors in all\n      incoming and outgoing links becomes transparent.\n\
+    \      Note that transparent threads are threads which have already been\n   \
+    \   rewound; hence there is no such thing as rewinding a  transparent\n      thread.\n\
+    \   Thread Withdrawing\n      It is possible for a node to tear down a path. \
+    \ A node tears down\n      the portion of the path downstream of itself by sending\
+    \ teardown\n      messages to its next hop.  This process is known as the \"thread\n\
+    \      withdrawing\".\n      For example, suppose a node is trying to set up a\
+    \ path, and then\n      experiences a next hop change or a next hop loss.  It\
+    \ will\n      withdraw the thread that it had extended down its old next hop.\n\
+    \      If node M has extended a thread to node N, and node M then\n      withdraws\
+    \ that thread, N now has one less incoming link than it\n      had before.  If\
+    \ N now has no other unstalled incoming links and N\n      is not an eligible\
+    \ leaf node, it must withdraw its outgoing\n      thread.  If N still has an unstalled\
+    \ incoming link or N is an\n      eligible leaf node, it may (or may not) need\
+    \ to change the hop\n      count of the outgoing link.\n      N needs to change\
+    \ the outgoing hop count if:\n      o  The incoming link hop count that was just\
+    \ removed had a larger\n         hop count than any of the remaining incoming\
+    \ links, AND\n      o  One of the following conditions holds:\n         (a) The\
+    \ outgoing link is transparent, OR\n         (b) The outgoing link has a known\
+    \ hop count.\n      If the outgoing link is transparent, it remains transparent,\
+    \ but\n      the new hop count needs to be sent downstream.  If the outgoing\n\
+    \      link is colored, a new thread (with a new color) needs to be\n      created\
+    \ and extended downstream.\n"
+- title: 3.4.  Examples of primitive thread actions
+  contents:
+  - "3.4.  Examples of primitive thread actions\n   The following notations are used\
+    \ to illustrate examples of primitive\n   actions defined for threads.\n   A pair\
+    \ of thread attributes stored in each link is represented by\n   \"(C,H)\", where\
+    \ C and H represent the thread color and thread hop\n   count, respectively.\n\
+    \   A thread marked \"+\" indicates that it is created or received now.  A\n \
+    \  thread marked \"-\" indicates that it is withdrawn now.\n   A link labeled\
+    \ with squared brackets (e.g., \"[a]\") indicates that it\n   is an unstalled\
+    \ link.  A link labeled with braces (e.g., \"{a}\")\n   indicates that it is a\
+    \ stalled link.\n   Fig. 2 shows an example in which a leaf node A creates a blue\
+    \ thread\n   and extends it downstream.\n                                    (bl,1)\n\
+    \                                 A---[o1]--->\n                 Fig.2    Thread\
+    \ extending at leaf node\n   Fig.3 shows an example of thread extending without\
+    \ changing color at\n   intermediate node.  Assume that a node B has no incoming\
+    \ and outgoing\n   link before receiving a blue thread.  When node B receives\
+    \ the blue\n   thread of hop count 1 on a new incoming link i1, it extends the\n\
+    \   thread downstream without changing color (Fig.3(a)).  After the blue\n   thread\
+    \ is extended, node B receives a red thread of hop count unknown\n   on incoming\
+    \ link i1 again (Fig.3(b)).  The red thread is also\n   extended without changing\
+    \ its color, since both i1 and o1 already\n   exists.\n         (bl,1)+     (bl,2)\
+    \            (re,U)+      (re,U)\n      ----[i1]--->B---[o1]---->     ----[i1]--->B----[o1]--->\n\
+    \              Fig.3(a)                      Fig.3(b)\n          Fig.3    Thread\
+    \ extending without changing color\n   Fig.4 shows an example of thread extending\
+    \ with changing color.\n   There are single incoming link i1 and single outgoing\
+    \ link o1 in\n   Fig.4(a).  Then a red thread of hop count 3 is received on a\
+    \ new\n   incoming link i2.  In this case, the received thread is extended with\n\
+    \   changing color, i.e., a new green thread is created and extended\n   (Fig.4(b)),\
+    \ since o1 already exists.\n       (bl,1)       (bl,2)          (bl,1)       (gr,4)\n\
+    \    ----[i1]--->B----[o1]--->    ----[i1]--->B----[o1]--->\n                \
+    \                             ^\n                                            \
+    \ |\n                                 ----[i2]----+\n                        \
+    \            (re,3)+\n             Fig.4(a)                     Fig.4(b)\n   \
+    \     Fig.4    Thread extending with changing color\n   Fig.5 shows an example\
+    \ of thread merging.  When a node B receives a\n   red thread of hop count 3,\
+    \ the received thread is not extended since\n   the outgoing link hop count is\
+    \ at least one greater than the received\n   thread hop count.  Both the red and\
+    \ blue threads will be rewound when\n   the blue thread on outgoing link o1 is\
+    \ rewound.\n                      (bl,3)       (bl,4)\n                   ----[i1]--->B----[o1]--->\n\
+    \                               ^\n                               |\n        \
+    \           ----[i2]----+\n                      (re,3)+\n                   Fig.5\
+    \    Thread merging\n   Figs 6 and 7 show examples of thread stalling.  When a\
+    \ node B\n   receives a blue thread of hop count 10 on incoming link i2 in Fig.6,\n\
+    \   it \"stalls\" the received thread since the blue thread forms a loop.\n  \
+    \ In Fig.7, a leaf node A finds the loop of its own thread.\n                \
+    \       (bl,3)       (bl,4)\n                    ----[i1]--->B----[o1]--->\n \
+    \                               ^\n                                |\n       \
+    \             ----{i2}----+\n                       (bl,10)+\n               \
+    \    Fig.6    Thread stalling (1)\n                      (bl,10)+      (bl,1)\n\
+    \                    ----{i1}--->A----[o1]--->\n                   Fig.7    Thread\
+    \ stalling (2)\n   Fig.8 shows an example of thread rewinding.  When the yellow\
+    \ thread\n   which is currently being extended is rewound (Fig.8(a)), the node\n\
+    \   changes all the incoming and outgoing thread color to transparent,\n   and\
+    \ propagates thread rewinding to upstream nodes (Fig.8(b)).\n        (bl,1)  \
+    \     (ye,2)                  (tr,1)       (tr,2)\n     ----[i2]--->B----[o1]--->\
+    \            ----[i2]--->B----[o1]--->\n                 ^                   \
+    \                 ^\n                 |                                    |\n\
+    \     ----[i3]----+                        ----[i3]----+\n        (ye,1)     \
+    \                          (tr,1)\n            Fig.8(a)                      \
+    \        Fig.8(b)\n                     Fig.8    Thread rewinding\n   Fig.9 shows\
+    \ an example of thread withdrawing.  In Fig.9(a), the red\n   thread on incoming\
+    \ link i2 is withdrawn.  Then Hmax decreases from 3\n   to  1, and node B  creates\
+    \ a new  green thread and extends it\n   downstream, as shown in Fig.9(b).\n \
+    \         (bl,1)      (re,4)           (bl,1)       (gr,2)+\n       ----[i1]--->B---[o1]--->\
+    \     ----[i1]--->B----[o1]--->\n                   ^\n                   |\n\
+    \       ----[i2]----+\n          (re,3)-\n                Fig.9(a)           \
+    \          Fig.9(b)\n               Fig.9  Thread withdrawing (1)\n   Fig.10 shows\
+    \ another example of thread withdrawing.  In Fig.10(a),\n   the red thread on\
+    \ incoming link i3 is withdrawn.  In this case, Hmax\n   decreases from unknown\
+    \ to 1, however, no thread is extended as shown\n   in Fig.10(b), since the outgoing\
+    \ link has a colored thread and the\n   hop count is unknown.\n           (bl,1)\
+    \      (re,U)          (bl,1)       (re,U)\n       ----[i2]--->B----[o1]---> \
+    \   ----[i2]--->B----[o1]--->\n                   ^\n                   |\n  \
+    \     ----[i3]----+\n           (re,U)-\n               Fig.10(a)            \
+    \         Fig.10(b)\n               Fig.10    Thread withdrawing (2)\n   Fig.11\
+    \ shows another example of thread withdrawing.  In Fig.11(a),\n   the transparent\
+    \ thread on incoming link i3 is withdrawn.  In this\n   case, a transparent thread\
+    \ is extended (Fig.11(b)), since Hmax\n   decreases and the outgoing link is transparent.\n\
+    \           (tr,1)      (tr,U)          (tr,1)       (tr,2)+\n       ----[i2]--->B----[o1]--->\
+    \    ----[i2]--->B----[o1]--->\n                   ^\n                   |\n \
+    \      ----[i3]----+\n           (tr,U)-\n               Fig.11(a)           \
+    \          Fig.11(b)\n               Fig.11    Thread withdrawing (3)\n"
+- title: 4. Thread algorithm
+  contents:
+  - "4. Thread algorithm\n   The ordered downstream-on-demand allocation is assumed\
+    \ here, however,\n   the algorithm can be adapted to the ordered downstream allocation,\
+    \ as\n   shown in section 5.\n   In the algorithm, a next hop change event will\
+    \ be separated into two\n   events: a next hop loss event on the old next hop\
+    \ and a next hop\n   acquisition event on the new next hop, in this order.\n \
+    \  The following notations are defined:\n         Hmax: the largest incoming link\
+    \ hop count\n         Ni:   the number of unstalled incoming links\n   The thread\
+    \ algorithm is described as follows.\n   When a node acquires a new next hop,\
+    \ it creates a colored thread and\n   extends it downstream.\n   When a node loses\
+    \ a next hop to which it has extended a thread, it\n   may withdraw that thread.\
+    \  As described in section 3, this may or may\n   not cause the next hop to take\
+    \ some action.  Among the actions the\n   next hop may take are withdrawing the\
+    \ thread from its own next hop,\n   or extending a new thread to its own next\
+    \ hop.\n   A received colored thread is either stalled, merged, rewound, or\n\
+    \   extended.  A thread with TTL zero is never extended.\n   When a received thread\
+    \ is stalled at a node, if Ni=0 and the node is\n   not an eligible leaf node,\
+    \ initiate a thread withdrawing.  Otherwise,\n   if Ni>0 and the received thread\
+    \ hop count is not unknown, a colored\n   thread of hop count unknown is created\
+    \ and extended.  If the received\n   thread hop count is unknown, no thread is\
+    \ extended and no further\n   action is taken.\n   When a thread being extended\
+    \ is rewound, if the thread hop count is\n   greater than one more than Hmax,\
+    \ a transparent thread of hop count\n   (Hmax+1) is extended downstream.\n   When\
+    \ a node that has an transparent outgoing link receives a\n   transparent thread,\
+    \ if Hmax decreases the node extends it downstream\n   without changing color.\n"
+- title: 5. Applicability of the algorithm
+  contents:
+  - "5. Applicability of the algorithm\n   The thread algorithm described in section\
+    \ 4 can be applied to various\n   LSP management policies.\n"
+- title: 5.1.  LSP Loop prevention/detection
+  contents:
+  - "5.1.  LSP Loop prevention/detection\n   The same thread algorithm is applicable\
+    \ to both LSP loop prevention\n   and detection.\n   In loop prevention mode,\
+    \ a node transmits a label mapping (including\n   a thread object) for a particular\
+    \ LSP only when it rewinds the thread\n   for that LSP.  No mapping message is\
+    \ sent until the thread rewinds.\n   On the other hand, if a node operates in\
+    \ loop detection mode, it\n   returns a label mapping message without a thread\
+    \ object immediately\n   after receiving a colored thread.  A node which receives\
+    \ a label\n   mapping message that does not have a thread object will not rewind\n\
+    \   the thread.\n"
+- title: 5.2.  Using old path while looping on new path
+  contents:
+  - "5.2.  Using old path while looping on new path\n   When a route changes, one\
+    \ might want to continue to use the old path\n   if the new route is looping.\
+    \  This is achieved simply by holding the\n   label assigned to the downstream\
+    \ link on the old path until the\n   thread being extended on the new route gets\
+    \ rewound.  This is an\n   implementation choice.\n"
+- title: 5.3.  How to deal with ordered downstream allocation
+  contents:
+  - "5.3.  How to deal with ordered downstream allocation\n   The thread mechanism\
+    \ can be also adapted to ordered downstream\n   allocation mode (or the egress-initiated\
+    \ ordered control) by\n   regarding the event of newly receiving of a label mapping\
+    \ message [4]\n   from the next hop as a next hop acquisition event.\n   Note\
+    \ that a node which doesn't yet have an incoming link behaves as a\n   leaf. \
+    \ In the case where the tree is being initially built up (e.g.,\n   the egress\
+    \ node has just come up), each node in turn will behave as a\n   leaf for a short\
+    \ period of time.\n"
+- title: 5.4.  How to realize load splitting
+  contents:
+  - "5.4.  How to realize load splitting\n   A leaf node can easily perform load splitting\
+    \ by setting up two\n   different LSPs for the same FEC.  The downstream links\
+    \ for the two\n   LSPs are simply assigned different colors.  The thread algorithm\
+    \ now\n   prevents a loop in either path, but also allows the two paths to have\n\
+    \   a common downstream node.\n   If some intermediate node wants to do load splitting,\
+    \ the following\n   modification is made.  Assume that there are multiple next\
+    \ hops for\n   the same FEC.  If there are n next hops for a particular FEC, the\
+    \ set\n   of incoming links for that FEC's LSP can be partitioned into n\n   subsets,\
+    \ where each subset can be mapped to a distinct outgoing link.\n   This provides\
+    \ n LSPs for the FEC.  Each such LSP uses a distinct\n   color for its outgoing\
+    \ link.  The thread algorithm now prevents a\n   loop in any of the paths, but\
+    \ also allows two or more of the paths to\n   have a common downstream node.\n\
+    \   In this case, an interesting situation may happen.  Let's say that in\n  \
+    \ Fig.12, node B has two incoming links, i1 and i2, and two outgoing\n   links,\
+    \ o1 and o2, such that i1 is mapped to o1, while i2 is mapped to\n   o2.\n   If\
+    \ a blue thread received on i1 and extended on o1 is again received\n   at node\
+    \ B on i2, the blue thread is not regarded as forming a loop,\n   since i1 and\
+    \ i2 are regarded as belonging to different subsets.\n   Instead, the blue thread\
+    \ received on i2 is extended on o2.  If the\n   thread extended on o2 is rewound,\
+    \ a single loop-free LSP which\n   traverses node B twice is established.\n  \
+    \         +------------------...--------------------+\n           .        (bl,3)\
+    \          (bl,4)           |\n           .     ----[i1]---+     +--[o1]---> ....\
+    \ --+\n           .                 \\   /\n           .                  v /\n\
+    \           |                   B\n           |\n           +-----------[i2]--->B----[o2]--->\n\
+    \                     (bl,10)+      (bl,11)\n            Fig.12  Load splitting\
+    \ at intermediate node\n   There is another type of load splitting, in which packets\
+    \ arrived at\n   single incoming link can be label switched to any one of multiple\n\
+    \   outgoing links.  This case does not seem to be a good load-splitting\n   scheme,\
+    \ since the packet order in the same FEC is not preserved.\n   Thus, this document\
+    \ does not focus on this case.\n   Whether that's a good type of load splitting\
+    \ or not, the fact remains\n   that ATM-LSRs cannot load split like this because\
+    \ ATM switches just\n   don't have the capability to make forwarding decisions\
+    \ on a per-\n   packet basis.\n"
+- title: 6.  Why this works
+  contents:
+  - '6.  Why this works
+
+    '
+- title: 6.1.  Why a thread with unknown hop count is extended
+  contents:
+  - "6.1.  Why a thread with unknown hop count is extended\n   In the algorithm, a\
+    \ thread of unknown hop count is extended when a\n   thread loop is detected.\
+    \  This reduces the number of loop prevention\n   messages by merging threads\
+    \ (of known hop count) that are flowing\n   inside or outside the loop.  See Appendix\
+    \ A.12.\n"
+- title: 6.2.  Why a rewound thread cannot contain a loop
+  contents:
+  - '6.2.  Why a rewound thread cannot contain a loop
+
+    '
+- title: '6.2.1.  Case1: LSP with known link hop counts'
+  contents:
+  - "6.2.1.  Case1: LSP with known link hop counts\n   How can we be sure that an\
+    \ established path does not contain a loop\n   when the outgoing link hop count\
+    \ is NOT \"unknown\"?\n   Consider a sequence of LSRs <R1, ..., Rn>, such that\
+    \ there is a loop\n   traversing the LSRs in the sequence.  (I.e., packets from\
+    \ R1 go to\n   R2, then to R3, etc., then to Rn, and then from Rn to R1.)\n  \
+    \ Suppose that the thread hop count of the link between R1 and R2 is k.\n   Then\
+    \ by the above procedures, the hop counts between Rn and R1 must\n   be k+n-1.\
+    \  But the algorithm also ensures that if a node has an\n   incoming hop count\
+    \ of j, its outgoing link hop count must be at least\n   of j+1.  Hence, if we\
+    \ assume that the LSP established as a result of\n   thread rewinding contains\
+    \ a loop, the hop counts between R1 and R2\n   must be at least k+n.  From this\
+    \ we may derive the absurd conclusion\n   that n=0, and we may therefore conclude\
+    \ that there is no such\n   sequence of LSRs.\n"
+- title: '6.2.1.  Case2: LSP with unknown link hop counts'
+  contents:
+  - "6.2.1.  Case2: LSP with unknown link hop counts\n   An established path does\
+    \ not contain a loop as well, when the\n   outgoing link hop count is \"unknown\"\
+    .  This is because a colored\n   thread of unknown hop count is never rewound\
+    \ unless it reaches\n   egress.\n"
+- title: 6.3.  Why L3 loop is detected
+  contents:
+  - "6.3.  Why L3 loop is detected\n   Regardless of whether the thread hop count\
+    \ is known or unknown, if\n   there is a loop, then some node in the loop will\
+    \ be the last node to\n   receive a thread over a new incoming link.  This thread\
+    \ will always\n   arrive back at that node, without its color having changed.\
+    \  Hence\n   the loop will always be detected by at least one of the nodes in\
+    \ the\n   loop.\n"
+- title: 6.4.  Why L3 loop is not mis-detected
+  contents:
+  - "6.4.  Why L3 loop is not mis-detected\n   Since no node ever extends the same\
+    \ colored thread downstream twice,\n   a thread loop is not detected unless there\
+    \ actually is an L3 routing\n   loop.\n"
+- title: 6.5.  How a stalled thread automatically recovers from loop
+  contents:
+  - "6.5.  How a stalled thread automatically recovers from loop\n   Once a thread\
+    \ is stalled in a loop, the thread (or the path setup\n   request) effectively\
+    \ remains in the loop, so that a path\n   reconfiguration (i.e., thread withdrawing\
+    \ on the old path and thread\n   extending on the new path) can be issued from\
+    \ any node that may\n   receive a route change event so as to break the loop.\n"
+- title: 6.6.  Why different colored threads do not chase each other
+  contents:
+  - "6.6.  Why different colored threads do not chase each other\n   In the algorithm,\
+    \ multiple thread color and/or hop count updates may\n   happen if several leaf\
+    \ nodes start extending threads at the same\n   time.  How can we prevent multiple\
+    \ threads from looping unlimitedly?\n   First, when a node finds that a thread\
+    \ forms a loop, it creates a new\n   thread of hop count \"unknown\".  All the\
+    \ looping threads of a known\n   hop count which later arrive at the node would\
+    \ be merged into this\n   thread.  Such a thread behaves like a thread absorber.\n\
+    \   Second, the \"thread extending with changing color\" prevents two\n   threads\
+    \ from chasing each other.\n   Suppose that a received thread were always extended\
+    \ without changing\n   color.  Then we would encounter the following situation.\n\
+    \                                G        Y\n                                |\
+    \        |\n                                v        v\n                     \
+    \           R1------>R2\n                                ^        |\n        \
+    \                        |        v\n                                R4<------R3\n\
+    \                   Fig.13   Example of thread chasing\n   In Fig.13, (1) node\
+    \ G acquires R1 as a next hop, and starts to extend\n   a green thread of hop\
+    \ count 1, (2) node Y acquires R2 as a next hop,\n   and starts to extend a yellow\
+    \ thread of hop count 1, and (3) both\n   node G and node Y withdraws their threads\
+    \ before these threads go\n   round.\n   In this case, the yellow and green threads\
+    \ would go round and get\n   back to R2 and R1, respectively.  When the threads\
+    \ get back to R2 and\n   R1, however, the incoming links that store the yellow\
+    \ and green\n   colors no longer exist.  As a result, the yellow and green threads\n\
+    \   would chase each other forever in the loop.\n   However, since we have the\
+    \ \"extending with changing color\" mechanism,\n   this does not actually happen.\
+    \  When a green thread is received at\n   R2, R2 extends the thread with changing\
+    \ color, i.e., creates a new\n   red thread and extends it.  Similarly, when a\
+    \ yellow thread is\n   received at R1, R1 creates a new purple thread and extends\
+    \ it.  Thus,\n   the thread loop is detected even after node G and node Y withdraw\n\
+    \   threads.  This ensures that a thread is extended around the loop\n   which\
+    \ has a color assigned by some node that is in the loop.\n   There is at least\
+    \ one case even the \"extending with changing color\"\n   mechanism cannot treat,\
+    \ that is, the \"self-chasing\" in which thread\n   extending and thread withdrawing\
+    \ with regard to the same thread chase\n   each other in a loop.  This case would\
+    \ happen when a node withdraw a\n   thread immediately after extending it into\
+    \ an L3 loop.\n   A heuristics for self-chasing is to delay the execution of thread\n\
+    \   withdrawing at an initiating node of the thread withdrawing.  Anyway,\n  \
+    \ the thread TTL mechanism can eliminate any kind of thread looping.\n"
+- title: 7.  Loop prevention examples
+  contents:
+  - "7.  Loop prevention examples\n   In this section, we show two examples to show\
+    \ how the algorithm can\n   prevent LSP loops in given networks.\n   We assume\
+    \ that the ordered downstream-on-demand allocation is\n   employed, that all the\
+    \ LSPs are with regard to the same FEC, and that\n   all nodes are VC-merge capable.\n"
+- title: 7.1.  First example
+  contents:
+  - "7.1.  First example\n   Consider an MPLS network shown in Fig.14 in which an\
+    \ L3 loop exists.\n   Each directed link represents the current next hop of the\
+    \ FEC at each\n   node.  Now leaf nodes R1 and R6 initiate creation of an LSP.\n\
+    \               R11 ------- R10 <-------------------- R9\n                |  \
+    \         |                         ^\n                |           |         \
+    \                |\n                |           |                         |\n\
+    \                v           v                         |\n                R1 ------->\
+    \ R2 --------> R3 --------> R4 --------- R5\n              [leaf]            \
+    \         ^\n                                         |\n                    \
+    \                     |\n                                         |\n        \
+    \        R6 -------> R7 --------> R8\n              [leaf]\n                 \
+    \     Fig. 14   Example MPLS network (1)\n   Assume that R1 and R6 send a label\
+    \ request message at the same time,\n   and that the initial thread TTL is 255.\
+    \  First we show an example of\n   how to prevent LSP loops.\n   A set of thread\
+    \ attributes is represented by (color, hop count, TTL).\n   The request from R1\
+    \ and R6 contains (re,1,255) and (bl,1,255),\n   respectively.\n   Assume that\
+    \ R3 receives the request originated from R1 before\n   receiving the request\
+    \ originated from R6.  When R3 receives the first\n   request with red thread,\
+    \ R3 forwards it with (re,3,253) without\n   changing thread color, since both\
+    \ the receiving incoming link and the\n   outgoing link are newly created.  Then\
+    \ R3 receives the second request\n   with blue thread.  In this time, the outgoing\
+    \ link is already exists.\n   Thus, R3 performs thread extending with changing\
+    \ color, i.e., creates\n   a new brown thread and forwards the request with (br,4,255).\n\
+    \   When R2 receives the request from R10 with (re,6,250), it finds that\n   the\
+    \ red thread forms a loop, and stalls the red thread.  Then, R2\n   creates a\
+    \ purple thread of hop count unknown and extends it\n   downstream by sending\
+    \ a request with (pu,U,255) to R3, where \"U\"\n   represents \"unknown\".\n \
+    \  After that, R2 receives another request from R10 with (br,7,252).\n   The brown\
+    \ thread is merged into purple thread.  R2 sends no request\n   to R3.\n   On\
+    \ the other hand, the purple thread goes round without changing\n   color through\
+    \ existing links, and R2 finds the thread loop and stalls\n   the purple thread.\
+    \  Since the received thread hop count is unknown,\n   no thread is created any\
+    \ more.  In this case no thread rewinding\n   occurs.  The current state of the\
+    \ network is shown in Fig.15.\n           *: location of thread stalling\n   \
+    \                                   (pu,U)\n               R11 ------- R10 <--------------------\
+    \ R9\n                |           |                         ^\n              \
+    \  |           |(pu,U)*                  |\n                |           |    \
+    \                     |(pu,U)\n                v           v                 \
+    \        |\n                R1 -------> R2 --------> R3 --------> R4 ---------\
+    \ R5\n              [leaf] (re,1)      (pu,U)  ^  (pu,U)\n                   \
+    \                      |\n                                         | (bl,3)\n\
+    \                                         |\n                R6 -------> R7 -------->\
+    \ R8\n              [leaf] (bl,1)      (bl,2)\n                            Fig.15\
+    \  The network state\n   Then R10 changes its next hop from R2 to R11.\n   Since\
+    \ R10 has a purple thread on the old downstream link, it first\n   sends a path\
+    \ teardown message to the old next hop R2 for withdrawing\n   the purple thread.\
+    \  Next, it creates a green thread of hop count\n   unknown and sends a request\
+    \ with (gr,U,255) to R11.\n   When R2 receives the teardown message from R10,\
+    \ R2 removes the\n   stalled incoming link between R10 and R2.\n   On the other\
+    \ hand, the green thread reaches R1 and Hmax is updated\n   from zero to unknown.\
+    \  In this case, R1 performs thread extending\n   with changing color since the\
+    \ thread is received on a new incoming\n   link but extended on the already existing\
+    \ outgoing link.  As a\n   result, R1 creates an orange thread of hop count unknown\
+    \ and extend\n   it to R2.\n   The orange thread goes round through existing links\
+    \ without changing\n   color, and finally it is stalled at R1.\n   The state of\
+    \ the network is now shown in Fig.16.\n           *: location of thread stalling\n\
+    \                    (or,U)             (or,U)\n               R11 <------ R10\
+    \ <-------------------- R9\n                |           |                    \
+    \     ^\n                |(or,U)*    |                         |\n           \
+    \     |           |                         |(or,U)\n                v       \
+    \    |                         |\n                R1 -------> R2 --------> R3\
+    \ --------> R4 --------- R5\n              [leaf] (or,U)      (or,U)  ^  (or,U)\n\
+    \                                         |\n                                \
+    \         | (bl,3)\n                                         |\n             \
+    \   R6 -------> R7 --------> R8\n              [leaf] (bl,1)      (bl,2)\n   \
+    \                         Fig.16  The network state\n   Then R4 changes its next\
+    \ hop from R9 to R5.\n   Since R4 is extending an orange thread, it first sends\
+    \ a teardown\n   message to the old next hop R9 to withdraw the orange thread\
+    \ on the\n   old route.  Next, it creates a yellow thread of hop count unknown,\n\
+    \   and sends a request message with (ye,U,255) to R5.\n   Since R5 is the egress\
+    \ node, the yellow thread rewinding starts.  R5\n   returns a label mapping message.\
+    \  The thread rewinding procedure is\n   performed at each node, as the label\
+    \ mapping message is returned\n   upstream hop-by-hop.\n   If R1 receives a label\
+    \ mapping message before receiving the orange\n   thread's withdrawal from R11,\
+    \ R1 returns a label mapping message to\n   R11.  On receiving the orange thread's\
+    \ withdrawal, R1 will create a\n   transparent thread and extend it by sending\
+    \ an update message with\n   (tr,1,255) in order to notify downstream of the known\
+    \ hop count.\n   Otherwise, if R1 receives the orange thread's withdrawal before\n\
+    \   receiving a label mapping message, R1 removes the stalled incoming\n   orange\
+    \ link and waits for rewinding of the outgoing orange thread.\n   Finally, when\
+    \ R1 receives a label mapping message from R2, it creates\n   a transparent thread\
+    \ (tr,1,255) and extend it downstream.\n   In both cases, a merged LSP ((R1->R2),(R6->R7->R8))->R3->R4->R5)\
+    \ is\n   established and every node obtains the correct link hop count.  The\n\
+    \   final network state is shown in Fig.17.\n               R11 <------ R10 <--------------------\
+    \ R9\n                |           |                         |\n              \
+    \  |           |                         |\n                |           |    \
+    \                     |\n                v           |                       \
+    \  |\n                R1 -------> R2 --------> R3 --------> R4 --------> R5\n\
+    \              [leaf] (tr,1)      (tr,2)  ^  (tr,4)        (tr,5)\n          \
+    \                               |\n                                         |\
+    \ (tr,3)\n                                         |\n                R6 ------->\
+    \ R7 --------> R8\n              [leaf] (tr,1)      (tr,2)\n                 \
+    \      Fig.17  The final network state\n"
+- title: 7.2.  Second example
+  contents:
+  - "7.2.  Second example\n                          +----- R6----> R7-----+\n   \
+    \                       |                     |\n                          | \
+    \                    v\n                   R1---->R2                    R4----->R5\n\
+    \                          |                     ^\n                         \
+    \ |                     |\n                          +--------->R3---------+\n\
+    \                   Fig.18   Example MPLS network (2)\n   Assume that in Fig.18,\
+    \ there is an established LSP R1->R2->R3->R4-\n   >R5, and the next hop changes\
+    \ at R2 from R3 to R6.  R2 sends a\n   request to R6 with a red thread (re,2,255).\
+    \  When the request with\n   (re,4,253) reaches R4, it extends the thread to R5\
+    \ with changing\n   color.  Thus, a new green thread is created at R4 and extended\
+    \ to R5\n   by sending an update message with (gr,5,255).\n   When R5 receives\
+    \ the update, it updates the incoming link hop count\n   to 5 and returns an ack\
+    \ (or a notification message with a success\n   code) for the update.  When R4\
+    \ receives the ack for the update, it\n   returns a label mapping message to R7.\n\
+    \   When R2 receives the label mapping message on the new route, it sends\n  \
+    \ a teardown message to R3.  When R4 receives the teardown message, it\n   does\
+    \ not sends an update to R5 since Hmax does not change.  Now an\n   established\
+    \ LSP R1->R2->R6->R7->R4->R5 is obtained.\n   Then, the next hop changes again\
+    \ at R2 from R6 to R3.\n   R2 sends a request with a blue thread (bl,2,255) to\
+    \ R3.  R3 forwards\n   the request with (bl,3,254) to R4.\n   When R4 receives\
+    \ the request, it immediately returns a label mapping\n   message to R3 since\
+    \ Hmax does not change.\n   When R2 receives the label mapping message on the\
+    \ new route, it sends\n   a teardown message to R6.  The teardown message reaches\
+    \ R4,\n   triggering an update message with a transparent thread (tr,4,255) to\n\
+    \   R5, since Hmax decreases from 4 to 3.  R5 updates the incoming link\n   hop\
+    \ count to 4 without returning an ack.\n"
+- title: 8. Thread control block
+  contents:
+  - "8. Thread control block\n   A thread control block (TCB) is maintained per LSP\
+    \ at each node and\n   may contain the following information:\n         - FEC\n\
+    \         - State\n         - Incoming links\n             Each incoming link\
+    \ has the following attributes:\n               o  neighbor: upstream neighbor\
+    \ node address\n                 o  color: received thread color\n           \
+    \      o  hop count: received thread hop count\n               o  label\n    \
+    \           o  S-flag: indicates a stalled link\n         - Outgoing links\n \
+    \            Each outgoing link has the following attributes:\n              \
+    \ o  neighbor: downstream neighbor node address\n                 o  color: received\
+    \ thread color\n                 o  hop count: received thread hop count\n   \
+    \            o  label\n               o  C-flag: indicates the link to the current\
+    \ next hop\n   If a transparent thread is received on an incoming link for which\
+    \ no\n   label is assigned yet or a non-transparent color is stored, discard\n\
+    \   the thread without entering the FSM.  An error message may be\n   returned\
+    \ to the sender.\n   Whenever a thread is received on an incoming link, the following\n\
+    \   actions are taken before entering the FSM: (1) Store the received\n   thread\
+    \ color and hop count on the link, replacing the old thread\n   color and hop\
+    \ count, and (2) set the following flags that are used\n   for an event switch\
+    \ within \"Recv thread\" event (see section 8.1).\n      o  Color flag (CL-flag):\n\
+    \            Set if the received thread is colored.\n      o  Loop flag (LP-flag):\n\
+    \            Set if the received thread forms a loop.\n      o  Arrived on new\
+    \ link flag (NL-flag):\n            Set if the received thread arrives on a new\
+    \ incoming link.\n   If LP-flag is set, there must be an incoming link L, other\
+    \ than the\n   receiving link, which stores the same thread color as the received\n\
+    \   one.  The TCB to which link L belongs is referred to as the\n   \"detecting\
+    \ TCB\".  If the receiving LSR is VC-merge capable, the\n   detecting TCB and\
+    \ the receiving TCB is the same, otherwise, the two\n   TCBs are different.\n\
+    \   Before performing a thread extending, the thread TTL is decremented\n   by\
+    \ one.  If the resulting TTL becomes zero, the thread is not\n   extended but\
+    \ silently discarded.  Otherwise, the thread is extended\n   and the extended\
+    \ thread hop count and color are stored into the\n   outgoing link.\n   When a\
+    \ node receives a thread rewinding event, if the received thread\n   color and\
+    \ the extending thread color are different, it discards the\n   event without\
+    \ entering the FSM.\n"
+- title: 8.1. Finite state machine
+  contents:
+  - "8.1. Finite state machine\n   An event which is \"scheduled\" by an action in\
+    \ an FSM must be passed\n   immediately after the completion of the action.\n\
+    \   The following variables are used in the FSM:\n      o  Ni: number of unstalled\
+    \ incoming links\n      o  Hmax: largest incoming hop count\n      o  Hout: hop\
+    \ count of the outgoing link for the current next hop\n      o  Hrec: hop count\
+    \ of the received thread\n   In the FSM, if Hmax=unknown, the value for (Hmax+1)\
+    \ becomes the value\n   reserved for unknown hop count plus 1.  For example, if\n\
+    \   Hmax=unknown=255, the value (Hmax+1) becomes 256.\n   A TCB has three states;\
+    \ Null, Colored, and Transparent.  When a TCB\n   is in state Null, there is no\
+    \ outgoing link and Ni=0.  The state\n   Colored means that the node is extending\
+    \ a colored thread on the\n   outgoing link for the current next hop.  The state\
+    \ Transparent means\n   that the node is the egress node or the outgoing link\
+    \ is transparent.\n   The flag value \"1\" represents the flag is set, \"0\" represents\
+    \ the\n   flag is not set, and \"*\" means the flag value is either 1 or 0.\n\
+    \   The FSM allows to have one transparent outgoing link on the old next\n   hop\
+    \ and one colored outgoing link on the current next hop.  However,\n   it is not\
+    \ allowed to have a colored outgoing link on the old next\n   hop.\n   State Null:\n\
+    \ Event         Action                                          New state\n Recv\
+    \ thread\n   Flags\n  CL LP NL\n  0  *  *      Do nothing.                   \
+    \                  No change\n  1  0  *      If the node is egress, start thread\
+    \ rewinding Transparent\n               and change the color of the receiving\
+    \ link to\n               transparent.\n               Otherwise, extend the received\
+    \ thread without   Colored\n               changing color.\n  1  1  *      Stall\
+    \ the received thread; if Hrec<unknown,     No change\n               schedule\
+    \ \"Reset to unknown\" event for the\n               detecting TCB.\n Next hop\
+    \      If eligible-leaf, create a colored thread and   Colored\n acquisition \
+    \  extend it.\n Others        Silently ignore the event.                     \
+    \ No change\n"
+- title: 'State Colored:'
+  contents:
+  - "State Colored:\n Event         Action                                       \
+    \   New state\n Recv thread\n     Flags\n   CL LP NL\n   0  *  *     If Hmax+1<Hout<unknown,\
+    \ create a colored        No change\n               thread and extend it.  Otherwise,\
+    \ do nothing.\n   1  0  *     If Hmax<Hout, merge the received thread.       \
+    \ No change\n               Otherwise, extend the thread with (if NL=1)\n    \
+    \           or without (if NL=0) changing color.\n   1  1  *     Stall the received\
+    \ thread.\n               If Ni=0 and the node is not an eligible leaf,   Null\n\
+    \               initiate thread withdrawing.\n               If Ni>0 and Hrec<unknown,\
+    \ schedule \"Reset to    No change\n               unknown\" event for the detecting\
+    \ TCB.\n               Otherwise, do nothing.                          No change\n\
+    \ Rewound       Propagate thread rewinding to previous hops   Transparent\n  \
+    \             that are extending a colored thread; change\n               the\
+    \ colors stored in all incoming and outgoing\n               links to transparent;\
+    \ if Hmax+1<Hout, extend\n               transparent thread.  Withdraw the thread\
+    \ on\n               the outgoing link for which C-flag=0.\n Withdrawn     Remove\
+    \ the corresponding incoming link.\n               If Ni=0 and the node is not\
+    \ an eligible leaf,   Null\n               propagate thread withdrawing to all\
+    \ next hops.\n               Otherwise, if Hmax+1<Hout<unknown, create       No\
+    \ change\n               a colored thread and extend it.\n               Otherwise,\
+    \ do nothing.                          No change\n Next hop      If there is already\
+    \ an outgoing link for the  Transparent\n acquisition   next hop, do nothing.\
+    \  (This case happens only\n               when the node retains the old path.)\n\
+    \               Otherwise, create a colored thread and extend   No change\n  \
+    \             it.\n Next hop      If the outgoing link is transparent and the\
+    \     No change\n loss          node is allowed to retain the link and the\n \
+    \              next hop is alive, do nothing.\n               Otherwise, take\
+    \ the following actions.\n               Initiate thread withdrawing for the next\
+    \ hop;\n               if the node becomes a new egress, schedule\n          \
+    \     \"Rewound\" event for this TCB.\n               If Ni=0, move to Null. \
+    \                         Null\n               Otherwise, do nothing.        \
+    \                  No change\n Reset to      Create a colored thread of hop count\
+    \ unknown    No change\n unknown       and extend it.\n Others        Silently\
+    \ ignore the event.                      No change\n"
+- title: 'State Transparent:'
+  contents:
+  - "State Transparent:\n Event          Action                                  \
+    \       New state\n Recv thread\n    Flags\n   CL LP NL\n   0  *  *     If Hmax+1<Hout,\
+    \ extend a transparent thread.    No change\n   1  0  *     If the node is egress\
+    \ or if Hmax<Hout, change   No change\n               the color of the receiving\
+    \ link to transparent\n               and start thread rewinding.\n          \
+    \     Otherwise, extend the thread with (if NL=1)     Colored\n              \
+    \ or without (if NL=0) changing color.\n Withdrawn     Remove the corresponding\
+    \ incoming link.\n               If Ni=0 and the node is not an eligible leaf,\
+    \   Null\n               propagate thread withdrawing to next hops.\n        \
+    \       Otherwise, if Hmax+1<Hout, create               No change\n          \
+    \     a transparent thread and extend it.\n               Otherwise, do nothing.\
+    \                          No change\n Next hop      Create a colored thread and\
+    \ extend it.          Colored\n acquisition\n Next hop      If the node is allowed\
+    \ to retain the outgoing   No change\n loss          link and the next hop is\
+    \ alive, do nothing.\n               Otherwise, take the following actions.\n\
+    \               Initiate thread withdrawing.\n               If Ni=0, move to\
+    \ Null.                          Null\n               Otherwise, do nothing. \
+    \                         No change\n Others        Silently ignore the event.\
+    \                      No change\n"
+- title: 9.  Comparison with path-vector/diffusion method
+  contents:
+  - "9.  Comparison with path-vector/diffusion method\n   o  Whereas the size of the\
+    \ path-vector increases with the length of\n      the LSP, the sizes of the threads\
+    \ are constant.  Thus the size\n      of messages used by the thread algorithm\
+    \ are unaffected by the\n      network size or topology.  In addition, the thread\
+    \ merging\n      capability reduces the number of outstanding messages.  These\n\
+    \      lead to improved scalability.\n   o  In the thread algorithm, a node which\
+    \ is changing its next hop\n      for a particular LSP must interact only with\
+    \ nodes that are\n      between it and the LSP egress on the new path.  In the\n\
+    \      path-vector algorithm, however, it is necessary for the node to\n     \
+    \ initiate a diffusion computation that involves nodes which do\n      not lie\
+    \ between it and the LSP egress.\n      This characteristic makes the thread algorithm\
+    \ more robust.  If\n      a diffusion computation is used, misbehaving nodes which\
+    \ aren't\n      even in the path can delay the path setup.  In the thread\n  \
+    \    algorithm, the only nodes which can delay the path setup are\n      those\
+    \ nodes which are actually in the path.\n   o  The thread algorithm is well suited\
+    \ for use with both the\n      ordered downstream-on-demand allocation and ordered\
+    \ downstream\n      allocation.  The path-vector/diffusion algorithm, however,\
+    \ is\n      tightly coupled with the ordered downstream allocation.\n   o  The\
+    \ thread algorithm is retry-free, achieving quick path\n      (re)configuration.\
+    \  The diffusion algorithm tends to delay the\n      path reconfiguration time,\
+    \ since a node at the route change\n      point must to consult all its upstream\
+    \ nodes.\n   o  In the thread algorithm, the node can continue to use the old\n\
+    \      path if there is an L3 loop on the new path, as in the\n      path-vector\
+    \ algorithm.\n"
+- title: 10.  Security Considerations
+  contents:
+  - "10.  Security Considerations\n   The use of the procedures specified in this\
+    \ document does not have\n   any security impact other than that which may generally\
+    \ be present\n   in the use of any MPLS procedures.\n"
+- title: 11.  Intellectual Property Considerations
+  contents:
+  - "11.  Intellectual Property Considerations\n   Toshiba and/or Cisco may seek patent\
+    \ or other intellectual property\n   protection for some of the technologies disclosed\
+    \ in this document.\n   If any standards arising from this document are or become\
+    \ protected\n   by one or more patents assigned to Toshiba and/or Cisco, Toshiba\n\
+    \   and/or Cisco intend to disclose those patents and license them on\n   reasonable\
+    \ and non-discriminatory terms.\n"
+- title: 12.  Acknowledgments
+  contents:
+  - "12.  Acknowledgments\n   We would like to thank Hiroshi Esaki, Bob Thomas, Eric\
+    \ Gray, and\n   Joel Halpern for their comments.\n"
+- title: 13.  Authors' Addresses
+  contents:
+  - "13.  Authors' Addresses\n   Yoshihiro Ohba\n   Toshiba Corporation\n   1, Komukai-Toshiba-cho,\
+    \ Saiwai-ku\n   Kawasaki 210-8582, Japan\n   EMail: yoshihiro.ohba@toshiba.co.jp\n\
+    \   Yasuhiro Katsube\n   Toshiba Corporation\n   1, Toshiba-cho, Fuchu-shi,\n\
+    \   Tokyo, 183-8511, Japan\n   EMail: yasuhiro.katsube@toshiba.co.jp\n   Eric\
+    \ Rosen\n   Cisco Systems, Inc.\n   250 Apollo Drive\n   Chelmsford, MA, 01824\n\
+    \   EMail: erosen@cisco.com\n   Paul Doolan\n   Ennovate Networks\n   330 Codman\
+    \ Hill Rd\n   Marlborough MA 01719\n   EMail: pdoolan@ennovatenetworks.com\n"
+- title: 14.  References
+  contents:
+  - "14.  References\n   [1] Callon, R., et al., \"A Framework for Multiprotocol Label\n\
+    \       Switching\", Work in Progress.\n   [2] Davie, B., Lawrence, J., McCloghrie,\
+    \ K., Rosen, E., Swallow, G.,\n       Rekhter, Y. and P. Doolan, \"MPLS using\
+    \ LDP and ATM VC Switching\",\n       RFC 3035, January 2001.\n   [3] Rosen, E.,\
+    \ et al., \"A Proposed Architecture for MPLS\", Work in\n       Progress.\n  \
+    \ [4] Andersson, L., Doolan, P., Feldman, N., Fredette, A. and B.\n       Thomas,\
+    \ \"LDP Specification\", RFC 3036, January 2001.\n"
+- title: Appendix A - Further discussion of the algorithm
+  contents:
+  - "Appendix A - Further discussion of the algorithm\n   The purpose of this appendix\
+    \ is to give a more informal and tutorial\n   presentation of the algorithm, and\
+    \ to provide some of the motivation\n   for it.  For the precise specification\
+    \ of the algorithm, the FSM\n   should be taken as authoritative.\n   As in the\
+    \ body of the document, we speak as if there is only one LSP;\n   otherwise we\
+    \ would always be saying \"... of the same LSP\".  We also\n   consider only the\
+    \ case where the algorithm is used for loop\n   prevention, rather than loop detection.\n"
+- title: A.1. Loop Prevention the Brute Force Way
+  contents:
+  - "A.1. Loop Prevention the Brute Force Way\n   As a starting point, let's consider\
+    \ an algorithm which we might call\n   \"loop prevention by brute force\".  In\
+    \ this algorithm, every path\n   setup attempt must go all the way to the egress\
+    \ and back in order for\n   the path to be setup.  This algorithm is obviously\
+    \ loop-free, by\n   virtue of the fact that the setup messages actually made it\
+    \ to the\n   egress and back.\n   Consider, for example, an existing LSP B-C-D-E\
+    \ to egress node E.  Now\n   node A attempts to join the LSP.  In this algorithm,\
+    \ A must send a\n   message to B, B to C, C to D, D to E.  Then messages are sent\
+    \ from E\n   back to A.  The final message, from B to A, contains a label binding,\n\
+    \   and A can now join the LSP, knowing that the path is loop-free.\n   Using\
+    \ our terminology, we say that A created a thread and extended it\n   downstream.\
+    \  The thread reached the egress, and then rewound.\n   We needn't assume, in\
+    \ the above example, that A is an ingress node.\n   It can be any node which acquires\
+    \ or changes its next hop for the LSP\n   in question, and there may be nodes\
+    \ upstream of it which are also\n   trying to join the LSP.\n   It is clear that\
+    \ if there is a loop, the thread never reaches the\n   egress, so it does not\
+    \ rewind.  What does happen?  The path setup\n   messages just keep traveling\
+    \ around the loop.  If one keeps a hop\n   count in them, one can ensure that\
+    \ they stop traveling around the\n   loop when the hop count reaches a certain\
+    \ maximum value.  That is,\n   when one receives a path setup message with that\
+    \ the maximum hop\n   count value, one doesn't send a path setup message downstream.\n\
+    \   How does one recover from this situation of a looping thread?  In\n   order\
+    \ for L3 routing to break the loop, some node in the loop MUST\n   experience\
+    \ a next hop change.  This node will withdraw the thread\n   from its old next\
+    \ hop, and extend a thread down its new next hop.  If\n   there is no longer a\
+    \ loop, this thread now reaches the egress, and\n   gets rewound.\n"
+- title: A.2. What's Wrong with the Brute Force Method?
+  contents:
+  - "A.2. What's Wrong with the Brute Force Method?\n   Consider this example:\n \
+    \               A\n                |\n                B--D--E\n              \
+    \  |\n                C\n   If A and C both attempt to join the established B-D-E\
+    \ path, then B\n   and D must keep state for both path setup attempts, the one\
+    \ from A\n   and the one from C.  That is, D must keep track of two threads, the\n\
+    \   A-thread and the C-thread.  In general, there may be many more nodes\n   upstream\
+    \ of B who are attempting to join the established path, and D\n   would need to\
+    \ keep track of them all.\n   If VC merge is not being used, this isn't actually\
+    \ so bad.  Without\n   VC merge, D really must support one LSP for each upstream\
+    \ node\n   anyway.  If VC merge is being used, however, supporting an LSP\n  \
+    \ requires only that one keep state for each upstream link.  It would\n   be advantageous\
+    \ if the loop prevention technique also required that\n   the amount of state\
+    \ kept by a node be proportional to the number of\n   upstream links which thenode\
+    \ has, rather than to the number of nodes\n   which are upstream in the LSP.\n\
+    \   Another problem is that if there is a loop, the setup messages keep\n   looping.\
+    \  Even though a thread has traversed some node twice, the\n   node has no way\
+    \ to tell that a setup message it is currently\n   receiving is part of the same\
+    \ thread as some setup message it\n   received in the past.\n   Can we modify\
+    \ this brute force scheme to eliminate these two\n   problems?  We can.  To show\
+    \ how to do this, we introduce two notions:\n   thread hop count, and thread color.\n"
+- title: A.3. Thread Hop Count
+  contents:
+  - "A.3. Thread Hop Count\n   Suppose every link in an LSP tree is labeled with the\
+    \ number of hops\n   you would traverse if you were to travel backwards (upstream)\
+    \ from\n   that link to the leaf node which is furthest upstream of the link.\n\
+    \   For example, the following tree would  have its links labeled as\n   follows:\n\
+    \         1   2\n       A---B---C       K\n               |       |\n        \
+    \       |3      |1\n               |       |\n               | 4   5 | 6   7\n\
+    \               D---G---H---I---J\n               |\n               |2\n     \
+    \        1 |\n           E---F\n   Call these the \"link hop counts\".\n   Links\
+    \ AB, EF, KH are labeled one, because you can go only one hop\n   upstream from\
+    \ these links.  Links BC, and FD are labeled 2, because\n   you can go 2 hops\
+    \ upstream from these links.  Link DG is labeled 4,\n   because it is possible\
+    \ to travel 4 hops upstream from this link, etc.\n   Note that at any node, the\
+    \ hop count associated with the downstream\n   link is one more than the largest\
+    \ of the hop counts associated with\n   the upstream links.\n   Let's look at\
+    \ a way to maintain these hop counts.\n   In order to maintain the link hop counts,\
+    \ we need to carry hop counts\n   in the path setup messages.  For instance, a\
+    \ node which has no\n   upstream links would assign a hop count of 1 to its downstream\
+    \ link,\n   and would store that value into the path setup messages it sends\n\
+    \   downstream.  Once the value is stored in a path setup message, we may\n  \
+    \ refer to it has a \"thread hop count\".\n   When a path setup message is received,\
+    \ the thread hop count is stored\n   as the link hop count of the upstream link\
+    \ over which the message was\n   received.\n   When a path setup message is sent\
+    \ downstream, the downstream link's\n   hop count (and the thread hop count) is\
+    \ set to be one more than the\n   largest of the incoming link hop counts.\n \
+    \  Suppose a node N has some incoming links and an outgoing link, with\n   hop\
+    \ counts all set properly, and N now acquires a new incoming link.\n   If, and\
+    \ only if, the link hop count of the new incoming link is\n   greater than that\
+    \ of all of the existing incoming links, the\n   downstream link hop count must\
+    \ be changed.  In this case, control\n   messages must be sent downstream carrying\
+    \ the new, larger thread hop\n   count.\n   If, on the other hand, N acquires\
+    \ a new incoming link with a link hop\n   count that is less than or equal to\
+    \ the link hop count of all\n   existing incoming links, the downstream link hop\
+    \ count remains\n   unchanged, and no messages need be sent downstream.\n   Suppose\
+    \ N loses the incoming link whose hop count was the largest of\n   any of the\
+    \ incoming links.  In this case, the downstream link hop\n   count must be made\
+    \ smaller, and messages need to be sent downstream\n   to indicate this.\n   Suppose\
+    \ we were not concerned with loop prevention, but only with the\n   maintenance\
+    \ of the hop counts.  Then we would adopt the following\n   rules to be used by\
+    \ merge points:\n"
+- title: A.3.1   When a new incoming thread is received, extend it downstream if
+  contents:
+  - "A.3.1   When a new incoming thread is received, extend it downstream if\n   and\
+    \ only if its hop count is the largest of all incoming threads.\n"
+- title: A.3.2   Otherwise, rewind the thread.
+  contents:
+  - 'A.3.2   Otherwise, rewind the thread.
+
+    '
+- title: A.3.3   An egress node would, of course, always rewind the thread.
+  contents:
+  - 'A.3.3   An egress node would, of course, always rewind the thread.
+
+    '
+- title: A.4. Thread Color
+  contents:
+  - "A.4. Thread Color\n   Nodes create new threads as a result of next hop changes\
+    \ or next hop\n   acquisitions.  Let's suppose that every time a thread is created\
+    \ by a\n   node, the node assigns a unique \"color\" to it.  This color is to\
+    \ be\n   unique in both time and space: its encoding consists of an IP address\n\
+    \   of the node concatenated with a unique event identifier from a\n   numbering\
+    \ space maintained by the node.  The path setup messages that\n   the node sends\
+    \ downstream will contain this color.  Also, when the\n   node sends such a message\
+    \ downstream, it will remember the color, and\n   this color becomes the color\
+    \ of the downstream link.\n   When a colored message is received, its color becomes\
+    \ the color of\n   the incoming link.  The thread which consists of messages of\
+    \ a\n   certain color will be known as a thread of that color.\n   When a thread\
+    \ is rewound (and a path set up), the color is removed.\n   The links become transparent,\
+    \ and we will sometimes speak of an\n   established LSP as being a \"transparent\
+    \ thread\".\n   Note that packets cannot be forwarded on a colored link, but only\
+    \ on\n   a transparent link.\n   Note that if a thread loops, some node will see\
+    \ a message, over a\n   particular incoming link, with a color that the node has\
+    \ already seen\n   before.  Either the node will have originated the thread of\
+    \ that\n   color, or it will have a different incoming link which already has\n\
+    \   that color.  This fact can be used to prevent control messages from\n   looping.\
+    \  However, the node would be required to remember the colors\n   of all the threads\
+    \ passing through it which have not been rewound or\n   withdrawn.  (I.e., it\
+    \ would have to remember a color for each path\n   setup in progress.)\n"
+- title: A.5. The Relation between Color and Hop Count
+  contents:
+  - "A.5. The Relation between Color and Hop Count\n   By combining the color mechanism\
+    \ and the hop count mechanism, we can\n   prevent loops without requiring any\
+    \ node to remember more than one\n   color and one hop count per link for each\
+    \ LSP.\n   We have already stated that in order to maintain the hop counts, a\n\
+    \   node needs to extend only the thread which has the largest hop count\n   of\
+    \ any incoming thread.  Now we add the following rule:\n"
+- title: A.5.1   When extending an incoming thread downstream, that thread's
+  contents:
+  - "A.5.1   When extending an incoming thread downstream, that thread's\n   color\
+    \ is also passed downstream (I.e., the downstream link's color\n   will be the\
+    \ same as the color of the upstream link with largest hop\n   count.)\n   Note\
+    \ that at a given node, the downstream link is either transparent\n   or it has\
+    \ one and only one color.\n"
+- title: A.5.2   If a link changes color, there is no need to remember the old
+  contents:
+  - "A.5.2   If a link changes color, there is no need to remember the old\n   color.\n\
+    \   We now define the concept of \"thread merging\":\n"
+- title: A.5.2   Suppose a colored thread arrives at a node over an incoming
+  contents:
+  - "A.5.2   Suppose a colored thread arrives at a node over an incoming\n   link,\
+    \ the node already has an incoming thread with the same or larger\n   hop count,\
+    \ and the node has an outgoing colored thread.  In this\n   case, we may say that\
+    \ the new incoming thread is \"merged\" into the\n   outgoing thread.\n   Note\
+    \ that when an incoming thread is merged into an outgoing thread,\n   no messages\
+    \ are sent downstream.\n"
+- title: A.6. Detecting Thread Loops
+  contents:
+  - "A.6. Detecting Thread Loops\n   It can now be shown that if there is a loop,\
+    \ there will always either\n   be some node which gets two incoming threads of\
+    \ the same color, or\n   the colored thread will return to its initiator.  In\
+    \ this section, we\n   give several examples that may provide an intuitive understanding\
+    \ of\n   how the thread loops are detected.\n         1   2\n       A---B---C\
+    \       K\n               |       |\n               |3      |1\n             \
+    \  |       |\n               | 4   5 | 6   7\n               D---G---H---I---J\n\
+    \               |\n               |2\n             1 |\n           E---F\n   Returning\
+    \ to our previous example, let's set what would happen if H\n   changed its next\
+    \ hop from I to E.  H now creates a new thread, and\n   assigns it a new color,\
+    \ say, red.  Since H has two incoming link,\n   with hop counts 1 and 5 respectively,\
+    \ it assigns hop count 6 to its\n   new downstream link, and attempts a path setup\
+    \ through E.\n   E now has an incoming red thread with hop count 6.  Since E's\n\
+    \   downstream link hop count is now only 1, it must extend the red\n   thread\
+    \ to F, with hop count 7.  F then extends the red thread to D\n   with hop count\
+    \ 8, D to G with hop count 9, and G to H with hop count\n   10.\n   The red thread\
+    \ has now returned to its initiator, and the loop is\n   detected.\n   Suppose\
+    \ though that before the red thread makes it back to H, G\n   changes its next\
+    \ hop from H to E.  Then G will extend the red thread\n   to E.  But E already\
+    \ has an incoming red link (from H), so the loop\n   is detected.\n   Let's now\
+    \ define the notion of a \"stalled thread\".  A stalled thread\n   is a thread\
+    \ which is merged into the outgoing thread, even though the\n   outgoing thread\
+    \ has a smaller link hop count.\n   When a thread loop is detected, the thread\
+    \ becomes stalled.\n"
+- title: A.6.1   When a loop is detected due to a thread of a particular color
+  contents:
+  - "A.6.1   When a loop is detected due to a thread of a particular color\n   traversing\
+    \ some node twice, we will say that the thread is \"stalled\"\n   at the node.\
+    \  More precisely, it is the second appearance of the\n   thread which is stalled.\
+    \  Note that we say that a thread is\n   traversing a node twice if the thread\
+    \ is received by that node on an\n   incoming link, but either there is another\
+    \ incoming link with the\n   same color, or the color is one that was assigned\
+    \ by the node itself.\n"
+- title: A.7. Preventing the Setup of Looping LSPS
+  contents:
+  - "A.7. Preventing the Setup of Looping LSPS\n   The mechanism to be used for preventing\
+    \ the setup of looping LSPs\n   should now be obvious.  If node M is node N's\
+    \ next hop, and N wishes\n   to set up an LSP (or to merge into an LSP which already\
+    \ exists at M),\n   then N extends a thread to M.\n   M first checks to see if\
+    \ the thread forms a loop (see Appendix A.6),\n   and if so, the thread is stalled.\
+    \  If not, the following procedure is\n   followed.\n"
+- title: 'A.7.1   If M receives this thread, and M has a next hop, and either:'
+  contents:
+  - "A.7.1   If M receives this thread, and M has a next hop, and either:\n   -  M\
+    \ has no outgoing thread\n   -  the incoming thread hop count is larger than the\
+    \ hop count of all\n      other incoming threads,\n   then M must extend the thread\
+    \ downstream.\n"
+- title: A.7.2   On the other hand, if M receives this thread, and M has a next
+  contents:
+  - "A.7.2   On the other hand, if M receives this thread, and M has a next\n   hop\
+    \ and there is another incoming thread with a larger hop count,\n   then:\n"
+- title: A.7.2.1 if the outgoing thread is transparent, M rewinds the new
+  contents:
+  - "A.7.2.1 if the outgoing thread is transparent, M rewinds the new\n   incoming\
+    \ thread.\n"
+- title: A.7.2.2 if the outgoing thread is colored, M merges the new incoming
+  contents:
+  - "A.7.2.2 if the outgoing thread is colored, M merges the new incoming\n   thread\
+    \ into the outgoing thread, but does not send any messages\n   downstream.\n"
+- title: A.7.3   If M has not already assigned a label to N, it will assign one
+  contents:
+  - "A.7.3   If M has not already assigned a label to N, it will assign one\n   when,\
+    \ and only when, M rewinds the thread which N has extended to it.\n"
+- title: A.7.4   If M merges the new thread into an existing colored outgoing
+  contents:
+  - "A.7.4   If M merges the new thread into an existing colored outgoing\n   thread,\
+    \ then the new incoming thread will rewind when, and only when,\n   the outgoing\
+    \ thread rewinds.\n"
+- title: A.8. Withdrawing Threads
+  contents:
+  - 'A.8. Withdrawing Threads
+
+    '
+- title: A.8.1   If a particular node has a colored outgoing thread, and loses or
+  contents:
+  - "A.8.1   If a particular node has a colored outgoing thread, and loses or\n  \
+    \ changes its next hop, it withdraws the outgoing thread.\n   Suppose that node\
+    \ N is immediately upstream of node M, and that N has\n   extended a thread to\
+    \ M.  Suppose further that N then withdraws the\n   thread.\n"
+- title: A.8.2   If M has another incoming thread with a larger hop count, then M
+  contents:
+  - "A.8.2   If M has another incoming thread with a larger hop count, then M\n  \
+    \ does not send any messages downstream.\n"
+- title: A.8.3   However, if the withdrawn thread had the largest hop count of
+  contents:
+  - "A.8.3   However, if the withdrawn thread had the largest hop count of\n   any\
+    \ incoming thread, then M's outgoing thread will no longer have the\n   proper\
+    \ hop count and color.  Therefore:\n"
+- title: A.8.3.1 M must now extend downstream the incoming thread with the
+  contents:
+  - "A.8.3.1 M must now extend downstream the incoming thread with the\n   largest\
+    \ hop count.  (This will cause it to forget the old downstream\n   link hop count\
+    \ and color.)\n"
+- title: A.8.3.2 The other incoming threads are considered to be merged into the
+  contents:
+  - "A.8.3.2 The other incoming threads are considered to be merged into the\n   thread\
+    \ which is extended.\n"
+- title: A.8.4   When the last unstalled incoming thread is withdrawn, the
+  contents:
+  - "A.8.4   When the last unstalled incoming thread is withdrawn, the\n   outgoing\
+    \ thread must be withdrawn.\n"
+- title: A.9. Modifying Hop Counts and Colors of Existing Threads
+  contents:
+  - "A.9. Modifying Hop Counts and Colors of Existing Threads\n   We have seen the\
+    \ way in which the withdrawal of a thread may cause\n   hop count and color changes\
+    \ downstream.  Note that if the hop count\n   and/or color of an outgoing thread\
+    \ changes, then the hop count and\n   color of the corresponding incoming thread\
+    \ at the next hop will also\n   change.  This may result in a color and/or next\
+    \ hop change of the\n   outgoing thread at that next hop.\n"
+- title: A.9.1   Whenever there is a hop count change for any incoming thread, a
+  contents:
+  - "A.9.1   Whenever there is a hop count change for any incoming thread, a\n   node\
+    \ must determine whether the \"largest hop count of any incoming\n   thread\"\
+    \ has changed as a result.  If so, the outgoing thread's hop\n   count, and possibly\
+    \ color, will change as well, causing messages to\n   be sent downstream.\n"
+- title: A.10. When There is No Next Hop
+  contents:
+  - 'A.10. When There is No Next Hop
+
+    '
+- title: A.10.1  If a particular node has a colored incoming thread, but has no
+  contents:
+  - "A.10.1  If a particular node has a colored incoming thread, but has no\n   next\
+    \ hop (or loses its next hop), the incoming thread is stalled.\n"
+- title: A.11. Next Hop Changes and Pre-existing Colored Incoming Threads
+  contents:
+  - "A.11. Next Hop Changes and Pre-existing Colored Incoming Threads\n   It is possible\
+    \ that a node will experience a next hop change or a\n   next hop acquisition\
+    \ at a time when it has colored incoming threads.\n   This happens when routing\
+    \ changes before path setup is complete.\n"
+- title: A.11.1  If a node has a next hop change or a next hop acquisition at a
+  contents:
+  - "A.11.1  If a node has a next hop change or a next hop acquisition at a\n   time\
+    \ when it has colored incoming threads, it will create a thread\n   with a new\
+    \ color, but whose hop count is one more than the largest of\n   the incoming\
+    \ link hop counts.  It will then extend this thread\n   downstream.\n"
+- title: A.11.2  When this new thread is created and extended downstream, all
+  contents:
+  - "A.11.2  When this new thread is created and extended downstream, all\n   incoming\
+    \ threads are merged into it.  Any incoming threads that were\n   previously stalled\
+    \ are now considered to be \"merged\" rather than\n   \"stalled\".\n   That is,\
+    \ even though the outgoing thread has a different color than\n   any of the incoming\
+    \ threads, the pre-existing incoming threads are\n   all considered to have been\
+    \ merged into the new outgoing thread.\n   This means that when the outgoing thread\
+    \ rewinds, the incoming\n   threads will too.\n   Note: it is still required to\
+    \ distinguish stalled incoming links from\n   unstalled incoming links when thread\
+    \ withdrawing is performed.\n"
+- title: A.12. How Many Threads Run Around a Loop?
+  contents:
+  - "A.12. How Many Threads Run Around a Loop?\n   We have seen that when a loop is\
+    \ detected, the looping thread stalls.\n   However, considering the following\
+    \ topology:\n                   X--->A----->B<---Y\n                        ^\
+    \      |\n                        |      v\n                   W--->D<-----C<---Z\n\
+    \   In this example, there is a loop A-B-C-D-A.  However, there are also\n   threads\
+    \ entering the loop from X, Y, Z, and W.  Once the loop is\n   detected, there\
+    \ really is no reason why any other thread should have\n   to wrap around the\
+    \ loop.  It would be better to simply mark presence\n   of the loop in each node.\n\
+    \   To do this, we introduce the notion of the \"unknown\" hop count, U.\n   This\
+    \ hop count value is regarded as being larger than any other hop\n   count value.\
+    \  A thread with hop count U will be known as a \"U-\n   thread\".\n"
+- title: A.12.1  When an incoming thread with a known hop count stalls, and there
+  contents:
+  - "A.12.1  When an incoming thread with a known hop count stalls, and there\n  \
+    \ is an outgoing thread, we assign the hop count U to the outgoing\n   thread,\
+    \ and we assign a new color to the outgoing thread as well.\n   As a result, the\
+    \ next hop will then have an incoming U-thread, with\n   the newly assigned color.\
+    \  This causes its outgoing thread in turn to\n   be assigned hop count U and\
+    \ the new color.  The rules we have already\n   given will then cause each link\
+    \ in the loop to be assigned the new\n   color and the hop count U.  When this\
+    \ thread either reaches its\n   originator, or any other node which already has\
+    \ an incoming thread of\n   the same color, it stalls.\n   In our example above,\
+    \ this will cause the links AB, BC, CD, and DA to\n   be given hop count U.\n\
+    \   Now let's add one more rule:\n"
+- title: A.12.2  When a thread with a known hop count reaches a node that has a
+  contents:
+  - "A.12.2  When a thread with a known hop count reaches a node that has a\n   colored\
+    \ outgoing U-thread, the incoming thread merges into the\n   outgoing thread.\
+    \  (Actually, this is just a consequence of a rule\n   which has already been\
+    \ given, since U is greater than any known hop\n   count.)\n   Then if W, X, Y,\
+    \ or Z attempt to extend a thread to D, A, B, or C\n   respectively, those threads\
+    \ will immediately stall.  Once all the\n   links are marked as being within a\
+    \ loop, no other threads are\n   extended around the loop, i.e., no other setup\
+    \ messages will traverse\n   the loop.\n   Here is our example topology with the\
+    \ link hop counts that would\n   exist during a loop:\n                     1\
+    \     U      1\n                   X--->A----->B<---Y\n                      \
+    \  ^      |\n                      U |      |U\n                        |    \
+    \  v\n                   W--->D<-----C<---Z\n                     1      U   \
+    \  1\n"
+- title: A.13. Some Special Rules for Hop Count U
+  contents:
+  - "A.13. Some Special Rules for Hop Count U\n   When a U-thread encounters a thread\
+    \ with known hop count, the usual\n   rules apply, remembering that U is larger\
+    \ than any known hop count\n   value.\n   However, we need to add a couple of\
+    \ special rules for the case when a\n   U-thread encounters a U-thread.  Since\
+    \ we can't tell which of the two\n   U-threads is really the longer, we need to\
+    \ make sure that each of the\n   U-threads is extended.\n"
+- title: A.13.1  If an incoming colored U-thread arrives at a node which already
+  contents:
+  - "A.13.1  If an incoming colored U-thread arrives at a node which already\n   has\
+    \ an incoming U-thread of that color, or arrives at the node which\n   created\
+    \ that U-thread, then the thread stalls.\n   (Once a loop is detected, there is\
+    \ no need to further extend the\n   thread.)\n"
+- title: A.13.2  If an incoming colored U-thread arrives at a node which has a
+  contents:
+  - "A.13.2  If an incoming colored U-thread arrives at a node which has a\n   transparent\
+    \ outgoing U-thread to its next hop, the incoming thread is\n   extended.\n"
+- title: A.13.3  If an incoming colored U-thread arrives at a node which has a
+  contents:
+  - "A.13.3  If an incoming colored U-thread arrives at a node which has a\n   colored\
+    \ outgoing U-thread, and if the incoming link over which the\n   thread was received\
+    \ was already an incoming link of the LSP, the\n   thread is extended.\n"
+- title: A.13.4  If an incoming colored U-thread arrives at a node which has a
+  contents:
+  - "A.13.4  If an incoming colored U-thread arrives at a node which has a\n   colored\
+    \ outgoing U-thread, and if the incoming link over which the\n   thread was received\
+    \ was NOT already an incoming link of the LSP, a\n   new U-thread is created and\
+    \ extended.  All the incoming threads are\n   merged into it.  This is known in\
+    \ the main body of this document as\n   \"extending the thread with changing color\"\
+    .\n   These rules ensure that an incoming U-thread is always extended (or\n  \
+    \ merged into a new U-thread which then gets extended), unless it is\n   already\
+    \ known to form a loop.\n   What is the purpose of rule A.13.4?  There are certain\
+    \ cases where a\n   loop can form, but where the node which created the looping\
+    \ thread is\n   not part of the loop.  Rule A.13.4 ensures that when there is\
+    \ a loop,\n   there will be a looping thread which was created by some node which\n\
+    \   is actually in the loop.  This in turn ensures that the loop will be\n   detected\
+    \ well before the thread TTL expires.\n   The rule of \"extending the thread with\
+    \ changing color\" is also\n   applied when extending a thread with a known hop\
+    \ count.\n"
+- title: A.13.5  When a received colored thread with a known hop count is
+  contents:
+  - "A.13.5  When a received colored thread with a known hop count is\n   extended,\
+    \ if the node has an outgoing thread, and if the incoming\n   link over which\
+    \ the thread was received was NOT already an incoming\n   link of the LSP, a new\
+    \ thread is created and extended.  All the\n   incoming threads are merged into\
+    \ it.  This is an exceptional case of\n   A.5.1.\n"
+- title: A.14. Recovering From a Loop
+  contents:
+  - "A.14. Recovering From a Loop\n   Here is our example topology again, in the presence\
+    \ of a loop.\n                     1     U      1\n                   X--->A----->B<---Y\n\
+    \                        ^      |\n                      U |      |U\n       \
+    \                 |      v\n                   W--->D<-----C<---Z\n          \
+    \           1      U     1\n   Suppose now that C's next hop changes from D to\
+    \ some other node E,\n   thereby breaking the loop.  For simplicity, we will assume\
+    \ that E is\n   the egress node.\n   C will withdraw its outgoing U-thread from\
+    \ D (9.1).  It will also\n   create a new thread (12.1), assign it a new color,\
+    \ assign it hop\n   count U (the largest hop count of C's incoming threads), merge\
+    \ its\n   two other incoming threads into the new thread (12.2), and extend the\n\
+    \   new thread to E, resulting the following configuration:\n                \
+    \     1     U      1\n                   X--->A----->B<---Y\n                \
+    \        ^      |\n                      U |      |U\n                       \
+    \ |      v\n                   W--->D      C<---Z\n                     1    \
+    \     |  1\n                              U|\n                               v\n\
+    \                               E\n   When the thread from C to E rewinds, the\
+    \ merged threads also rewind\n   (8.4).  This process of rewinding can now proceed\
+    \ all the way back to\n   the leafs.  While this is happening, of course, D will\
+    \ note that its\n   outgoing thread hop count should be 2, not U, and will make\
+    \ this\n   change (9.3).  As a result, A will note that its outgoing hop count\n\
+    \   should be 3, not U, and will make this change.  So at some time in\n   the\
+    \ future, we might see the following:\n                     1     3      1\n \
+    \                  X--->A----->B<---Y\n                        ^      |\n    \
+    \                  2 |      |U\n                        |      v\n           \
+    \        W--->D      C<---Z\n                     1         |  1\n           \
+    \                   U|\n                               v\n                   \
+    \            E\n   After a short period, we see the following:\n             \
+    \        1     3      1\n                   X--->A----->B<---Y\n             \
+    \           ^      |\n                      2 |      |4\n                    \
+    \    |      v\n                   W--->D      C<---Z\n                     1 \
+    \        |  1\n                              5|\n                            \
+    \   v\n                               E\n   with all threads transparent, and\
+    \ we have a fully set up non-looping\n   path.\n"
+- title: A.15. Continuing to Use an Old Path
+  contents:
+  - "A.15. Continuing to Use an Old Path\n   Nothing in the above requires that any\
+    \ node withdraw a transparent\n   thread.  Existing transparent threads (established\
+    \ paths) can\n   continue to be used, even while new paths are being set up.\n\
+    \   If this is done, then some node may have both a transparent outgoing\n   thread\
+    \ (previous path) and a colored outgoing thread (new path being\n   set up). \
+    \ This would happen only if the downstream links for the two\n   threads are different.\
+    \  When the colored outgoing thread rewinds (and\n   becomes transparent), the\
+    \ previous path should be withdrawn.\n"
+- title: Full Copyright Statement
+  contents:
+  - "Full Copyright Statement\n   Copyright (C) The Internet Society (2001).  All\
+    \ Rights Reserved.\n   This document and translations of it may be copied and\
+    \ furnished to\n   others, and derivative works that comment on or otherwise explain\
+    \ it\n   or assist in its implementation may be prepared, copied, published\n\
+    \   and distributed, in whole or in part, without restriction of any\n   kind,\
+    \ provided that the above copyright notice and this paragraph are\n   included\
+    \ on all such copies and derivative works.  However, this\n   document itself\
+    \ may not be modified in any way, such as by removing\n   the copyright notice\
+    \ or references to the Internet Society or other\n   Internet organizations, except\
+    \ as needed for the purpose of\n   developing Internet standards in which case\
+    \ the procedures for\n   copyrights defined in the Internet Standards process\
+    \ must be\n   followed, or as required to translate it into languages other than\n\
+    \   English.\n   The limited permissions granted above are perpetual and will\
+    \ not be\n   revoked by the Internet Society or its successors or assigns.\n \
+    \  This document and the information contained herein is provided on an\n   \"\
+    AS IS\" basis and THE INTERNET SOCIETY AND THE INTERNET ENGINEERING\n   TASK FORCE\
+    \ DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING\n   BUT NOT LIMITED\
+    \ TO ANY WARRANTY THAT THE USE OF THE INFORMATION\n   HEREIN WILL NOT INFRINGE\
+    \ ANY RIGHTS OR ANY IMPLIED WARRANTIES OF\n   MERCHANTABILITY OR FITNESS FOR A\
+    \ PARTICULAR PURPOSE.\n"
+- title: Acknowledgement
+  contents:
+  - "Acknowledgement\n   Funding for the RFC Editor function is currently provided\
+    \ by the\n   Internet Society.\n"

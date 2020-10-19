@@ -1,0 +1,400 @@
+- title: __initial_text__
+  contents:
+  - '               Running a Root Server Local to a Resolver
+
+    '
+- title: Abstract
+  contents:
+  - "Abstract\n   Some DNS recursive resolvers have longer-than-desired round-trip\n\
+    \   times to the closest DNS root server; those resolvers may have\n   difficulty\
+    \ getting responses from the root servers, such as during a\n   network attack.\
+    \  Some DNS recursive resolver operators want to\n   prevent snooping by third\
+    \ parties of requests sent to DNS root\n   servers.  In both cases, resolvers\
+    \ can greatly decrease the round-\n   trip time and prevent observation of requests\
+    \ by serving a copy of\n   the full root zone on the same server, such as on a\
+    \ loopback address\n   or in the resolver software.  This document shows how to\
+    \ start and\n   maintain such a copy of the root zone that does not cause problems\n\
+    \   for other users of the DNS, at the cost of adding some operational\n   fragility\
+    \ for the operator.\n   This document obsoletes RFC 7706.\n"
+- title: Status of This Memo
+  contents:
+  - "Status of This Memo\n   This document is not an Internet Standards Track specification;\
+    \ it is\n   published for informational purposes.\n   This document is a product\
+    \ of the Internet Engineering Task Force\n   (IETF).  It represents the consensus\
+    \ of the IETF community.  It has\n   received public review and has been approved\
+    \ for publication by the\n   Internet Engineering Steering Group (IESG).  Not\
+    \ all documents\n   approved by the IESG are candidates for any level of Internet\n\
+    \   Standard; see Section 2 of RFC 7841.\n   Information about the current status\
+    \ of this document, any errata,\n   and how to provide feedback on it may be obtained\
+    \ at\n   https://www.rfc-editor.org/info/rfc8806.\n"
+- title: Copyright Notice
+  contents:
+  - "Copyright Notice\n   Copyright (c) 2020 IETF Trust and the persons identified\
+    \ as the\n   document authors.  All rights reserved.\n   This document is subject\
+    \ to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n\
+    \   (https://trustee.ietf.org/license-info) in effect on the date of\n   publication\
+    \ of this document.  Please review these documents\n   carefully, as they describe\
+    \ your rights and restrictions with respect\n   to this document.  Code Components\
+    \ extracted from this document must\n   include Simplified BSD License text as\
+    \ described in Section 4.e of\n   the Trust Legal Provisions and are provided\
+    \ without warranty as\n   described in the Simplified BSD License.\n"
+- title: Table of Contents
+  contents:
+  - "Table of Contents\n   1.  Introduction\n     1.1.  Changes from RFC 7706\n  \
+    \   1.2.  Requirements Notation\n   2.  Requirements\n   3.  Operation of the\
+    \ Root Zone on the Local Server\n   4.  Security Considerations\n   5.  IANA Considerations\n\
+    \   6.  References\n     6.1.  Normative References\n     6.2.  Informative References\n\
+    \   Appendix A.  Current Sources of the Root Zone\n     A.1.  Root Zone Services\n\
+    \   Appendix B.  Example Configurations of Common Implementations\n     B.1. \
+    \ Example Configuration: BIND 9.12\n     B.2.  Example Configuration: Unbound\
+    \ 1.8\n     B.3.  Example Configuration: BIND 9.14\n     B.4.  Example Configuration:\
+    \ Unbound 1.9\n     B.5.  Example Configuration: Knot Resolver\n     B.6.  Example\
+    \ Configuration: Microsoft Windows Server 2012\n   Acknowledgements\n   Authors'\
+    \ Addresses\n"
+- title: 1.  Introduction
+  contents:
+  - "1.  Introduction\n   DNS recursive resolvers have to provide answers to all queries\
+    \ from\n   their clients, even those for domain names that do not exist.  For\n\
+    \   each queried name that is within a top-level domain (TLD) that is not\n  \
+    \ in the recursive resolver's cache, the resolver must send a query to\n   a root\
+    \ server to get the information for that TLD or to find out that\n   the TLD does\
+    \ not exist.  Research shows that the vast majority of\n   queries going to the\
+    \ root are for names that do not exist in the root\n   zone.\n   Many of the queries\
+    \ from recursive resolvers to root servers get\n   answers that are referrals\
+    \ to other servers.  Malicious third parties\n   might be able to observe that\
+    \ traffic on the network between the\n   recursive resolver and root servers.\n\
+    \   The primary goals of this design are to provide more reliable answers\n  \
+    \ for queries to the root zone during network attacks that affect the\n   root\
+    \ servers and to prevent queries and responses from being visible\n   on the network.\
+    \  This design will probably have little effect on\n   getting faster responses\
+    \ to the stub resolver for good queries on\n   TLDs, because the TTL for most\
+    \ TLDs is usually long-lived (on the\n   order of a day or two) and is thus usually\
+    \ already in the cache of\n   the recursive resolver; the same is true for the\
+    \ TTL for negative\n   answers from the root servers.  (Although the primary goal\
+    \ of the\n   design is for serving the root zone, the method can be used for any\n\
+    \   zone.)\n   This document describes a method for the operator of a recursive\n\
+    \   resolver to have a complete root zone locally and to hide queries for\n  \
+    \ the root zone from outsiders.  The basic idea is to create an up-to-\n   date\
+    \ root zone service on the same host as the recursive server and\n   use that\
+    \ service when the recursive resolver looks up root\n   information.  The recursive\
+    \ resolver validates all responses from the\n   root service on the same host,\
+    \ just as it would validate all\n   responses from a remote root server.\n   This\
+    \ design explicitly only allows the new root zone service to be\n   run on the\
+    \ same server as the recursive resolver in order to prevent\n   the server from\
+    \ serving authoritative answers to any other system.\n   Specifically, the root\
+    \ service on the local system MUST be configured\n   to only answer queries from\
+    \ resolvers on the same host and MUST NOT\n   answer queries from any other resolver.\n\
+    \   At the time that RFC 7706 [RFC7706] was published, it was considered\n   controversial,\
+    \ because there was not consensus on whether this was a\n   \"best practice\"\
+    .  In fact, many people felt that it is an excessively\n   risky practice, because\
+    \ it introduced a new operational piece to\n   local DNS operations where there\
+    \ was not one before.  Since then, the\n   DNS operational community has largely\
+    \ shifted to believing that local\n   serving of the root zone for an individual\
+    \ resolver is a reasonable\n   practice.  The advantages listed above do not come\
+    \ free: if this new\n   system does not work correctly, users can get bad data,\
+    \ or the entire\n   recursive resolution system might fail in ways that are hard\
+    \ to\n   diagnose.\n   This design uses an authoritative service running on the\
+    \ same machine\n   as the recursive resolver.  Common open source recursive resolver\n\
+    \   software does not need to add new functionality to act as an\n   authoritative\
+    \ server for some zones, but other recursive resolver\n   software might need\
+    \ to be able to talk to an authoritative server\n   running on the same host.\
+    \  Some resolver software supports being both\n   an authoritative server and\
+    \ a resolver but separated by logical\n   \"views\", allowing a local root to\
+    \ be implemented within a single\n   process; examples of this can be seen in\
+    \ Appendix B.\n   A different approach to solving some of the problems discussed\
+    \ in\n   this document is described in [RFC8198].\n   Readers are expected to\
+    \ be familiar with [RFC8499].\n"
+- title: 1.1.  Changes from RFC 7706
+  contents:
+  - "1.1.  Changes from RFC 7706\n   RFC 7706 explicitly required that a root server\
+    \ instance be run on\n   the loopback interface of the host running the validating\
+    \ resolver.\n   However, RFC 7706 also had examples of how to set up common software\n\
+    \   that did not use the loopback interface.  This document loosens the\n   restriction\
+    \ on using the loopback interface and in fact allows the\n   use of a local service,\
+    \ not necessarily an authoritative server.\n   However, the document keeps the\
+    \ requirement that only systems running\n   on that single host be able to query\
+    \ that authoritative root server\n   or service.\n   This document changes the\
+    \ use cases for running a local root service\n   to be more consistent with the\
+    \ reasons operators said they had for\n   using RFC 7706:\n   *  Removed the prohibition\
+    \ on distribution of recursive DNS servers,\n      including configurations for\
+    \ this design because some already do\n      and others have expressed an interest\
+    \ in doing so.\n   *  Added the idea that a recursive resolver using this design\
+    \ might\n      switch to using the normal (remote) root servers if the local root\n\
+    \      server fails.\n   *  Refreshed the list of where one can get copies of\
+    \ the root zone.\n   *  Added examples of other resolvers and updated the existing\n\
+    \      examples.\n"
+- title: 1.2.  Requirements Notation
+  contents:
+  - "1.2.  Requirements Notation\n   The key words \"MUST\", \"MUST NOT\", \"REQUIRED\"\
+    , \"SHALL\", \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\", \"\
+    NOT RECOMMENDED\", \"MAY\", and\n   \"OPTIONAL\" in this document are to be interpreted\
+    \ as described in\n   BCP 14 [RFC2119] [RFC8174] when, and only when, they appear\
+    \ in all\n   capitals, as shown here.\n"
+- title: 2.  Requirements
+  contents:
+  - "2.  Requirements\n   In order to implement the mechanism described in this document:\n\
+    \   *  The system MUST be able to validate every signed record in a zone\n   \
+    \   with DNSSEC [RFC4033].\n   *  The system MUST have an up-to-date copy of the\
+    \ public part of the\n      Key Signing Key (KSK) [RFC4033] used to sign the DNS\
+    \ root.\n   *  The system MUST be able to retrieve a copy of the entire root zone\n\
+    \      (including all DNSSEC-related records).\n   *  The system MUST be able\
+    \ to run an authoritative service for the\n      root zone on the same host. \
+    \ The authoritative root service MUST\n      only respond to queries from the\
+    \ same host.  One way to ensure\n      that the authoritative root service does\
+    \ not respond to queries\n      from other hosts is to run an authoritative server\
+    \ for the root\n      that responds only on one of the loopback addresses (that\
+    \ is, an\n      address in the range 127/8 for IPv4 or ::1 in IPv6).  Another\n\
+    \      method is to have the resolver software also act as an\n      authoritative\
+    \ server for the root zone, but only for answering\n      queries from itself.\n\
+    \   A corollary of the above list is that authoritative data in the root\n   zone\
+    \ used on the local authoritative server MUST be identical to the\n   same data\
+    \ in the root zone for the DNS.  It is possible to change the\n   unsigned data\
+    \ (the glue records) in the copy of the root zone, but\n   such changes could\
+    \ cause problems for the recursive server that\n   accesses the local root zone,\
+    \ and therefore any changes to the glue\n   records SHOULD NOT be made.\n"
+- title: 3.  Operation of the Root Zone on the Local Server
+  contents:
+  - "3.  Operation of the Root Zone on the Local Server\n   The operation of an authoritative\
+    \ server for the root in the system\n   described here can be done separately\
+    \ from the operation of the\n   recursive resolver, or it might be part of the\
+    \ configuration of the\n   recursive resolver system.\n   The steps to set up\
+    \ the root zone are:\n   1.  Retrieve a copy of the root zone.  (See Appendix\
+    \ A for some\n       current locations of sources.)\n   2.  Start the authoritative\
+    \ service for the root zone in a manner\n       that prevents any system other\
+    \ than a recursive resolver on the\n       same host from accessing it.\n   The\
+    \ contents of the root zone MUST be refreshed using the timers from\n   the SOA\
+    \ record in the root zone, as described in [RFC1035].  This\n   inherently means\
+    \ that the contents of the local root zone will likely\n   be a little behind\
+    \ those of the global root servers, because those\n   servers are updated when\
+    \ triggered by NOTIFY messages.\n   There is a risk that a system using a local\
+    \ authoritative server for\n   the root zone cannot refresh the contents of the\
+    \ root zone before the\n   expire time in the SOA.  A system using a local authoritative\
+    \ server\n   for the root zone MUST NOT serve stale data for the root zone.  To\n\
+    \   mitigate the risk that stale data is served, the local root server\n   MUST\
+    \ immediately switch to using non-local root servers when it\n   detects that\
+    \ it would be serving state data.\n   In a resolver that is using an internal\
+    \ service for the root zone, if\n   the contents of the root zone cannot be refreshed\
+    \ before the expire\n   time in the SOA, the resolver MUST immediately switch\
+    \ to using non-\n   local root servers.\n   In the event that refreshing the contents\
+    \ of the root zone fails, the\n   results can be disastrous.  For example, sometimes\
+    \ all the NS records\n   for a TLD are changed in a short period of time (such\
+    \ as 2 days); if\n   the refreshing of the local root zone is broken during that\
+    \ time, the\n   recursive resolver will have bad data for the entire TLD zone.\n\
+    \   An administrator using the procedure in this document SHOULD have an\n   automated\
+    \ method to check that the contents of the local root zone\n   are being refreshed;\
+    \ this might be part of the resolver software.\n   One way to do this is to have\
+    \ a separate process that periodically\n   checks the SOA of the local root zone\
+    \ and makes sure that it is\n   changing.  At the time that this document is published,\
+    \ the SOA for\n   the root zone is the digital representation of the current date\
+    \ with\n   a two-digit counter appended, and the SOA is changed every day even\n\
+    \   if the contents of the root zone are unchanged.  For example, the SOA\n  \
+    \ of the root zone on January 2, 2019 was 2019010201.  A process can\n   use this\
+    \ fact to create a check for the contents of the local root\n   zone (using a\
+    \ program not specified in this document).\n"
+- title: 4.  Security Considerations
+  contents:
+  - "4.  Security Considerations\n   A system that does not follow the DNSSEC-related\
+    \ requirements given\n   in Section 2 can be fooled into giving bad responses\
+    \ in the same way\n   as any recursive resolver that does not do DNSSEC validation\
+    \ on\n   responses from a remote root server.  Anyone deploying the method\n \
+    \  described in this document should be familiar with the operational\n   benefits\
+    \ and costs of deploying DNSSEC [RFC4033].\n   As stated in Section 1, this design\
+    \ explicitly requires the local\n   copy of the root zone information to be available\
+    \ only from resolvers\n   on that host.  This has the security property of limiting\
+    \ damage to\n   clients of any local resolver that might try to rely on an altered\n\
+    \   copy of the root.\n"
+- title: 5.  IANA Considerations
+  contents:
+  - "5.  IANA Considerations\n   This document has no IANA actions.\n"
+- title: 6.  References
+  contents:
+  - '6.  References
+
+    '
+- title: 6.1.  Normative References
+  contents:
+  - "6.1.  Normative References\n   [RFC1035]  Mockapetris, P., \"Domain names - implementation\
+    \ and\n              specification\", STD 13, RFC 1035, DOI 10.17487/RFC1035,\n\
+    \              November 1987, <https://www.rfc-editor.org/info/rfc1035>.\n   [RFC2119]\
+    \  Bradner, S., \"Key words for use in RFCs to Indicate\n              Requirement\
+    \ Levels\", BCP 14, RFC 2119,\n              DOI 10.17487/RFC2119, March 1997,\n\
+    \              <https://www.rfc-editor.org/info/rfc2119>.\n   [RFC4033]  Arends,\
+    \ R., Austein, R., Larson, M., Massey, D., and S.\n              Rose, \"DNS Security\
+    \ Introduction and Requirements\",\n              RFC 4033, DOI 10.17487/RFC4033,\
+    \ March 2005,\n              <https://www.rfc-editor.org/info/rfc4033>.\n   [RFC7706]\
+    \  Kumari, W. and P. Hoffman, \"Decreasing Access Time to Root\n             \
+    \ Servers by Running One on Loopback\", RFC 7706,\n              DOI 10.17487/RFC7706,\
+    \ November 2015,\n              <https://www.rfc-editor.org/info/rfc7706>.\n \
+    \  [RFC8174]  Leiba, B., \"Ambiguity of Uppercase vs Lowercase in RFC\n      \
+    \        2119 Key Words\", BCP 14, RFC 8174, DOI 10.17487/RFC8174,\n         \
+    \     May 2017, <https://www.rfc-editor.org/info/rfc8174>.\n   [RFC8499]  Hoffman,\
+    \ P., Sullivan, A., and K. Fujiwara, \"DNS\n              Terminology\", BCP 219,\
+    \ RFC 8499, DOI 10.17487/RFC8499,\n              January 2019, <https://www.rfc-editor.org/info/rfc8499>.\n"
+- title: 6.2.  Informative References
+  contents:
+  - "6.2.  Informative References\n   [Manning2013]\n              Manning, W., \"\
+    Client Based Naming\", May 2013,\n              <http://www.sfc.wide.ad.jp/dissertation/bill_e.html>.\n\
+    \   [RFC5936]  Lewis, E. and A. Hoenes, Ed., \"DNS Zone Transfer Protocol\n  \
+    \            (AXFR)\", RFC 5936, DOI 10.17487/RFC5936, June 2010,\n          \
+    \    <https://www.rfc-editor.org/info/rfc5936>.\n   [RFC8198]  Fujiwara, K., Kato,\
+    \ A., and W. Kumari, \"Aggressive Use of\n              DNSSEC-Validated Cache\"\
+    , RFC 8198, DOI 10.17487/RFC8198,\n              July 2017, <https://www.rfc-editor.org/info/rfc8198>.\n"
+- title: Appendix A.  Current Sources of the Root Zone
+  contents:
+  - "Appendix A.  Current Sources of the Root Zone\n   The root zone can be retrieved\
+    \ from anywhere as long as it comes with\n   all the DNSSEC records needed for\
+    \ validation.  Currently, one can get\n   the root zone from ICANN by zone transfer\
+    \ AXFR [RFC5936] over TCP\n   from DNS servers at xfr.lax.dns.icann.org and xfr.cjr.dns.icann.org.\n\
+    \   The root zone file can be obtained using methods described at\n   <https://www.iana.org/domains/root/files>.\n\
+    \   Currently, the root can also be retrieved by AXFR over TCP from the\n   following\
+    \ root server operators:\n   *  b.root-servers.net\n   *  c.root-servers.net\n\
+    \   *  d.root-servers.net\n   *  f.root-servers.net\n   *  g.root-servers.net\n\
+    \   *  k.root-servers.net\n   It is crucial to note that none of the above services\
+    \ are guaranteed\n   to be available.  It is possible that ICANN or some of the\
+    \ root\n   server operators will turn off the AXFR capability on the servers\n\
+    \   listed above.  Using AXFR over TCP to addresses that are likely to be\n  \
+    \ anycast (as the ones above are) may conceivably have transfer\n   problems due\
+    \ to anycast, but current practice shows that to be\n   unlikely.\n"
+- title: A.1.  Root Zone Services
+  contents:
+  - "A.1.  Root Zone Services\n   At the time that this document is published, there\
+    \ is one root zone\n   service that is active and one that has been announced\
+    \ as in the\n   planning stages.  This section describes all known active services.\n\
+    \   LocalRoot (<https://localroot.isi.edu/>) is an experimental service\n   that\
+    \ embodies many of the ideas in this document.  It distributes the\n   root zone\
+    \ by AXFR and also offers DNS NOTIFY messages when the\n   LocalRoot system sees\
+    \ that the root zone has changed.\n"
+- title: Appendix B.  Example Configurations of Common Implementations
+  contents:
+  - "Appendix B.  Example Configurations of Common Implementations\n   This section\
+    \ shows fragments of configurations for some popular\n   recursive server software\
+    \ that is believed to correctly implement the\n   requirements given in this document.\
+    \  The examples have been updated\n   since the publication of [RFC7706].\n  \
+    \ The IPv4 and IPv6 addresses in this section were checked in March\n   2020 by\
+    \ testing for AXFR over TCP from each address for the known\n   single-letter\
+    \ names in the root-servers.net zone.\n"
+- title: 'B.1.  Example Configuration: BIND 9.12'
+  contents:
+  - "B.1.  Example Configuration: BIND 9.12\n   BIND 9.12 acts both as a recursive\
+    \ resolver and an authoritative\n   server.  Because of this, there is \"fate-sharing\"\
+    \ between the two\n   servers in the following configuration.  That is, if the\
+    \ root server\n   dies, it is likely that all of BIND is dead.\n   Note that a\
+    \ future version of BIND will support a much more robust\n   method for creating\
+    \ a local mirror of the root or other zones; see\n   Appendix B.3.\n   Using this\
+    \ configuration, queries for information in the root zone\n   are returned with\
+    \ the Authoritative Answer (AA) bit not set.\n   When slaving a zone, BIND 9.12\
+    \ will treat zone data differently if\n   the zone is slaved into a separate view\
+    \ (or a separate instance of\n   the software) versus slaved into the same view\
+    \ or instance that is\n   also performing the recursion.\n   Validation:  When\
+    \ using separate views or separate instances, the DS\n      records in the slaved\
+    \ zone will be validated as the zone data is\n      accessed by the recursive\
+    \ server.  When using the same view, this\n      validation does not occur for\
+    \ the slaved zone.\n   Caching:  When using separate views or instances, the recursive\n\
+    \      server will cache all of the queries for the slaved zone, just as\n   \
+    \   it would using the traditional \"root hints\" method.  Thus, as the\n    \
+    \  zone in the other view or instance is refreshed or updated,\n      changed\
+    \ information will not appear in the recursive server until\n      the TTL of\
+    \ the old record times out.  Currently, the TTL for DS\n      and delegation NS\
+    \ records is two days.  When using the same view,\n      all zone data in the\
+    \ recursive server will be updated as soon as\n      it receives its copy of the\
+    \ zone.\n   view root {\n       match-destinations { 127.12.12.12; };\n      \
+    \ zone \".\" {\n           type slave;\n           file \"rootzone.db\";\n   \
+    \        notify no;\n           masters {\n               199.9.14.201;      \
+    \   # b.root-servers.net\n               192.33.4.12;          # c.root-servers.net\n\
+    \               199.7.91.13;          # d.root-servers.net\n               192.5.5.241;\
+    \          # f.root-servers.net\n               192.112.36.4;         # g.root-servers.net\n\
+    \               193.0.14.129;         # k.root-servers.net\n               192.0.47.132;\
+    \         # xfr.cjr.dns.icann.org\n               192.0.32.132;         # xfr.lax.dns.icann.org\n\
+    \               2001:500:200::b;      # b.root-servers.net\n               2001:500:2::c;\
+    \        # c.root-servers.net\n               2001:500:2d::d;       # d.root-servers.net\n\
+    \               2001:500:2f::f;       # f.root-servers.net\n               2001:500:12::d0d;\
+    \     # g.root-servers.net\n               2001:7fd::1;          # k.root-servers.net\n\
+    \               2620:0:2830:202::132; # xfr.cjr.dns.icann.org\n              \
+    \ 2620:0:2d0:202::132;  # xfr.lax.dns.icann.org\n           };\n       };\n  \
+    \ };\n   view recursive {\n       dnssec-validation auto;\n       allow-recursion\
+    \ { any; };\n       recursion yes;\n       zone \".\" {\n           type static-stub;\n\
+    \           server-addresses { 127.12.12.12; };\n       };\n   };\n"
+- title: 'B.2.  Example Configuration: Unbound 1.8'
+  contents:
+  - "B.2.  Example Configuration: Unbound 1.8\n   Similar to BIND, Unbound, starting\
+    \ with version 1.8, can act both as\n   a recursive resolver and an authoritative\
+    \ server.\n   auth-zone:\n       name: \".\"\n       master: 199.9.14.201    \
+    \     # b.root-servers.net\n       master: 192.33.4.12          # c.root-servers.net\n\
+    \       master: 199.7.91.13          # d.root-servers.net\n       master: 192.5.5.241\
+    \          # f.root-servers.net\n       master: 192.112.36.4         # g.root-servers.net\n\
+    \       master: 193.0.14.129         # k.root-servers.net\n       master: 192.0.47.132\
+    \         # xfr.cjr.dns.icann.org\n       master: 192.0.32.132         # xfr.lax.dns.icann.org\n\
+    \       master: 2001:500:200::b      # b.root-servers.net\n       master: 2001:500:2::c\
+    \        # c.root-servers.net\n       master: 2001:500:2d::d       # d.root-servers.net\n\
+    \       master: 2001:500:2f::f       # f.root-servers.net\n       master: 2001:500:12::d0d\
+    \     # g.root-servers.net\n       master: 2001:7fd::1          # k.root-servers.net\n\
+    \       master: 2620:0:2830:202::132 # xfr.cjr.dns.icann.org\n       master: 2620:0:2d0:202::132\
+    \  # xfr.lax.dns.icann.org\n       fallback-enabled: yes\n       for-downstream:\
+    \ no\n       for-upstream: yes\n"
+- title: 'B.3.  Example Configuration: BIND 9.14'
+  contents:
+  - "B.3.  Example Configuration: BIND 9.14\n   BIND 9.14 can set up a local mirror\
+    \ of the root zone with a small\n   configuration option:\n   zone \".\" {\n \
+    \      type mirror;\n   };\n   The simple \"type mirror\" configuration for the\
+    \ root zone works for\n   the root zone because a default list of primary servers\
+    \ for the IANA\n   root zone is built into BIND 9.14.  In order to set up mirroring\
+    \ of\n   any other zone, an explicit list of primary servers needs to be\n   provided.\n\
+    \   See the documentation for BIND 9.14 for more detail about how to use\n   this\
+    \ simplified configuration.\n"
+- title: 'B.4.  Example Configuration: Unbound 1.9'
+  contents:
+  - "B.4.  Example Configuration: Unbound 1.9\n   Recent versions of Unbound have\
+    \ an \"auth-zone\" feature that allows\n   local mirroring of the root zone. \
+    \ Configuration looks as follows:\n   auth-zone:\n       name: \".\"\n       master:\
+    \ \"b.root-servers.net\"\n       master: \"c.root-servers.net\"\n       master:\
+    \ \"d.root-servers.net\"\n       master: \"f.root-servers.net\"\n       master:\
+    \ \"g.root-servers.net\"\n       master: \"k.root-servers.net\"\n           fallback-enabled:\
+    \ yes\n       for-downstream: no\n       for-upstream: yes\n       zonefile: \"\
+    root.zone\"\n"
+- title: 'B.5.  Example Configuration: Knot Resolver'
+  contents:
+  - "B.5.  Example Configuration: Knot Resolver\n   Knot Resolver uses its \"prefill\"\
+    \ module to load the root zone\n   information.  This is described at <https://knot-\n\
+    \   resolver.readthedocs.io/en/v5.0.1/modules-rfc7706.html>.\n"
+- title: 'B.6.  Example Configuration: Microsoft Windows Server 2012'
+  contents:
+  - "B.6.  Example Configuration: Microsoft Windows Server 2012\n   Windows Server\
+    \ 2012 contains a DNS server in the \"DNS Manager\"\n   component.  When activated,\
+    \ that component acts as a recursive\n   server.  The DNS Manager can also act\
+    \ as an authoritative server.\n   Using this configuration, queries for information\
+    \ in the root zone\n   are returned with the AA bit set.\n   The steps to configure\
+    \ the DNS Manager to implement the requirements\n   in this document are:\n  \
+    \ 1.  Launch the DNS Manager GUI.  This can be done from the command\n       line\
+    \ (\"dnsmgmt.msc\") or from the Service Manager (the \"DNS\"\n       command in\
+    \ the \"Tools\" menu).\n   2.  In the hierarchy under the server on which the\
+    \ service is\n       running, right-click on the \"Forward Lookup Zones\", and\
+    \ select\n       \"New Zone\".  This brings up a succession of dialog boxes.\n\
+    \   3.  In the \"Zone Type\" dialog box, select \"Secondary zone\".\n   4.  In\
+    \ the \"Zone Name\" dialog box, enter \".\".\n   5.  In the \"Master DNS Servers\"\
+    \ dialog box, enter\n       \"b.root-servers.net\".  The system validates that\
+    \ it can do a zone\n       transfer from that server.  (After this configuration\
+    \ is\n       completed, the DNS Manager will attempt to transfer from all of\n\
+    \       the root zone servers.)\n   6.  In the \"Completing the New Zone Wizard\"\
+    \ dialog box, click\n       \"Finish\".\n   7.  Verify that the DNS Manager is\
+    \ acting as a recursive resolver.\n       Right-click on the server name in the\
+    \ hierarchy, choosing the\n       \"Advanced\" tab in the dialog box.  See that\
+    \ \"Disable recursion\n       (also disables forwarders)\" is not selected and\
+    \ that \"Enable\n       DNSSEC validation for remote responses\" is selected.\n"
+- title: Acknowledgements
+  contents:
+  - "Acknowledgements\n   The authors fully acknowledge that running a copy of the\
+    \ root zone on\n   the loopback address is not a new concept and that we have\
+    \ chatted\n   with many people about that idea over time.  For example, Bill\n\
+    \   Manning described a similar solution to the problems in his doctoral\n   dissertation\
+    \ in 2013 [Manning2013].\n   Evan Hunt contributed greatly to the logic in the\
+    \ requirements.\n   Other significant contributors include Wouter Wijngaards,\
+    \ Tony Hain,\n   Doug Barton, Greg Lindsay, and Akira Kato.  The authors also\
+    \ received\n   many offline comments about making the document clear that this\
+    \ is\n   just a description of a way to operate a root zone on the same host\n\
+    \   and not a recommendation to do so.\n   People who contributed to this update\
+    \ to [RFC7706] include Florian\n   Obser, nusenu, Wouter Wijngaards, Mukund Sivaraman,\
+    \ Bob Harold, and\n   Leo Vegoda.\n"
+- title: Authors' Addresses
+  contents:
+  - "Authors' Addresses\n   Warren Kumari\n   Google\n   Email: Warren@kumari.net\n\
+    \   Paul Hoffman\n"

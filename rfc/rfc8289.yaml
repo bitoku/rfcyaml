@@ -1,0 +1,839 @@
+- title: __initial_text__
+  contents:
+  - '                Controlled Delay Active Queue Management
+
+    '
+- title: Abstract
+  contents:
+  - "Abstract\n   This document describes CoDel (Controlled Delay) -- a general\n\
+    \   framework that controls bufferbloat-generated excess delay in modern\n   networking\
+    \ environments.  CoDel consists of an estimator, a setpoint,\n   and a control\
+    \ loop.  It requires no configuration in normal Internet\n   deployments.\n"
+- title: Status of This Memo
+  contents:
+  - "Status of This Memo\n   This document is not an Internet Standards Track specification;\
+    \ it is\n   published for examination, experimental implementation, and\n   evaluation.\n\
+    \   This document defines an Experimental Protocol for the Internet\n   community.\
+    \  This document is a product of the Internet Engineering\n   Task Force (IETF).\
+    \  It represents the consensus of the IETF\n   community.  It has received public\
+    \ review and has been approved for\n   publication by the Internet Engineering\
+    \ Steering Group (IESG).  Not\n   all documents approved by the IESG are a candidate\
+    \ for any level of\n   Internet Standard; see Section 2 of RFC 7841.\n   Information\
+    \ about the current status of this document, any errata,\n   and how to provide\
+    \ feedback on it may be obtained at\n   https://www.rfc-editor.org/info/rfc8289.\n"
+- title: Copyright Notice
+  contents:
+  - "Copyright Notice\n   Copyright (c) 2018 IETF Trust and the persons identified\
+    \ as the\n   document authors.  All rights reserved.\n   This document is subject\
+    \ to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n\
+    \   (https://trustee.ietf.org/license-info) in effect on the date of\n   publication\
+    \ of this document.  Please review these documents\n   carefully, as they describe\
+    \ your rights and restrictions with respect\n   to this document.  Code Components\
+    \ extracted from this document must\n   include Simplified BSD License text as\
+    \ described in Section 4.e of\n   the Trust Legal Provisions and are provided\
+    \ without warranty as\n   described in the Simplified BSD License.\n"
+- title: Table of Contents
+  contents:
+  - "Table of Contents\n   1.  Introduction  . . . . . . . . . . . . . . . . . . .\
+    \ . . . . .   3\n   2.  Conventions and Terms Used in This Document . . . . .\
+    \ . . . .   4\n   3.  Understanding the Building Blocks of Queue Management .\
+    \ . . .   5\n     3.1.  Estimator . . . . . . . . . . . . . . . . . . . . . .\
+    \ . .   6\n     3.2.  Target Setpoint . . . . . . . . . . . . . . . . . . . .\
+    \ .   8\n     3.3.  Control Loop  . . . . . . . . . . . . . . . . . . . . . .\
+    \  10\n   4.  Overview of the CoDel AQM . . . . . . . . . . . . . . . . . .  13\n\
+    \     4.1.  Non-starvation  . . . . . . . . . . . . . . . . . . . . .  14\n  \
+    \   4.2.  Setting INTERVAL  . . . . . . . . . . . . . . . . . . . .  14\n    \
+    \ 4.3.  Setting TARGET  . . . . . . . . . . . . . . . . . . . . .  14\n     4.4.\
+    \  Use with Multiple Queues  . . . . . . . . . . . . . . . .  15\n     4.5.  Setting\
+    \ Up CoDel  . . . . . . . . . . . . . . . . . . . .  16\n   5.  Annotated Pseudocode\
+    \ for CoDel AQM  . . . . . . . . . . . . .  16\n     5.1.  Data Types  . . . .\
+    \ . . . . . . . . . . . . . . . . . . .  17\n     5.2.  Per-Queue State (codel_queue_t\
+    \ Instance Variables)  . . .  17\n     5.3.  Constants . . . . . . . . . . . .\
+    \ . . . . . . . . . . . .  17\n     5.4.  Enqueue Routine . . . . . . . . . .\
+    \ . . . . . . . . . . .  18\n     5.5.  Dequeue Routine . . . . . . . . . . .\
+    \ . . . . . . . . . .  18\n     5.6.  Helper Routines . . . . . . . . . . . .\
+    \ . . . . . . . . .  19\n     5.7.  Implementation Considerations . . . . . .\
+    \ . . . . . . . .  21\n   6.  Further Experimentation . . . . . . . . . . . .\
+    \ . . . . . . .  21\n   7.  Security Considerations . . . . . . . . . . . . .\
+    \ . . . . . .  21\n   8.  IANA Considerations . . . . . . . . . . . . . . . .\
+    \ . . . . .  21\n   9.  References  . . . . . . . . . . . . . . . . . . . . .\
+    \ . . . .  22\n     9.1.  Normative References  . . . . . . . . . . . . . . .\
+    \ . . .  22\n     9.2.  Informative References  . . . . . . . . . . . . . . .\
+    \ . .  22\n   Appendix A.  Applying CoDel in the Data Center  . . . . . . . .\
+    \ .  24\n   Acknowledgments . . . . . . . . . . . . . . . . . . . . . . . . .\
+    \  25\n   Authors' Addresses  . . . . . . . . . . . . . . . . . . . . . . .  25\n"
+- title: 1.  Introduction
+  contents:
+  - "1.  Introduction\n   The \"persistently full buffer\" problem has been discussed\
+    \ in the IETF\n   community since the early 80s [RFC896].  The IRTF's End-to-End\n\
+    \   Research Group called for the deployment of Active Queue Management\n   (AQM)\
+    \ to solve the problem in 1998 [RFC2309].  Despite this\n   awareness, the problem\
+    \ has only gotten worse as growth in memory\n   density per Moore's Law fueled\
+    \ an exponential increase in buffer pool\n   size.  Efforts to deploy AQM have\
+    \ been frustrated by difficult\n   configuration and negative impact on network\
+    \ utilization.  This\n   \"bufferbloat\" problem [BLOAT] has become increasingly\
+    \ important\n   throughout the Internet but particularly at the consumer edge.\
+    \  Queue\n   management has become more critical due to increased consumer use\
+    \ of\n   the Internet, mixing large video transactions with time-critical VoIP\n\
+    \   and gaming.\n   An effective AQM remediates bufferbloat at a bottleneck while\
+    \ \"doing\n   no harm\" at hops where buffers are not bloated.  However, the\n\
+    \   development and deployment of AQM are frequently subject to\n   misconceptions\
+    \ about the cause of packet queues in network buffers.\n   Network buffers exist\
+    \ to absorb the packet bursts that occur\n   naturally in statistically multiplexed\
+    \ networks.  Buffers helpfully\n   absorb the queues created by reasonable packet\
+    \ network behavior such\n   as short-term mismatches in traffic arrival and departure\
+    \ rates that\n   arise from upstream resource contention, transport conversation\n\
+    \   startup transients, and/or changes in the number of conversations\n   sharing\
+    \ a link.  Unfortunately, other less useful network behaviors\n   can cause queues\
+    \ to fill, and their effects are not nearly as benign.\n   Discussion of these\
+    \ issues and the reason why the solution is not\n   simply \"smaller buffers\"\
+    \ can be found in [RFC2309], [VANQ2006],\n   [REDL1998], and [CODEL2012].  To\
+    \ understand queue management, it is\n   critical to understand the difference\
+    \ between the necessary, useful\n   \"good\" queue and the counterproductive \"\
+    bad\" queue.\n   Several approaches to AQM have been developed over the past two\n\
+    \   decades, but none have been widely deployed due to performance\n   problems.\
+    \  When designed with the wrong conceptual model for queues,\n   AQMs have limited\
+    \ operational range, require a lot of configuration\n   tweaking, and frequently\
+    \ impair rather than improve performance.\n   Learning from this past history,\
+    \ the CoDel approach is designed to\n   meet the following goals:\n   o  Make\
+    \ AQM parameterless for normal operation, with no knobs for\n      operators,\
+    \ users, or implementers to adjust.\n   o  Be able to distinguish \"good\" queue\
+    \ from \"bad\" queue and treat\n      them differently, that is, keep delay low\
+    \ while permitting\n      necessary bursts of traffic.\n   o  Control delay while\
+    \ insensitive (or nearly so) to round-trip\n      delays, link rates, and traffic\
+    \ loads; this goal is to \"do no\n      harm\" to network traffic while controlling\
+    \ delay.\n   o  Adapt to dynamically changing link rates with no negative impact\n\
+    \      on utilization.\n   o  Allow simple and efficient implementation (can easily\
+    \ span the\n      spectrum from low-end access points and home routers up to high-\n\
+    \      end router hardware).\n   CoDel has five major differences from prior AQMs:\
+    \ use of the local\n   queue minimum to track congestion (\"bad\" queue), use\
+    \ of an efficient\n   single state variable representation of that tracked statistic,\
+    \ use\n   of packet sojourn time as the observed datum (rather than packets,\n\
+    \   bytes, or rates), use of a mathematically determined setpoint derived\n  \
+    \ from maximizing network power [KLEIN81], and a modern state-space\n   controller.\n\
+    \   CoDel configures itself based on a round-trip time metric that can be\n  \
+    \ set to 100 ms for the normal, terrestrial Internet.  With no changes\n   to\
+    \ parameters, CoDel is expected to work across a wide range of\n   conditions,\
+    \ with varying links and the full range of terrestrial\n   round-trip times.\n\
+    \   CoDel is easily adapted to multiple queue systems as shown by\n   [RFC8290].\
+    \  Implementers and users SHOULD use the fq_codel multiple-\n   queue approach\
+    \ as it deals with many problems beyond the reach of an\n   AQM on a single queue.\n\
+    \   CoDel was first published in [CODEL2012] and has been implemented in\n   the\
+    \ Linux kernel.\n   Note that while this document refers to dropping packets when\n\
+    \   indicated by CoDel, it may be reasonable to ECN-mark packets instead.\n"
+- title: 2.  Conventions and Terms Used in This Document
+  contents:
+  - "2.  Conventions and Terms Used in This Document\n   The key words \"MUST\", \"\
+    MUST NOT\", \"REQUIRED\", \"SHALL\", \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\"\
+    , \"RECOMMENDED\", \"NOT RECOMMENDED\", \"MAY\", and\n   \"OPTIONAL\" in this\
+    \ document are to be interpreted as described in\n   BCP 14 [RFC2119] [RFC8174]\
+    \ when, and only when, they appear in all\n   capitals, as shown here.\n   The\
+    \ following terms are used in this document and are defined as\n   follows:\n\
+    \   sojourn time:  the amount of time a packet has spent in a particular\n   \
+    \      buffer, i.e., the time a packet departs the buffer minus the\n        \
+    \ time the packet arrived at the buffer.  A packet can depart a\n         buffer\
+    \ via transmission or drop.\n   standing queue:  a queue (in packets, bytes, or\
+    \ time delay) in a\n         buffer that persists for a \"long\" time, where \"\
+    long\" is on the\n         order of the longer round-trip times through the buffer,\
+    \ as\n         discussed in Section 4.2.  A standing queue occurs when the\n \
+    \        minimum queue over the \"long\" time is non-zero and is usually\n   \
+    \      tolerable and even desirable as long as it does not exceed some\n     \
+    \    target delay.\n   bottleneck bandwidth:  the limiting bandwidth along a network\
+    \ path.\n"
+- title: 3.  Understanding the Building Blocks of Queue Management
+  contents:
+  - "3.  Understanding the Building Blocks of Queue Management\n   At the heart of\
+    \ queue management is the notion of \"good\" queue and\n   \"bad\" queue and the\
+    \ search for ways to get rid of the \"bad\" queue\n   (which only adds delay)\
+    \ while preserving the \"good\" queue (which\n   provides for good utilization).\
+    \  This section explains queueing, both\n   good and bad, and covers the CoDel\
+    \ building blocks that can be used\n   to manage packet buffers to keep their\
+    \ queues in the \"good\" range.\n   Packet queues form in buffers facing bottleneck\
+    \ links, i.e., where\n   the line rate goes from high to low or where many links\
+    \ converge.\n   The well-known bandwidth-delay product (sometimes called \"pipe\
+    \ size\")\n   is the bottleneck's bandwidth multiplied by the sender-receiver-\n\
+    \   sender round-trip delay; it is the amount of data that has to be in\n   transit\
+    \ between two hosts in order to run the bottleneck link at 100%\n   utilization.\
+    \  To explore how queues can form, consider a long-lived\n   TCP connection with\
+    \ a 25-packet window sending through a connection\n   with a bandwidth-delay product\
+    \ of 20 packets.  After an initial burst\n   of packets, the connection will settle\
+    \ into a 5-packet (+/-1)\n   standing queue; this standing queue size is determined\
+    \ by the\n   mismatch between the window size and the pipe size and is unrelated\n\
+    \   to the connection's sending rate.  The connection has 25 packets in\n   flight\
+    \ at all times, but only 20 packets arrive at the destination\n   over a round-trip\
+    \ time.  If the TCP connection has a 30-packet\n   window, the queue will be 10\
+    \ packets with no change in sending rate.\n   Similarly, if the window is 20 packets,\
+    \ there will be no queue, but\n   the sending rate is the same.  Nothing can be\
+    \ inferred about the\n   sending rate from the queue size, and any queue other\
+    \ than transient\n   bursts only creates delays in the network.  The sender needs\
+    \ to\n   reduce the number of packets in flight rather than the sending rate.\n\
+    \   In the above example, the 5-packet standing queue can be seen to\n   contribute\
+    \ nothing but delay to the connection and thus is clearly\n   \"bad\" queue. \
+    \ If, in our example, there is a single bottleneck link\n   and it is much slower\
+    \ than the link that feeds it (say, a high-speed\n   Ethernet link into a limited\
+    \ DSL uplink), then a 20-packet buffer at\n   the bottleneck might be necessary\
+    \ to temporarily hold the 20 packets\n   in flight to keep the bottleneck link's\
+    \ utilization high.  The burst\n   of packets should drain completely (to 0 or\
+    \ 1 packets) within a\n   round-trip time, and this transient queue is \"good\"\
+    \ queue because it\n   allows the connection to keep the 20 packets in flight\
+    \ and the\n   bottleneck link to be fully utilized.  In terms of the delay\n \
+    \  experienced, the \"good\" queue goes away in about a round-trip time,\n   while\
+    \ \"bad\" queue hangs around for longer, causing delays.\n   Effective queue management\
+    \ detects \"bad\" queue while ignoring \"good\"\n   queue and takes action to\
+    \ get rid of the \"bad\" queue when it is\n   detected.  The goal is a queue controller\
+    \ that accomplishes this\n   objective.  To control a queue, we need three basic\
+    \ components:\n   o  Estimator - To figure out what we've got.\n   o  Target setpoint\
+    \ - To know what we want.\n   o  Control loop - If what we've got isn't what we\
+    \ want, we need a way\n      to move it there.\n"
+- title: 3.1.  Estimator
+  contents:
+  - "3.1.  Estimator\n   The estimator both observes the queue and detects when \"\
+    good\" queue\n   turns to \"bad\" queue and vice versa.  CoDel has two parts to\
+    \ its\n   estimator: what is observed as an indicator of queue and how the\n \
+    \  observations are used to detect \"good\"/\"bad\" queue.\n   Queue length has\
+    \ been widely used as an observed indicator of\n   congestion and is frequently\
+    \ conflated with sending rate.  Use of\n   queue length as a metric is sensitive\
+    \ to how and when the length is\n   observed.  A high-speed arrival link to a\
+    \ buffer serviced at a much\n   lower rate can rapidly build up a queue that might\
+    \ disperse\n   completely or down to a single packet before a round-trip time\
+    \ has\n   elapsed.  If the queue length is monitored at packet arrival (as in\n\
+    \   original Random Early Detection (RED)) or departure time, every\n   packet\
+    \ will see a queue with one possible exception.  If the queue\n   length itself\
+    \ is time sampled (as recommended in [REDL1998]), a truer\n   picture of the queue's\
+    \ occupancy can be gained at the expense of\n   considerable implementation complexity.\n\
+    \   The use of queue length is further complicated in networks that are\n   subject\
+    \ to both short- and long-term changes in available link rate\n   (as in WiFi).\
+    \  Link rate drops can result in a spike in queue length\n   that should be ignored\
+    \ unless it persists.  It is not the queue\n   length that should be controlled\
+    \ but the amount of excess delay\n   packets experience due to a persistent or\
+    \ standing queue, which means\n   that the packet sojourn time in the buffer is\
+    \ exactly what we want to\n   track.  Tracking the packet sojourn times in the\
+    \ buffer observes the\n   actual delay experienced by each packet.  Sojourn time\
+    \ allows queue\n   management to be independent of link rate, gives superior performance\n\
+    \   to use of buffer size, and is directly related to user-visible\n   performance.\
+    \  It works regardless of line rate changes or link\n   sharing by multiple queues\
+    \ (which the individual queues may\n   experience as changing rates).\n   Consider\
+    \ a link shared by two queues with different priorities.\n   Packets that arrive\
+    \ at the high-priority queue are sent as soon as\n   the link is available, while\
+    \ packets in the other queue have to wait\n   until the high-priority queue is\
+    \ empty (i.e., a strict priority\n   scheduler).  The number of packets in the\
+    \ high-priority queue might\n   be large, but the queue is emptied quickly, and\
+    \ the amount of time\n   each packet spends enqueued (the sojourn time) is not\
+    \ large.  The\n   other queue might have a smaller number of packets, but packet\n\
+    \   sojourn times will include the waiting time for the high-priority\n   packets\
+    \ to be sent.  This makes the sojourn time a good sample of the\n   congestion\
+    \ that each separate queue is experiencing.  This example\n   also shows how the\
+    \ metric of sojourn time is independent of the\n   number of queues or the service\
+    \ discipline used and is instead\n   indicative of congestion seen by the individual\
+    \ queues.\n   How can observed sojourn time be used to separate \"good\" queue\
+    \ from\n   \"bad\" queue?  Although averages, especially of queue length, have\n\
+    \   previously been widely used as an indicator of \"bad\" queue, their\n   efficacy\
+    \ is questionable.  Consider the burst that disperses every\n   round-trip time.\
+    \  The average queue will be one-half the burst size,\n   though this might vary\
+    \ depending on when the average is computed and\n   the timing of arrivals.  The\
+    \ average queue sojourn time would be one-\n   half the time it takes to clear\
+    \ the burst.  The average then would\n   indicate a persistent queue where there\
+    \ is none.  Instead of\n   averages, we recommend tracking the minimum sojourn\
+    \ time; then, if\n   there is one packet that has a zero sojourn time, there is\
+    \ no\n   persistent queue.\n   A persistent queue can be detected by tracking\
+    \ the (local) minimum\n   queue delay packets experience.  To ensure that this\
+    \ minimum value\n   does not become stale, it has to have been experienced recently,\n\
+    \   i.e., during an appropriate past time interval.  This interval is the\n  \
+    \ maximum amount of time a minimum value is considered to be in effect\n   and\
+    \ is related to the amount of time it takes for the largest\n   expected burst\
+    \ to drain.  Conservatively, this interval SHOULD be at\n   least a round-trip\
+    \ time to avoid falsely detecting a persistent queue\n   and not a lot more than\
+    \ a round-trip time to avoid delay in detecting\n   the persistent queue.  This\
+    \ suggests that the appropriate interval\n   value is the maximum round-trip time\
+    \ of all the connections sharing\n   the buffer.\n   Note that the following key\
+    \ insight makes computation of the local\n   minimum efficient: it is sufficient\
+    \ to keep a single state variable\n   that indicates how long the minimum has\
+    \ been above or below the\n   target value rather than retaining all the local\
+    \ values to compute\n   the minimum, which leads to both storage and computational\
+    \ savings.\n   We use this insight in the pseudocode for CoDel later in the\n\
+    \   document.\n   These two parts, use of sojourn time as the observed value and\
+    \ the\n   local minimum as the statistic to monitor queue congestion, are key\n\
+    \   to CoDel's estimator building block.  The local minimum sojourn time\n   provides\
+    \ an accurate and robust measure of standing queue and has an\n   efficient implementation.\
+    \  In addition, use of the minimum sojourn\n   time has important advantages in\
+    \ implementation.  The minimum packet\n   sojourn can only be decreased when a\
+    \ packet is dequeued, which means\n   that all the work of CoDel can take place\
+    \ when packets are dequeued\n   for transmission and that no locks are needed\
+    \ in the implementation.\n   The minimum is the only statistic with this property.\n\
+    \   A more detailed explanation with many pictures can be found in\n   [TSV84].\n"
+- title: 3.2.  Target Setpoint
+  contents:
+  - "3.2.  Target Setpoint\n   Now that we have a robust way of detecting standing\
+    \ queue, we need a\n   target setpoint that tells us when to act.  If the controller\
+    \ is set\n   to take action as soon as the estimator has a non-zero value, the\n\
+    \   average drop rate will be maximized, which minimizes TCP goodput\n   [MACTCP1997].\
+    \  Also, this policy results in no backlog over time (no\n   persistent queue),\
+    \ which negates much of the value of having a\n   buffer, since it maximizes the\
+    \ bottleneck link bandwidth lost due to\n   normal stochastic variation in packet\
+    \ interarrival time.  We want a\n   target that maximizes utilization while minimizing\
+    \ delay.  Early in\n   the history of packet networking, Kleinrock developed the\
+    \ analytic\n   machinery to do this using a quantity he called \"power\", which\
+    \ is the\n   ratio of a normalized throughput to a normalized delay [KLEIN81].\n\
+    \   It is straightforward to derive an analytic expression for the\n   average\
+    \ goodput of a TCP conversation at a given round-trip time r\n   and target f\
+    \ (where f is expressed as a fraction of r).  Reno TCP,\n   for example, yields:\n\
+    \   goodput = r (3 + 6f - f^2) / (4 (1+f))\n   Since the peak queue delay is simply\
+    \ the product of f and r, power is\n   solely a function of f since the r's in\
+    \ the numerator and denominator\n   cancel:\n   power is proportional to (1 +\
+    \ 2f - 1/3 f^2) / (1 + f)^2\n   As Kleinrock observed, the best operating point\
+    \ (in terms of\n   bandwidth/delay trade-off) is the peak power point, since points\
+    \ off\n   the peak represent a higher cost (in delay) per unit of bandwidth.\n\
+    \   The power vs. f curve for any Additive Increase Multiplicative\n   Decrease\
+    \ (AIMD) TCP is monotone decreasing.  But the curve is very\n   flat for f < 0.1,\
+    \ followed by an increasing curvature with a knee\n   around f = 0.2, then a steep,\
+    \ almost linear fall off [TSV84].  Since\n   the previous equation showed that\
+    \ goodput is monotone increasing with\n   f, the best operating point is near\
+    \ the right edge of the flat top,\n   since that represents the highest goodput\
+    \ achievable for a negligible\n   increase in delay.  However, since the r in\
+    \ the model is a\n   conservative upper bound, a target of 0.1r runs the risk\
+    \ of pushing\n   shorter RTT connections over the knee and giving them higher\
+    \ delay\n   for no significant goodput increase.  Generally, a more conservative\n\
+    \   target of 0.05r offers a good utilization vs. delay trade-off while\n   giving\
+    \ enough headroom to work well with a large variation in real\n   RTT.\n   As\
+    \ the above analysis shows, a very small standing queue gives close\n   to 100%\
+    \ utilization of the bottleneck link.  While this result was\n   for Reno TCP,\
+    \ the derivation uses only properties that must hold for\n   any \"TCP friendly\"\
+    \ transport.  We have verified by both analysis and\n   simulation that this result\
+    \ holds for Reno, Cubic, and Westwood\n   [TSV84].  This results in a particularly\
+    \ simple form for the target:\n   the ideal range for the permitted standing queue,\
+    \ or the target\n   setpoint, is between 5% and 10% of the TCP connection's RTT.\n\
+    \   We used simulation to explore the impact when TCPs are mixed with\n   other\
+    \ traffic and with connections of different RTTs.  Accordingly,\n   we experimented\
+    \ extensively with values in the 5-10% of RTT range\n   and, overall, used target\
+    \ values between 1 and 20 milliseconds for\n   RTTs from 30 to 500 ms and link\
+    \ bandwidths of 64 Kbps to 100 Mbps to\n   experimentally explore a value for\
+    \ the target that gives consistently\n   high utilization while controlling delay\
+    \ across a range of\n   bandwidths, RTTs, and traffic loads.  Our results were\
+    \ notably\n   consistent with the mathematics above.\n   A congested (but not\
+    \ overloaded) CoDel link with traffic composed\n   solely or primarily of long-lived\
+    \ TCP flows will have a median delay\n   through the link that will tend to the\
+    \ target.  For bursty traffic\n   loads and for overloaded conditions (where it\
+    \ is difficult or\n   impossible for all the arriving flows to be accommodated),\
+    \ the median\n   queues will be longer than the target.\n   The non-starvation\
+    \ drop inhibit feature dominates where the link rate\n   becomes very small. \
+    \ By inhibiting drops when there is less than an\n   (outbound link) MTU worth\
+    \ of bytes in the buffer, CoDel adapts to\n   very low bandwidth links, as shown\
+    \ in [CODEL2012].\n"
+- title: 3.3.  Control Loop
+  contents:
+  - "3.3.  Control Loop\n   Section 3.1 describes a simple, reliable way to measure\
+    \ \"bad\"\n   (persistent) queue.  Section 3.2 shows that TCP congestion control\n\
+    \   dynamics gives rise to a target setpoint for this measure that's a\n   provably\
+    \ good balance between enhancing throughput and minimizing\n   delay.  Section\
+    \ 3.2 also shows that this target is a constant\n   fraction of the same \"largest\
+    \ average RTT\" interval used to\n   distinguish persistent from transient queue.\
+    \  The only remaining\n   building block needed for a basic AQM is a \"control\
+    \ loop\" algorithm\n   to effectively drive the queueing system from any \"persistent\
+    \ queue\n   above the target\" state to a state where the persistent queue is\n\
+    \   below the target.\n   Control theory provides a wealth of approaches to the\
+    \ design of\n   control loops.  Most of classical control theory deals with the\n\
+    \   control of linear, time-invariant, Single-Input-Single-Output (SISO)\n   systems.\
+    \  Control loops for these systems generally come from a well-\n   understood\
+    \ class known as Proportional-Integral-Derivative (PID)\n   controllers.  Unfortunately,\
+    \ a queue is not a linear system, and an\n   AQM operates at the point of maximum\
+    \ non-linearity (where the output\n   link bandwidth saturates, so increased demand\
+    \ creates delay rather\n   than higher utilization).  Output queues are also not\
+    \ time invariant\n   since traffic is generally a mix of connections that start\
+    \ and stop\n   at arbitrary times and that can have radically different behaviors\n\
+    \   ranging from \"open-loop\" UDP audio/video to \"closed-loop\" congestion-\n\
+    \   avoiding TCP.  Finally, the constantly changing mix of connections\n   (which\
+    \ can't be converted to a single \"lumped parameter\" model\n   because of their\
+    \ transfer function differences) makes the system\n   Multi-Input-Multi-Output\
+    \ (MIMO), not SISO.\n   Since queueing systems match none of the prerequisites\
+    \ for a\n   classical controller, a better approach is a modern state-space\n\
+    \   controller with \"no persistent queue\" and \"has persistent queue\"\n   states.\
+    \  Since Internet traffic mixtures change rapidly and\n   unpredictably, a noise-\
+    \ and error-tolerant adaptation algorithm like\n   stochastic gradient is a good\
+    \ choice.  Since there's essentially no\n   information in the amount of persistent\
+    \ queue [TSV84], the adaptation\n   should be driven by how long it has persisted.\n\
+    \   Consider the two extremes of traffic behavior: a single, open-loop\n   UDP\
+    \ video stream and a single, long-lived TCP bulk data transfer.  If\n   the average\
+    \ bandwidth of the UDP video stream is greater than the\n   bottleneck link rate,\
+    \ the link's queue will grow, and the controller\n   will eventually enter \"\
+    has persistent queue\" state and start dropping\n   packets.  Since the video\
+    \ stream is open loop, its arrival rate is\n   unaffected by drops, so the queue\
+    \ will persist until the average drop\n   rate is greater than the output bandwidth\
+    \ deficit (= average arrival\n   rate - average departure rate); the job of the\
+    \ adaptation algorithm\n   is to discover this rate.  For this example, the adaptation\
+    \ could\n   consist of simply estimating the arrival and departure rates and then\n\
+    \   dropping at a rate slightly greater than their difference, but this\n   class\
+    \ of algorithm won't work at all for the bulk data TCP stream.\n   TCP runs in\
+    \ closed-loop flow balance [TSV84], so its arrival rate is\n   almost always exactly\
+    \ equal to the departure rate -- the queue isn't\n   the result of a rate imbalance\
+    \ but rather a mismatch between the TCP\n   sender's window and the source-destination-source\
+    \ round-trip path\n   capacity (i.e., the connection's bandwidth-delay product).\
+    \  The\n   sender's TCP congestion avoidance algorithm will slowly increase the\n\
+    \   send window (one packet per round-trip time) [RFC5681], which will\n   eventually\
+    \ cause the bottleneck to enter \"has persistent queue\"\n   state.  But, since\
+    \ the average input rate is the same as the average\n   output rate, the rate\
+    \ deficit estimation that gave the correct drop\n   rate for the video stream\
+    \ would compute a drop rate of zero for the\n   TCP stream.  However, if the output\
+    \ link drops one packet as it\n   enters \"has persistent queue\" state, when\
+    \ the sender discovers this\n   (via TCP's normal packet loss repair mechanisms),\
+    \ it will reduce its\n   window by a factor of two [RFC5681]; so, one round-trip\
+    \ time after\n   the drop, the persistent queue will go away.\n   If there were\
+    \ N TCP conversations sharing the bottleneck, the\n   controller would have to\
+    \ drop O(N) packets (one from each\n   conversation) to make all the conversations\
+    \ reduce their window to\n   get rid of the persistent queue.  If the traffic\
+    \ mix consists of\n   short (<= bandwidth-delay product) conversations, the aggregate\n\
+    \   behavior becomes more like the open-loop video example since each\n   conversation\
+    \ is likely to have already sent all its packets by the\n   time it learns about\
+    \ a drop so each drop has negligible effect on\n   subsequent traffic.\n   The\
+    \ controller does not know the number, duration, or kind of\n   conversations\
+    \ creating its queue, so it has to learn the appropriate\n   response.  Since\
+    \ single drops can have a large effect if the degree\n   of multiplexing (the\
+    \ number of active conversations) is small,\n   dropping at too high a rate is\
+    \ likely to have a catastrophic effect\n   on throughput.  Dropping at a low rate\
+    \ (< 1 packet per round-trip\n   time) and then increasing the drop rate slowly\
+    \ until the persistent\n   queue goes below the target is unlikely to overdrop\
+    \ and is guaranteed\n   to eventually dissipate the persistent queue.  This stochastic\n\
+    \   gradient learning procedure is the core of CoDel's control loop (the\n   gradient\
+    \ exists because a drop always reduces the (instantaneous)\n   queue, so an increasing\
+    \ drop rate always moves the system \"down\"\n   toward no persistent queue, regardless\
+    \ of traffic mix).\n   The \"next drop time\" is decreased in inverse proportion\
+    \ to the square\n   root of the number of drops since the drop state was entered,\
+    \ using\n   the well-known non-linear relationship of drop rate to throughput\
+    \ to\n   get a linear change in throughput [REDL1998][MACTCP1997].\n   Since the\
+    \ best rate to start dropping is at slightly more than one\n   packet per RTT,\
+    \ the controller's initial drop rate can be directly\n   derived from the estimator's\
+    \ interval.  When the minimum sojourn time\n   first crosses the target and CoDel\
+    \ drops a packet, the earliest the\n   controller could see the effect of the\
+    \ drop is the round-trip time\n   (interval) + the local queue wait time (the\
+    \ target).  If the next\n   drop happens any earlier than this time (interval\
+    \ + target), CoDel\n   will overdrop.  In practice, the local queue waiting time\
+    \ tends to\n   vary, so making the initial drop spacing (i.e., the time to the\n\
+    \   second drop) be exactly the minimum possible also leads to\n   overdropping.\
+    \  Analysis of simulation and real-world measured data\n   shows that the 75th\
+    \ percentile magnitude of this variation is less\n   than the target, so the initial\
+    \ drop spacing SHOULD be set to the\n   estimator's interval (i.e., initial drop\
+    \ spacing = interval) to\n   ensure that the controller has accounted for acceptable\
+    \ congestion\n   delays.\n   Use of the minimum statistic lets the controller\
+    \ be placed in the\n   dequeue routine with the estimator.  This means that the\
+    \ control\n   signal (the drop) can be sent at the first sign of \"bad\" queue\
+    \ (as\n   indicated by the sojourn time) and that the controller can stop\n  \
+    \ acting as soon as the sojourn time falls below the target.  Dropping\n   at\
+    \ dequeue has both implementation and control advantages.\n"
+- title: 4.  Overview of the CoDel AQM
+  contents:
+  - "4.  Overview of the CoDel AQM\n   CoDel was initially designed as a bufferbloat\
+    \ solution for the\n   consumer network edge.  The CoDel building blocks are able\
+    \ to adapt\n   to different or time-varying link rates, be easily used with multiple\n\
+    \   queues, have excellent utilization with low delay, and have a simple\n   and\
+    \ efficient implementation.\n   The CoDel algorithm described in the rest of this\
+    \ document uses two\n   key variables: TARGET, which is the controller's target\
+    \ setpoint\n   described in Section 3.2, and INTERVAL, which is the estimator's\n\
+    \   interval described in Section 3.3.\n   The only setting CoDel requires is\
+    \ the INTERVAL value, and as 100 ms\n   satisfies that definition for normal Internet\
+    \ usage, CoDel can be\n   parameter-free for consumer use.  To ensure that link\
+    \ utilization is\n   not adversely affected, CoDel's estimator sets TARGET to\
+    \ one that\n   optimizes power.  CoDel's controller does not drop packets when\
+    \ the\n   drop would leave the queue empty or with fewer than a Maximum\n   Transmission\
+    \ Unit (MTU) worth of bytes in the buffer.  Section 3.2\n   shows that an ideal\
+    \ TARGET is 5-10% of the connection round-trip time\n   (RTT).  In the open terrestrial-based\
+    \ Internet, especially at the\n   consumer edge, we expect most unbloated RTTs\
+    \ to have a ceiling of 100\n   ms [CHARB2007].  Using this RTT gives a minimum\
+    \ TARGET of 5 ms and\n   INTERVAL of 100 ms.  In practice, uncongested links will\
+    \ see sojourn\n   times below TARGET more often than once per RTT, so the estimator\
+    \ is\n   not overly sensitive to the value of INTERVAL.\n   When the estimator\
+    \ finds a persistent delay above TARGET, the\n   controller enters the drop state\
+    \ where a packet is dropped, and the\n   next drop time is set.  As discussed\
+    \ in Section 3.3, the initial next\n   drop spacing is intended to be long enough\
+    \ to give the endpoints time\n   to react to the single drop and therefore SHOULD\
+    \ be set to a value\n   equal to INTERVAL.  If the estimator's output falls below\
+    \ TARGET, the\n   controller cancels the next drop and exits the drop state. \
+    \ (The\n   controller is more sensitive than the estimator to an overly short\n\
+    \   INTERVAL value, since an unnecessary drop would occur and lower link\n   utilization).\
+    \  If the next drop time is reached while the controller\n   is still in drop\
+    \ state, the packet being dequeued is dropped, and the\n   next drop time is recalculated.\n\
+    \   Additional logic prevents re-entering the drop state too soon after\n   exiting\
+    \ it and resumes the drop state at a recent control level, if\n   one exists.\
+    \  This logic is described more precisely in the pseudocode\n   below.  Additional\
+    \ work is required to determine the frequency and\n   importance of re-entering\
+    \ the drop state.\n   Note that CoDel AQM only enters its drop state when the\
+    \ local minimum\n   sojourn delay has exceeded TARGET for a time period long enough\
+    \ for\n   normal bursts to dissipate, ensuring that a burst of packets that\n\
+    \   fits in the pipe will not be dropped.\n"
+- title: 4.1.  Non-starvation
+  contents:
+  - "4.1.  Non-starvation\n   CoDel's goals are to control delay with little or no\
+    \ impact on link\n   utilization and to be deployed on a wide range of link bandwidths,\n\
+    \   including variable-rate links, without reconfiguration.  To keep from\n  \
+    \ making drops when it would starve the output link, CoDel makes\n   another check\
+    \ before dropping to see if at least an MTU worth of\n   bytes remains in the\
+    \ buffer.  If not, the packet SHOULD NOT be\n   dropped; therefore, CoDel exits\
+    \ the drop state.  The MTU size can be\n   set adaptively to the largest packet\
+    \ seen so far or can be read from\n   the interface driver.\n"
+- title: 4.2.  Setting INTERVAL
+  contents:
+  - "4.2.  Setting INTERVAL\n   The INTERVAL value is chosen to give endpoints time\
+    \ to react to a\n   drop without being so long that response times suffer.  CoDel's\n\
+    \   estimator, TARGET, and control loop all use INTERVAL.  Understanding\n   their\
+    \ derivation shows that CoDel is the most sensitive to the value\n   of INTERVAL\
+    \ for single long-lived TCPs with a decreased sensitivity\n   for traffic mixes.\
+    \  This is fortunate, as RTTs vary across\n   connections and are not known a\
+    \ priori.  The best policy seems to be\n   to use an INTERVAL value slightly larger\
+    \ than the RTT seen by most of\n   the connections using a link, a value that\
+    \ can be determined as the\n   largest RTT seen if the value is not an outlier\
+    \ (use of a 95-99th\n   percentile value should work).  In practice, this value\
+    \ is not known\n   or measured (however, see Appendix A for an application where\n\
+    \   INTERVAL is measured).  An INTERVAL setting of 100 ms works well\n   across\
+    \ a range of RTTs from 10 ms to 1 second (excellent performance\n   is achieved\
+    \ in the range from 10 ms to 300 ms).  For devices intended\n   for the normal\
+    \ terrestrial Internet, INTERVAL SHOULD have a value of\n   100 ms.  This will\
+    \ only cause overdropping where a long-lived TCP has\n   an RTT longer than 100\
+    \ ms and there is little or no mixing with other\n   connections through the link.\n"
+- title: 4.3.  Setting TARGET
+  contents:
+  - "4.3.  Setting TARGET\n   TARGET is the maximum acceptable persistent queue delay\
+    \ above which\n   CoDel is dropping or preparing to drop and below which CoDel\
+    \ will not\n   drop.  TARGET SHOULD be set to 5 ms for normal Internet traffic.\n\
+    \   The calculations of Section 3.2 show that the best TARGET value is\n   5-10%\
+    \ of the RTT, with the low end of 5% preferred.  Extensive\n   simulations exploring\
+    \ the impact of different TARGET values when used\n   with mixed traffic flows\
+    \ with different RTTs and different bandwidths\n   show that below a TARGET of\
+    \ 5 ms, utilization suffers for some\n   conditions and traffic loads; above 5\
+    \ ms showed very little or no\n   improvement in utilization.\n   Sojourn times\
+    \ must remain above the TARGET for INTERVAL amount of\n   time in order to enter\
+    \ the drop state.  Any packet with a sojourn\n   time less than TARGET will reset\
+    \ the time that the queue was last\n   below TARGET.  Since Internet traffic has\
+    \ very dynamic\n   characteristics, the actual sojourn delay experienced by packets\n\
+    \   varies greatly and is often less than TARGET unless the overload is\n   excessive.\
+    \  When a link is not overloaded, it is not a bottleneck,\n   and packet sojourn\
+    \ times will be small or nonexistent.  In the usual\n   case, there are only one\
+    \ or two places along a path where packets\n   will encounter a bottleneck (usually\
+    \ at the edge), so the total\n   amount of queueing delay experienced by a packet\
+    \ should be less than\n   10 ms even under extremely congested conditions.  This\
+    \ net delay is\n   substantially lower than common current queueing delays on\
+    \ the\n   Internet that grow to orders of seconds [NETAL2010] [CHARB2007].\n \
+    \  Regarding the roles of TARGET and the minimum-tracking INTERVAL, note\n   that\
+    \ TARGET SHOULD NOT be increased in response to lower layers that\n   have a bursty\
+    \ nature, where packets are transmitted for short periods\n   interspersed with\
+    \ idle periods where the link is waiting for\n   permission to send.  CoDel's\
+    \ estimator will \"see\" the effective\n   transmission rate over an INTERVAL\
+    \ amount of time, and increasing\n   TARGET only leads to longer queue delays.\
+    \  On the other hand, where a\n   significant additional delay is added to the\
+    \ intrinsic RTT of most or\n   all packets due to the waiting time for a transmission,\
+    \ it is\n   necessary to increase INTERVAL by that extra delay.  TARGET SHOULD\n\
+    \   NOT be adjusted for such short-term bursts, but INTERVAL MAY need to\n   be\
+    \ adjusted if the path's intrinsic RTT changes.\n"
+- title: 4.4.  Use with Multiple Queues
+  contents:
+  - "4.4.  Use with Multiple Queues\n   CoDel is easily adapted to multiple queue\
+    \ systems.  With other\n   approaches, there is always a question of how to account\
+    \ for the fact\n   that each queue receives less than the full link rate over\
+    \ time and\n   usually sees a varying rate over time.  This is what CoDel excels\
+    \ at:\n   using a packet's sojourn time in the buffer completely circumvents\n\
+    \   this problem.  In a multiple-queue setting, a separate CoDel\n   algorithm\
+    \ runs on each queue, but each CoDel instance uses the packet\n   sojourn time\
+    \ the same way a single-queue CoDel does.  Just as a\n   single-queue CoDel adapts\
+    \ to changing link bandwidths [CODEL2012], so\n   does a multiple-queue CoDel\
+    \ system.  As an optimization to avoid\n   queueing more than necessary, when\
+    \ testing for queue occupancy before\n   dropping, the total occupancy of all\
+    \ queues sharing the same output\n   link SHOULD be used.  This property of CoDel\
+    \ has been exploited in\n   fq_codel [RFC8290], which hashes on the packet header\
+    \ fields to\n   determine a specific bin, or sub-queue, for the packet and runs\
+    \ CoDel\n   on each bin or sub-queue, thus creating a well-mixed output flow and\n\
+    \   obviating issues of reverse path flows (including \"ack compression\").\n"
+- title: 4.5.  Setting Up CoDel
+  contents:
+  - "4.5.  Setting Up CoDel\n   CoDel is set for use in devices in the open Internet.\
+    \  An INTERVAL\n   setting of 100 ms is used, TARGET is set to 5% of INTERVAL,\
+    \ and the\n   initial drop spacing is also set to the INTERVAL.  These settings\n\
+    \   have been chosen so that a device, such as a small WiFi router, can\n   be\
+    \ sold without the need for any values to be made adjustable,\n   yielding a parameterless\
+    \ implementation.  In addition, CoDel is\n   useful in environments with significantly\
+    \ different characteristics\n   from the normal Internet, for example, in switches\
+    \ used as a cluster\n   interconnect within a data center.  Since cluster traffic\
+    \ is entirely\n   internal to the data center, round-trip latencies are low (typically\n\
+    \   <100 us) but bandwidths are high (1-40 Gbps), so it's relatively easy\n  \
+    \ for the aggregation phase of a distributed computation (e.g., the\n   Reduce\
+    \ part of a Map/Reduce) to persistently fill and then overflow\n   the modest\
+    \ per-port buffering available in most high-speed switches.\n   A CoDel configured\
+    \ for this environment (TARGET and INTERVAL in the\n   microsecond rather than\
+    \ millisecond range) can minimize drops or\n   Explicit Congestion Notification\
+    \ (ECN) marks while keeping throughput\n   high and latency low.\n   Devices destined\
+    \ for these environments MAY use a different value for\n   INTERVAL, where suitable.\
+    \  If appropriate analysis indicates, the\n   TARGET MAY be set to some other\
+    \ value in the 5-10% of INTERVAL, and\n   the initial drop spacing MAY be set\
+    \ to a value of 1.0 to 1.2 times\n   INTERVAL.  But these settings will cause\
+    \ problems, such as\n   overdropping and low throughput, if used on the open Internet,\
+    \ so\n   devices that allow CoDel to be configured SHOULD default to the\n   Internet-appropriate\
+    \ values given in this document.\n"
+- title: 5.  Annotated Pseudocode for CoDel AQM
+  contents:
+  - "5.  Annotated Pseudocode for CoDel AQM\n   What follows is the CoDel algorithm\
+    \ in C++-like pseudocode.  Since\n   CoDel adds relatively little new code to\
+    \ a basic tail-drop FIFO\n   queue, we have attempted to highlight just these\
+    \ additions by\n   presenting CoDel as a sub-class of a basic FIFO queue base\
+    \ class.\n   The reference code is included to aid implementers who wish to apply\n\
+    \   CoDel to queue management as described here or to adapt its\n   principles\
+    \ to other applications.\n   Implementors are strongly encouraged to also look\
+    \ at the Linux kernel\n   version of CoDel -- a well-written, well-tested, real-world,\
+    \ C-based\n   implementation.  As of this writing, it is available at\n   https://github.com/torvalds/linux/blob/master/net/sched/sch_codel.c.\n"
+- title: 5.1.  Data Types
+  contents:
+  - "5.1.  Data Types\n   time_t is an integer time value in units convenient for\
+    \ the system.\n   The code presented here uses 0 as a flag value to indicate \"\
+    no time\n   set.\"\n   packet_t* is a pointer to a packet descriptor.  We assume\
+    \ it has a\n   tstamp field capable of holding a time_t and that the field is\n\
+    \   available for use by CoDel (it will be set by the enqueue routine and\n  \
+    \ used by the dequeue routine).\n   queue_t is a base class for queue objects\
+    \ (the parent class for\n   codel_queue_t objects).  We assume it has enqueue()\
+    \ and dequeue()\n   methods that can be implemented in child classes.  We assume\
+    \ it has a\n   bytes() method that returns the current queue size in bytes.  This\n\
+    \   can be an approximate value.  The method is invoked in the dequeue()\n   method\
+    \ but shouldn't require a lock with the enqueue() method.\n   flag_t is a Boolean.\n"
+- title: 5.2.  Per-Queue State (codel_queue_t Instance Variables)
+  contents:
+  - "5.2.  Per-Queue State (codel_queue_t Instance Variables)\n   time_t first_above_time_\
+    \ = 0; // Time to declare sojourn time above\n                               \
+    \  // TARGET\n   time_t drop_next_ = 0;        // Time to drop next packet\n \
+    \  uint32_t count_ = 0;          // Packets dropped in drop state\n   uint32_t\
+    \ lastcount_ = 0;      // Count from previous iteration\n   flag_t dropping_ =\
+    \ false;     // Set to true if in drop state\n"
+- title: 5.3.  Constants
+  contents:
+  - "5.3.  Constants\n   time_t TARGET = MS2TIME(5);     // 5 ms TARGET queue delay\n\
+    \   time_t INTERVAL = MS2TIME(100); // 100 ms sliding-minimum window\n   u_int\
+    \ maxpacket = 512;          // Maximum packet size in bytes\n                \
+    \                   // (SHOULD use interface MTU)\n"
+- title: 5.4.  Enqueue Routine
+  contents:
+  - "5.4.  Enqueue Routine\n   All the work of CoDel is done in the dequeue routine.\
+    \  The only CoDel\n   addition to enqueue is putting the current time in the packet's\n\
+    \   tstamp field so that the dequeue routine can compute the packet's\n   sojourn\
+    \ time.  Note that packets arriving at a full buffer will be\n   dropped, but\
+    \ these drops are not counted towards CoDel's\n   computations.\n   void codel_queue_t::enqueue(packet_t*\
+    \ pkt)\n   {\n       pkt->tstamp = clock();\n       queue_t::enqueue(pkt);\n \
+    \  }\n"
+- title: 5.5.  Dequeue Routine
+  contents:
+  - "5.5.  Dequeue Routine\n   This is the heart of CoDel.  There are two branches\
+    \ based on whether\n   the controller is in drop state: (i) if the controller\
+    \ is in drop\n   state (that is, the minimum packet sojourn time is greater than\n\
+    \   TARGET), then the controller checks if it is time to leave drop state\n  \
+    \ or schedules the next drop(s); or (ii) if the controller is not in\n   drop\
+    \ state, it determines if it should enter drop state and do the\n   initial drop.\n\
+    \   packet_t* CoDelQueue::dequeue()\n   {\n       time_t now = clock();\n    \
+    \   dodequeue_result r = dodequeue(now);\n       uint32_t delta;\n       if (dropping_)\
+    \ {\n           if (! r.ok_to_drop) {\n               // sojourn time below TARGET\
+    \ - leave drop state\n               dropping_ = false;\n           }\n      \
+    \     // Time for the next drop.  Drop current packet and dequeue\n          \
+    \ // next.  If the dequeue doesn't take us out of dropping\n           // state,\
+    \ schedule the next drop.  A large backlog might\n           // result in drop\
+    \ rates so high that the next drop should\n           // happen now, hence the\
+    \ 'while' loop.\n           while (now >= drop_next_ && dropping_) {\n       \
+    \        drop(r.p);\n               ++count_;\n               r = dodequeue(now);\n\
+    \               if (! r.ok_to_drop) {\n                   // leave drop state\n\
+    \                   dropping_ = false;\n               } else {\n            \
+    \       // schedule the next drop.\n                   drop_next_ = control_law(drop_next_,\
+    \ count_);\n               }\n           }\n       // If we get here, we're not\
+    \ in drop state.  The 'ok_to_drop'\n       // return from dodequeue means that\
+    \ the sojourn time has been\n       // above 'TARGET' for 'INTERVAL', so enter\
+    \ drop state.\n       } else if (r.ok_to_drop) {\n           drop(r.p);\n    \
+    \       r = dodequeue(now);\n           dropping_ = true;\n           // If min\
+    \ went above TARGET close to when it last went\n           // below, assume that\
+    \ the drop rate that controlled the\n           // queue on the last cycle is\
+    \ a good starting point to\n           // control it now.  ('drop_next' will be\
+    \ at most 'INTERVAL'\n           // later than the time of the last drop, so 'now\
+    \ - drop_next'\n           // is a good approximation of the time from the last\
+    \ drop\n           // until now.) Implementations vary slightly here; this is\n\
+    \           // the Linux version, which is more widely deployed and\n        \
+    \   // tested.\n           delta = count_ - lastcount_;\n           count_ = 1;\n\
+    \           if ((delta > 1) && (now - drop_next_ < 16*INTERVAL))\n           \
+    \    count_ = delta;\n           drop_next_ = control_law(now, count_);\n    \
+    \       lastcount_ = count_;\n       }\n       return (r.p);\n   }\n"
+- title: 5.6.  Helper Routines
+  contents:
+  - "5.6.  Helper Routines\n   Since the degree of multiplexing and nature of the\
+    \ traffic sources is\n   unknown, CoDel acts as a closed-loop servo system that\
+    \ gradually\n   increases the frequency of dropping until the queue is controlled\n\
+    \   (sojourn time goes below TARGET).  This is the control law that\n   governs\
+    \ the servo.  It has this form because of the sqrt(p)\n   dependence of TCP throughput\
+    \ on drop probability.  Note that for\n   embedded systems or kernel implementation,\
+    \ the inverse sqrt can be\n   computed efficiently using only integer multiplication.\n\
+    \   time_t codel_queue_t::control_law(time_t t, uint32_t count)\n   {\n      \
+    \ return t + INTERVAL / sqrt(count);\n   }\n   Next is a helper routine that does\
+    \ the actual packet dequeue and\n   tracks whether the sojourn time is above or\
+    \ below TARGET and, if\n   above, if it has remained above continuously for at\
+    \ least INTERVAL\n   amount of time.  It returns two values: a Boolean indicating\
+    \ if it is\n   OK to drop (sojourn time above TARGET for at least INTERVAL) and\
+    \ the\n   packet dequeued.\n   typedef struct {\n       packet_t* p;\n       flag_t\
+    \ ok_to_drop;\n   } dodequeue_result;\n   dodequeue_result codel_queue_t::dodequeue(time_t\
+    \ now)\n   {\n       dodequeue_result r = { queue_t::dequeue(), false };\n   \
+    \    if (r.p == NULL) {\n           // queue is empty - we can't be above TARGET\n\
+    \           first_above_time_ = 0;\n           return r;\n       }\n       //\
+    \ To span a large range of bandwidths, CoDel runs two\n       // different AQMs\
+    \ in parallel.  One is based on sojourn time\n       // and takes effect when\
+    \ the time to send an MTU-sized\n       // packet is less than TARGET.  The 1st\
+    \ term of the \"if\"\n       // below does this.  The other is based on backlog\
+    \ and takes\n       // effect when the time to send an MTU-sized packet is >=\n\
+    \       // TARGET.  The goal here is to keep the output link\n       // utilization\
+    \ high by never allowing the queue to get\n       // smaller than the amount that\
+    \ arrives in a typical\n       // interarrival time (MTU-sized packets arriving\
+    \ spaced\n       // by the amount of time it takes to send such a packet on\n\
+    \       // the bottleneck).  The 2nd term of the \"if\" does this.\n       time_t\
+    \ sojourn_time = now - r.p->tstamp;\n       if (sojourn_time_ < TARGET || bytes()\
+    \ <= maxpacket_) {\n           // went below - stay below for at least INTERVAL\n\
+    \           first_above_time_ = 0;\n       } else {\n           if (first_above_time_\
+    \ == 0) {\n               // just went above from below. if still above at\n \
+    \              // first_above_time, will say it's ok to drop.\n              \
+    \ first_above_time_ = now + INTERVAL;\n           } else if (now >= first_above_time_)\
+    \ {\n               r.ok_to_drop = true;\n           }\n       }\n       return\
+    \ r;\n   }\n"
+- title: 5.7.  Implementation Considerations
+  contents:
+  - "5.7.  Implementation Considerations\n   time_t is an integer time value in units\
+    \ convenient for the system.\n   Resolution to at least a millisecond is required,\
+    \ and better\n   resolution is useful up to the minimum possible packet time on\
+    \ the\n   output link; 64- or 32-bit widths are acceptable but with 32 bits the\n\
+    \   resolution should be no finer than 2^{-16} to leave enough dynamic\n   range\
+    \ to represent a wide range of queue waiting times.  Narrower\n   widths also\
+    \ have implementation issues due to overflow (wrapping) and\n   underflow (limit\
+    \ cycles because of truncation to zero) that are not\n   addressed in this pseudocode.\n\
+    \   Since CoDel requires relatively little per-queue state and no direct\n   communication\
+    \ or state sharing between the enqueue and dequeue\n   routines, it is relatively\
+    \ simple to add CoDel to almost any packet\n   processing pipeline, including\
+    \ forwarding engines based on\n   Application-Specific Integrated Circuits (ASICs)\
+    \ or Network\n   Processors (NPUs).  One issue to consider is dodequeue()'s use\
+    \ of a\n   'bytes()' function to determine the current queue size in bytes.\n\
+    \   This value does not need to be exact.  If the enqueue part of the\n   pipeline\
+    \ keeps a running count of the total number of bytes it has\n   put into the queue,\
+    \ and the dequeue routine keeps a running count of\n   the total bytes it has\
+    \ removed from the queue, 'bytes()' is simply\n   the difference between these\
+    \ two counters (32-bit counters should be\n   adequate).  Enqueue has to update\
+    \ its counter once per packet queued,\n   but it does not matter when (before,\
+    \ during, or after the packet has\n   been added to the queue).  The worst that\
+    \ can happen is a slight,\n   transient underestimate of the queue size, which\
+    \ might cause a drop\n   to be briefly deferred.\n"
+- title: 6.  Further Experimentation
+  contents:
+  - "6.  Further Experimentation\n   We encourage experimentation with the recommended\
+    \ values of TARGET\n   and INTERVAL for Internet settings.  CoDel provides general,\n\
+    \   efficient, parameterless building blocks for queue management that\n   can\
+    \ be applied to single or multiple queues in a variety of data\n   networking\
+    \ scenarios.  CoDel's settings may be modified for other\n   special-purpose networking\
+    \ applications.\n"
+- title: 7.  Security Considerations
+  contents:
+  - "7.  Security Considerations\n   This document describes an active queue management\
+    \ algorithm for\n   implementation in networked devices.  There are no known security\n\
+    \   exposures associated with CoDel at this time.\n"
+- title: 8.  IANA Considerations
+  contents:
+  - "8.  IANA Considerations\n   This document does not require actions by IANA.\n"
+- title: 9.  References
+  contents:
+  - '9.  References
+
+    '
+- title: 9.1.  Normative References
+  contents:
+  - "9.1.  Normative References\n   [RFC2119]  Bradner, S., \"Key words for use in\
+    \ RFCs to Indicate\n              Requirement Levels\", BCP 14, RFC 2119,\n  \
+    \            DOI 10.17487/RFC2119, March 1997,\n              <https://www.rfc-editor.org/info/rfc2119>.\n\
+    \   [RFC8174]  Leiba, B., \"Ambiguity of Uppercase vs Lowercase in RFC\n     \
+    \         2119 Key Words\", BCP 14, RFC 8174, DOI 10.17487/RFC8174,\n        \
+    \      May 2017, <https://www.rfc-editor.org/info/rfc8174>.\n"
+- title: 9.2.  Informative References
+  contents:
+  - "9.2.  Informative References\n   [BLOAT]    Gettys, J. and K. Nichols, \"Bufferbloat:\
+    \ Dark Buffers in\n              the Internet\", Communications of the ACM, Volume\
+    \ 55, Issue\n              1, DOI 10.1145/2063176.2063196, January 2012.\n   [CHARB2007]\n\
+    \              Dischinger, M., Haeberlen, A., Gummadi, K., and S. Saroiu,\n  \
+    \            \"Characterizing Residential Broadband Networks\",\n            \
+    \  Proceedings of the 7th ACM SIGCOMM Conference on Internet\n              Measurement,\
+    \ DOI 10.1145/1298306.1298313, October 2007.\n   [CODEL2012]\n              Nichols,\
+    \ K. and V. Jacobson, \"Controlling Queue Delay\",\n              ACM Queue, Volume\
+    \ 10, Issue 5,\n              DOI 10.1145/2208917.2209336, May 2012.\n   [KLEIN81]\
+    \  Kleinrock, L. and R. Gail, \"An Invariant Property of\n              Computer\
+    \ Network Power\", Proceedings of the International\n              Conference\
+    \ on Communications, June 1981,\n              <http://www.lk.cs.ucla.edu/data/files/Gail/power.pdf>.\n\
+    \   [MACTCP1997]\n              Mathis, M., Semke, J., Mahdavi, J., and T. Ott,\
+    \ \"The\n              Macroscopic Behavior of the TCP Congestion Avoidance\n\
+    \              Algorithm\", ACM SIGCOMM Computer Communications\n            \
+    \  Review, Volume 27, Issue 3, pp. 67-82,\n              DOI 10.1145/263932.264023,\
+    \ July 1997.\n   [NETAL2010]\n              Kreibich, C., Weaver, N., Paxson,\
+    \ V., and B. Nechaev,\n              \"Netalyzr: Illuminating the Edge Network\"\
+    , Proceedings of\n              the 10th ACM SIGCOMM Conference on Internet Measurement,\n\
+    \              DOI 10.1145/1879141.1879173, November 2010.\n   [REDL1998] Nichols,\
+    \ K., Jacobson, V., and K. Poduri, \"RED in a\n              Different Light\"\
+    , Technical Report, Cisco Systems,\n              September 1999, <http://citeseerx.ist.psu.edu/viewdoc/\n\
+    \              summary?doi=10.1.1.22.9406>.\n   [RFC896]   Nagle, J., \"Congestion\
+    \ Control in IP/TCP Internetworks\",\n              RFC 896, DOI 10.17487/RFC0896,\
+    \ January 1984,\n              <https://www.rfc-editor.org/info/rfc896>.\n   [RFC2309]\
+    \  Braden, B., Clark, D., Crowcroft, J., Davie, B., Deering,\n              S.,\
+    \ Estrin, D., Floyd, S., Jacobson, V., Minshall, G.,\n              Partridge,\
+    \ C., Peterson, L., Ramakrishnan, K., Shenker,\n              S., Wroclawski,\
+    \ J., and L. Zhang, \"Recommendations on\n              Queue Management and Congestion\
+    \ Avoidance in the\n              Internet\", RFC 2309, DOI 10.17487/RFC2309,\
+    \ April 1998,\n              <https://www.rfc-editor.org/info/rfc2309>.\n   [RFC5681]\
+    \  Allman, M., Paxson, V., and E. Blanton, \"TCP Congestion\n              Control\"\
+    , RFC 5681, DOI 10.17487/RFC5681, September 2009,\n              <https://www.rfc-editor.org/info/rfc5681>.\n\
+    \   [RFC8290]  Hoeiland-Joergensen, T., McKenney, P., Taht, D.,\n            \
+    \  Gettys, J., and E. Dumazet, \"The Flow Queue CoDel Packet\n              Scheduler\
+    \ and Active Queue Management Algorithm\",\n              RFC 8290, DOI 10.17487/RFC8290,\
+    \ January 2018,\n              <https://www.rfc-editor.org/info/rfc8290>.\n  \
+    \ [TSV84]    Jacobson, V., \"CoDel\", IETF 84, Transport Area Open\n         \
+    \     Meeting, July 2012,\n              <http://www.ietf.org/proceedings/84/slides/\n\
+    \              slides-84-tsvarea-4.pdf>.\n   [VANQ2006] Jacobson, V., \"A Rant\
+    \ on Queues\", Talk at MIT Lincoln\n              Labs, Lexington, MA, July 2006,\n\
+    \              <http://www.pollere.net/Pdfdocs/QrantJul06.pdf>.\n"
+- title: Appendix A.  Applying CoDel in the Data Center
+  contents:
+  - "Appendix A.  Applying CoDel in the Data Center\n   Nandita Dukkipati and her\
+    \ group at Google realized that the CoDel\n   building blocks could be applied\
+    \ to bufferbloat problems in data-\n   center servers, not just to Internet routers.\
+    \  The Linux CoDel\n   queueing discipline (qdisc) was adapted in three ways to\
+    \ tackle this\n   bufferbloat problem.\n   1.  The default CoDel action was modified\
+    \ to be a direct feedback\n       from qdisc to the TCP layer at dequeue.  The\
+    \ direct feedback\n       simply reduces TCP's congestion window just as congestion\
+    \ control\n       would do in the event of drop.  The scheme falls back to ECN\n\
+    \       marking or packet drop if the TCP socket lock could not be\n       acquired\
+    \ at dequeue.\n   2.  Being located in the server makes it possible to monitor\
+    \ the\n       actual RTT to use as CoDel's interval rather than making a \"best\n\
+    \       guess\" of RTT.  The CoDel interval is dynamically adjusted by\n     \
+    \  using the maximum TCP round-trip time (RTT) of those connections\n       sharing\
+    \ the same qdisc/bucket.  In particular, there is a history\n       entry of the\
+    \ maximum RTT experienced over the last second.  As a\n       packet is dequeued,\
+    \ the RTT estimate is accessed from its TCP\n       socket.  If the estimate is\
+    \ larger than the current CoDel\n       interval, the CoDel interval is immediately\
+    \ refreshed to the new\n       value.  If the CoDel interval is not refreshed\
+    \ for over a second,\n       it is decreased to the history entry, and the process\
+    \ is\n       repeated.  The use of the dynamic TCP RTT estimate allows the\n \
+    \      interval to adapt to the actual maximum value currently seen and\n    \
+    \   thus lets the controller space its drop intervals appropriately.\n   3.  Since\
+    \ the mathematics of computing the setpoint are invariant, a\n       TARGET of\
+    \ 5% of the RTT or CoDel interval was used here.\n   Non-data packets were not\
+    \ dropped, as these are typically small and\n   sometimes critical control packets.\
+    \  Being located on the server,\n   there is no concern with misbehaving users\
+    \ as there would be on the\n   public Internet.\n   In several data-center workload\
+    \ benchmarks, which are typically\n   bursty, CoDel reduced the queueing latencies\
+    \ at the qdisc and thereby\n   improved the mean and 99th-percentile latencies\
+    \ from several tens of\n   milliseconds to less than one millisecond.  The minimum\
+    \ tracking part\n   of the CoDel framework proved useful in disambiguating \"\
+    good\" queue\n   versus \"bad\" queue, which is particularly helpful in controlling\n\
+    \   qdisc buffers that are inherently bursty because of TCP Segmentation\n   Offload\
+    \ (TSO).\n"
+- title: Acknowledgments
+  contents:
+  - "Acknowledgments\n   The authors thank Jim Gettys for the constructive nagging\
+    \ that made\n   us get the work \"out there\" before we thought it was ready.\
+    \  We thank\n   Dave Taht, Eric Dumazet, and the open source community for showing\n\
+    \   the value of getting it \"out there\" and for making it real.  We thank\n\
+    \   Nandita Dukkipati for contributions to Section 6 and for comments\n   that\
+    \ helped to substantially improve this document.  We thank the AQM\n   Working\
+    \ Group and the Transport Area Shepherd, Wes Eddy, for\n   patiently prodding\
+    \ this document all the way to publication as an\n   RFC.\n"
+- title: Authors' Addresses
+  contents:
+  - "Authors' Addresses\n   Kathleen Nichols\n   Pollere, Inc.\n   PO Box 370201\n\
+    \   Montara, CA  94037\n   United States of America\n   Email: nichols@pollere.com\n\
+    \   Van Jacobson\n   Google\n   Email: vanj@google.com\n   Andrew McGregor (editor)\n\
+    \   Google\n   Email: andrewmcgr@google.com\n   Janardhan Iyengar (editor)\n \
+    \  Google\n   Email: jri@google.com\n"

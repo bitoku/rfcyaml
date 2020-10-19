@@ -1,0 +1,375 @@
+- title: __initial_text__
+  contents:
+  - "         A Conservative Selective Acknowledgment (SACK)-based\n             \
+    \       Loss Recovery Algorithm for TCP\n"
+- title: Status of this Memo
+  contents:
+  - "Status of this Memo\n   This document specifies an Internet standards track protocol\
+    \ for the\n   Internet community, and requests discussion and suggestions for\n\
+    \   improvements.  Please refer to the current edition of the \"Internet\n   Official\
+    \ Protocol Standards\" (STD 1) for the standardization state\n   and status of\
+    \ this protocol.  Distribution of this memo is unlimited.\n"
+- title: Copyright Notice
+  contents:
+  - "Copyright Notice\n   Copyright (C) The Internet Society (2003).  All Rights Reserved.\n"
+- title: Abstract
+  contents:
+  - "Abstract\n   This document presents a conservative loss recovery algorithm for\
+    \ TCP\n   that is based on the use of the selective acknowledgment (SACK) TCP\n\
+    \   option.  The algorithm presented in this document conforms to the\n   spirit\
+    \ of the current congestion control specification (RFC 2581),\n   but allows TCP\
+    \ senders to recover more effectively when multiple\n   segments are lost from\
+    \ a single flight of data.\n"
+- title: Terminology
+  contents:
+  - "Terminology\n   The key words \"MUST\", \"MUST NOT\", \"REQUIRED\", \"SHALL\"\
+    , \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\", \"MAY\", and\
+    \ \"OPTIONAL\" in this\n   document are to be interpreted as described in BCP\
+    \ 14, RFC 2119\n   [RFC2119].\n"
+- title: 1   Introduction
+  contents:
+  - "1   Introduction\n   This document presents a conservative loss recovery algorithm\
+    \ for TCP\n   that is based on the use of the selective acknowledgment (SACK)\
+    \ TCP\n   option.  While the TCP SACK [RFC2018] is being steadily deployed in\n\
+    \   the Internet [All00], there is evidence that hosts are not using the\n   SACK\
+    \ information when making retransmission and congestion control\n   decisions\
+    \ [PF01].  The goal of this document is to outline one\n   straightforward method\
+    \ for TCP implementations to use SACK\n   information to increase performance.\n\
+    \   [RFC2581] allows advanced loss recovery algorithms to be used by TCP\n   [RFC793]\
+    \ provided that they follow the spirit of TCP's congestion\n   control algorithms\
+    \ [RFC2581, RFC2914].  [RFC2582] outlines one such\n   advanced recovery algorithm\
+    \ called NewReno.  This document outlines a\n   loss recovery algorithm that uses\
+    \ the SACK [RFC2018] TCP option to\n   enhance TCP's loss recovery.  The algorithm\
+    \ outlined in this\n   document, heavily based on the algorithm detailed in [FF96],\
+    \ is a\n   conservative replacement of the fast recovery algorithm [Jac90,\n \
+    \  RFC2581].  The algorithm specified in this document is a\n   straightforward\
+    \ SACK-based loss recovery strategy that follows the\n   guidelines set in [RFC2581]\
+    \ and can safely be used in TCP\n   implementations.  Alternate SACK-based loss\
+    \ recovery methods can be\n   used in TCP as implementers see fit (as long as\
+    \ the alternate\n   algorithms follow the guidelines provided in [RFC2581]). \
+    \ Please\n   note, however, that the SACK-based decisions in this document (such\n\
+    \   as what segments are to be sent at what time) are largely decoupled\n   from\
+    \ the congestion control algorithms, and as such can be treated as\n   separate\
+    \ issues if so desired.\n"
+- title: 2   Definitions
+  contents:
+  - "2   Definitions\n   The reader is expected to be familiar with the definitions\
+    \ given in\n   [RFC2581].\n   The reader is assumed to be familiar with selective\
+    \ acknowledgments\n   as specified in [RFC2018].\n   For the purposes of explaining\
+    \ the SACK-based loss recovery algorithm\n   we define four variables that a TCP\
+    \ sender stores:\n      \"HighACK\" is the sequence number of the highest byte\
+    \ of data that\n      has been cumulatively ACKed at a given point.\n      \"\
+    HighData\" is the highest sequence number transmitted at a given\n      point.\n\
+    \      \"HighRxt\" is the highest sequence number which has been\n      retransmitted\
+    \ during the current loss recovery phase.\n      \"Pipe\" is a sender's estimate\
+    \ of the number of bytes outstanding\n      in the network.  This is used during\
+    \ recovery for limiting the\n      sender's sending rate.  The pipe variable allows\
+    \ TCP to use a\n      fundamentally different congestion control than specified\
+    \ in\n      [RFC2581].  The algorithm is often referred to as the \"pipe\n   \
+    \   algorithm\".\n   For the purposes of this specification we define a \"duplicate\n\
+    \   acknowledgment\" as a segment that arrives with no data and an\n   acknowledgment\
+    \ (ACK) number that is equal to the current value of\n   HighACK, as described\
+    \ in [RFC2581].\n   We define a variable \"DupThresh\" that holds the number of\
+    \ duplicate\n   acknowledgments required to trigger a retransmission.  Per [RFC2581]\n\
+    \   this threshold is defined to be 3 duplicate acknowledgments.\n   However,\
+    \ implementers should consult any updates to [RFC2581] to\n   determine the current\
+    \ value for DupThresh (or method for determining\n   its value).\n   Finally,\
+    \ a range of sequence numbers [A,B] is said to \"cover\"\n   sequence number S\
+    \ if A <= S <= B.\n"
+- title: 3   Keeping Track of SACK Information
+  contents:
+  - "3   Keeping Track of SACK Information\n   For a TCP sender to implement the algorithm\
+    \ defined in the next\n   section it must keep a data structure to store incoming\
+    \ selective\n   acknowledgment information on a per connection basis.  Such a\
+    \ data\n   structure is commonly called the \"scoreboard\".  The specifics of\
+    \ the\n   scoreboard data structure are out of scope for this document (as long\n\
+    \   as the implementation can perform all functions required by this\n   specification).\n\
+    \   Note that this document refers to keeping account of (marking)\n   individual\
+    \ octets of data transferred across a TCP connection.  A\n   real-world implementation\
+    \ of the scoreboard would likely prefer to\n   manage this data as sequence number\
+    \ ranges.  The algorithms presented\n   here allow this, but require arbitrary\
+    \ sequence number ranges to be\n   marked as having been selectively acknowledged.\n"
+- title: 4   Processing and Acting Upon SACK Information
+  contents:
+  - "4   Processing and Acting Upon SACK Information\n   For the purposes of the algorithm\
+    \ defined in this document the\n   scoreboard SHOULD implement the following functions:\n\
+    \   Update ():\n      Given the information provided in an ACK, each octet that\
+    \ is\n      cumulatively ACKed or SACKed should be marked accordingly in the\n\
+    \      scoreboard data structure, and the total number of octets SACKed\n    \
+    \  should be recorded.\n      Note: SACK information is advisory and therefore\
+    \ SACKed data MUST\n      NOT be removed from TCP's retransmission buffer until\
+    \ the data is\n      cumulatively acknowledged [RFC2018].\n   IsLost (SeqNum):\n\
+    \      This routine returns whether the given sequence number is\n      considered\
+    \ to be lost.  The routine returns true when either\n      DupThresh discontiguous\
+    \ SACKed sequences have arrived above\n      'SeqNum' or (DupThresh * SMSS) bytes\
+    \ with sequence numbers greater\n      than 'SeqNum' have been SACKed.  Otherwise,\
+    \ the routine returns\n      false.\n   SetPipe ():\n      This routine traverses\
+    \ the sequence space from HighACK to HighData\n      and MUST set the \"pipe\"\
+    \ variable to an estimate of the number of\n      octets that are currently in\
+    \ transit between the TCP sender and\n      the TCP receiver.  After initializing\
+    \ pipe to zero the following\n      steps are taken for each octet 'S1' in the\
+    \ sequence space between\n      HighACK and HighData that has not been SACKed:\n\
+    \      (a) If IsLost (S1) returns false:\n         Pipe is incremented by 1 octet.\n\
+    \         The effect of this condition is that pipe is incremented for\n     \
+    \    packets that have not been SACKed and have not been determined\n        \
+    \ to have been lost (i.e., those segments that are still assumed\n         to\
+    \ be in the network).\n      (b) If S1 <= HighRxt:\n         Pipe is incremented\
+    \ by 1 octet.\n         The effect of this condition is that pipe is incremented\
+    \ for\n         the retransmission of the octet.\n      Note that octets retransmitted\
+    \ without being considered lost are\n      counted twice by the above mechanism.\n\
+    \   NextSeg ():\n      This routine uses the scoreboard data structure maintained\
+    \ by the\n      Update() function to determine what to transmit based on the SACK\n\
+    \      information that has arrived from the data receiver (and hence\n      been\
+    \ marked in the scoreboard).  NextSeg () MUST return the\n      sequence number\
+    \ range of the next segment that is to be\n      transmitted, per the following\
+    \ rules:\n      (1) If there exists a smallest unSACKed sequence number 'S2' that\n\
+    \          meets the following three criteria for determining loss, the\n    \
+    \      sequence range of one segment of up to SMSS octets starting\n         \
+    \ with S2 MUST be returned.\n          (1.a) S2 is greater than HighRxt.\n   \
+    \       (1.b) S2 is less than the highest octet covered by any\n             \
+    \   received SACK.\n          (1.c) IsLost (S2) returns true.\n      (2) If no\
+    \ sequence number 'S2' per rule (1) exists but there\n          exists available\
+    \ unsent data and the receiver's advertised\n          window allows, the sequence\
+    \ range of one segment of up to SMSS\n          octets of previously unsent data\
+    \ starting with sequence number\n          HighData+1 MUST be returned.\n    \
+    \  (3) If the conditions for rules (1) and (2) fail, but there exists\n      \
+    \    an unSACKed sequence number 'S3' that meets the criteria for\n          detecting\
+    \ loss given in steps (1.a) and (1.b) above\n          (specifically excluding\
+    \ step (1.c)) then one segment of up to\n          SMSS octets starting with S3\
+    \ MAY be returned.\n          Note that rule (3) is a sort of retransmission \"\
+    last resort\".\n          It allows for retransmission of sequence numbers even\
+    \ when the\n          sender has less certainty a segment has been lost than as\
+    \ with\n          rule (1).  Retransmitting segments via rule (3) will help\n\
+    \          sustain TCP's ACK clock and therefore can potentially help\n      \
+    \    avoid retransmission timeouts.  However, in sending these\n          segments\
+    \ the sender has two copies of the same data considered\n          to be in the\
+    \ network (and also in the Pipe estimate).  When an\n          ACK or SACK arrives\
+    \ covering this retransmitted segment, the\n          sender cannot be sure exactly\
+    \ how much data left the network\n          (one of the two transmissions of the\
+    \ packet or both\n          transmissions of the packet).  Therefore the sender\
+    \ may\n          underestimate Pipe by considering both segments to have left\n\
+    \          the network when it is possible that only one of the two has.\n   \
+    \       We believe that the triggering of rule (3) will be rare and\n        \
+    \  that the implications are likely limited to corner cases\n          relative\
+    \ to the entire recovery algorithm.  Therefore we leave\n          the decision\
+    \ of whether or not to use rule (3) to\n          implementors.\n      (4) If\
+    \ the conditions for each of (1), (2), and (3) are not met,\n          then NextSeg\
+    \ () MUST indicate failure, and no segment is\n          returned.\n   Note: The\
+    \ SACK-based loss recovery algorithm outlined in this\n   document requires more\
+    \ computational resources than previous TCP loss\n   recovery strategies.  However,\
+    \ we believe the scoreboard data\n   structure can be implemented in a reasonably\
+    \ efficient manner (both\n   in terms of computation complexity and memory usage)\
+    \ in most TCP\n   implementations.\n"
+- title: 5   Algorithm Details
+  contents:
+  - "5   Algorithm Details\n   Upon the receipt of any ACK containing SACK information,\
+    \ the\n   scoreboard MUST be updated via the Update () routine.\n   Upon the receipt\
+    \ of the first (DupThresh - 1) duplicate ACKs, the\n   scoreboard is to be updated\
+    \ as normal.  Note: The first and second\n   duplicate ACKs can also be used to\
+    \ trigger the transmission of\n   previously unsent segments using the Limited\
+    \ Transmit algorithm\n   [RFC3042].\n   When a TCP sender receives the duplicate\
+    \ ACK corresponding to\n   DupThresh ACKs, the scoreboard MUST be updated with\
+    \ the new SACK\n   information (via Update ()).  If no previous loss event has\
+    \ occurred\n   on the connection or the cumulative acknowledgment point is beyond\n\
+    \   the last value of RecoveryPoint, a loss recovery phase SHOULD be\n   initiated,\
+    \ per the fast retransmit algorithm outlined in [RFC2581].\n   The following steps\
+    \ MUST be taken:\n   (1) RecoveryPoint = HighData\n       When the TCP sender\
+    \ receives a cumulative ACK for this data octet\n       the loss recovery phase\
+    \ is terminated.\n   (2) ssthresh = cwnd = (FlightSize / 2)\n       The congestion\
+    \ window (cwnd) and slow start threshold (ssthresh)\n       are reduced to half\
+    \ of FlightSize per [RFC2581].\n   (3) Retransmit the first data segment presumed\
+    \ dropped -- the segment\n       starting with sequence number HighACK + 1.  To\
+    \ prevent repeated\n       retransmission of the same data, set HighRxt to the\
+    \ highest\n       sequence number in the retransmitted segment.\n   (4) Run SetPipe\
+    \ ()\n       Set a \"pipe\" variable  to the number of outstanding octets\n  \
+    \     currently \"in the pipe\"; this is the data which has been sent by\n   \
+    \    the TCP sender but for which no cumulative or selective\n       acknowledgment\
+    \ has been received and the data has not been\n       determined to have been\
+    \ dropped in the network.  It is assumed\n       that the data is still traversing\
+    \ the network path.\n   (5) In order to take advantage of potential additional\
+    \ available\n       cwnd, proceed to step (C) below.\n   Once a TCP is in the\
+    \ loss recovery phase the following procedure MUST\n   be used for each arriving\
+    \ ACK:\n   (A) An incoming cumulative ACK for a sequence number greater than\n\
+    \       RecoveryPoint signals the end of loss recovery and the loss\n       recovery\
+    \ phase MUST be terminated.  Any information contained in\n       the scoreboard\
+    \ for sequence numbers greater than the new value of\n       HighACK SHOULD NOT\
+    \ be cleared when leaving the loss recovery\n       phase.\n   (B) Upon receipt\
+    \ of an ACK that does not cover RecoveryPoint the\n       following actions MUST\
+    \ be taken:\n       (B.1) Use Update () to record the new SACK information conveyed\n\
+    \       by the incoming ACK.\n       (B.2) Use SetPipe () to re-calculate the\
+    \ number of octets still\n       in the network.\n   (C) If cwnd - pipe >= 1 SMSS\
+    \ the sender SHOULD transmit one or more\n       segments as follows:\n      \
+    \ (C.1) The scoreboard MUST be queried via NextSeg () for the\n       sequence\
+    \ number range of the next segment to transmit (if any),\n       and the given\
+    \ segment sent.  If NextSeg () returns failure (no\n       data to send) return\
+    \ without sending anything (i.e., terminate\n       steps C.1 -- C.5).\n     \
+    \  (C.2) If any of the data octets sent in (C.1) are below HighData,\n       HighRxt\
+    \ MUST be set to the highest sequence number of the\n       retransmitted segment.\n\
+    \       (C.3) If any of the data octets sent in (C.1) are above HighData,\n  \
+    \     HighData must be updated to reflect the transmission of\n       previously\
+    \ unsent data.\n       (C.4) The estimate of the amount of data outstanding in\
+    \ the\n       network must be updated by incrementing pipe by the number of\n\
+    \       octets transmitted in (C.1).\n       (C.5) If cwnd - pipe >= 1 SMSS, return\
+    \ to (C.1)\n"
+- title: 5.1 Retransmission Timeouts
+  contents:
+  - "5.1 Retransmission Timeouts\n   In order to avoid memory deadlocks, the TCP receiver\
+    \ is allowed to\n   discard data that has already been selectively acknowledged.\
+    \  As a\n   result, [RFC2018] suggests that a TCP sender SHOULD expunge the SACK\n\
+    \   information gathered from a receiver upon a retransmission timeout\n   \"\
+    since the timeout might indicate that the data receiver has\n   reneged.\"  Additionally,\
+    \ a TCP sender MUST \"ignore prior SACK\n   information in determining which data\
+    \ to retransmit.\"  However, a\n   SACK TCP sender SHOULD still use all SACK information\
+    \ made available\n   during the slow start phase of loss recovery following an\
+    \ RTO.\n   If an RTO occurs during loss recovery as specified in this document,\n\
+    \   RecoveryPoint MUST be set to HighData.  Further, the new value of\n   RecoveryPoint\
+    \ MUST be preserved and the loss recovery algorithm\n   outlined in this document\
+    \ MUST be terminated.  In addition, a new\n   recovery phase (as described in\
+    \ section 5) MUST NOT be initiated\n   until HighACK is greater than or equal\
+    \ to the new value of\n   RecoveryPoint.\n   As described in Sections 4 and 5,\
+    \ Update () SHOULD continue to be\n   used appropriately upon receipt of ACKs.\
+    \  This will allow the slow\n   start recovery period to benefit from all available\
+    \ information\n   provided by the receiver, despite the fact that SACK information\
+    \ was\n   expunged due to the RTO.\n   If there are segments missing from the\
+    \ receiver's buffer following\n   processing of the retransmitted segment, the\
+    \ corresponding ACK will\n   contain SACK information.  In this case, a TCP sender\
+    \ SHOULD use this\n   SACK information when determining what data should be sent\
+    \ in each\n   segment of the slow start.  The exact algorithm for this selection\
+    \ is\n   not specified in this document (specifically NextSeg () is\n   inappropriate\
+    \ during slow start after an RTO).  A relatively\n   straightforward approach\
+    \ to \"filling in\" the sequence space reported\n   as missing should be a reasonable\
+    \ approach.\n"
+- title: 6   Managing the RTO Timer
+  contents:
+  - "6   Managing the RTO Timer\n   The standard TCP RTO estimator is defined in [RFC2988].\
+    \  Due to the\n   fact that the SACK algorithm in this document can have an impact\
+    \ on\n   the behavior of the estimator, implementers may wish to consider how\n\
+    \   the timer is managed.  [RFC2988] calls for the RTO timer to be\n   re-armed\
+    \ each time an ACK arrives that advances the cumulative ACK\n   point.  Because\
+    \ the algorithm presented in this document can keep the\n   ACK clock going through\
+    \ a fairly significant loss event,\n   (comparatively longer than the algorithm\
+    \ described in [RFC2581]), on\n   some networks the loss event could last longer\
+    \ than the RTO.  In this\n   case the RTO timer would expire prematurely and a\
+    \ segment that need\n   not be retransmitted would be resent.\n   Therefore we\
+    \ give implementers the latitude to use the standard\n   [RFC2988] style RTO management\
+    \ or, optionally, a more careful variant\n   that re-arms the RTO timer on each\
+    \ retransmission that is sent during\n   recovery MAY be used.  This provides\
+    \ a more conservative timer than\n   specified in [RFC2988], and so may not always\
+    \ be an attractive\n   alternative.  However, in some cases it may prevent needless\n\
+    \   retransmissions, go-back-N transmission and further reduction of the\n   congestion\
+    \ window.\n"
+- title: 7   Research
+  contents:
+  - "7   Research\n   The algorithm specified in this document is analyzed in [FF96],\
+    \ which\n   shows that the above algorithm is effective in reducing transfer time\n\
+    \   over standard TCP Reno [RFC2581] when multiple segments are dropped\n   from\
+    \ a window of data (especially as the number of drops increases).\n   [AHKO97]\
+    \ shows that the algorithm defined in this document can\n   greatly improve throughput\
+    \ in connections traversing satellite\n   channels.\n"
+- title: 8   Security Considerations
+  contents:
+  - "8   Security Considerations\n   The algorithm presented in this paper shares\
+    \ security considerations\n   with [RFC2581].  A key difference is that an algorithm\
+    \ based on SACKs\n   is more robust against attackers forging duplicate ACKs to\
+    \ force the\n   TCP sender to reduce cwnd.  With SACKs, TCP senders have an\n\
+    \   additional check on whether or not a particular ACK is legitimate.\n   While\
+    \ not fool-proof, SACK does provide some amount of protection in\n   this area.\n"
+- title: Acknowledgments
+  contents:
+  - "Acknowledgments\n   The authors wish to thank Sally Floyd for encouraging this\
+    \ document\n   and commenting on early drafts.  The algorithm described in this\n\
+    \   document is loosely based on an algorithm outlined by Kevin Fall and\n   Sally\
+    \ Floyd in [FF96], although the authors of this document assume\n   responsibility\
+    \ for any mistakes in the above text.  Murali Bashyam,\n   Ken Calvert, Tom Henderson,\
+    \ Reiner Ludwig, Jamshid Mahdavi, Matt\n   Mathis, Shawn Ostermann, Vern Paxson\
+    \ and Venkat Venkatsubra provided\n   valuable feedback on earlier versions of\
+    \ this document.  We thank\n   Matt Mathis and Jamshid Mahdavi for implementing\
+    \ the scoreboard in ns\n   and hence guiding our thinking in keeping track of\
+    \ SACK state.\n   The first author would like to thank Ohio University and the\
+    \ Ohio\n   University Internetworking Research Group for supporting the bulk of\n\
+    \   his work on this project.\n"
+- title: Normative References
+  contents:
+  - "Normative References\n   [RFC793]  Postel, J., \"Transmission Control Protocol\"\
+    , STD 7, RFC\n             793, September 1981.\n   [RFC2018] Mathis, M., Mahdavi,\
+    \ J., Floyd, S. and A. Romanow, \"TCP\n             Selective Acknowledgment Options\"\
+    , RFC 2018, October 1996.\n   [RFC2026] Bradner, S., \"The Internet Standards\
+    \ Process -- Revision\n             3\", BCP 9, RFC 2026, October 1996.\n   [RFC2119]\
+    \ Bradner, S., \"Key words for use in RFCs to Indicate\n             Requirement\
+    \ Levels\", BCP 14, RFC 2119, March 1997.\n   [RFC2581] Allman, M., Paxson, V.\
+    \ and R. Stevens, \"TCP Congestion\n             Control\", RFC 2581, April 1999.\n"
+- title: Informative References
+  contents:
+  - "Informative References\n   [AHKO97]  Mark Allman, Chris Hayes, Hans Kruse, Shawn\
+    \ Ostermann.  TCP\n             Performance Over Satellite Links.  Proceedings\
+    \ of the Fifth\n             International Conference on Telecommunications Systems,\n\
+    \             Nashville, TN, March, 1997.\n   [All00]   Mark Allman.  A Web Server's\
+    \ View of the Transport Layer.\n             ACM Computer Communication Review,\
+    \ 30(5), October 2000.\n   [FF96]    Kevin Fall and Sally Floyd.  Simulation-based\
+    \ Comparisons\n             of Tahoe, Reno and SACK TCP.  Computer Communication\n\
+    \             Review, July 1996.\n   [Jac90]   Van Jacobson.  Modified TCP Congestion\
+    \ Avoidance Algorithm.\n             Technical Report, LBL, April 1990.\n   [PF01]\
+    \    Jitendra Padhye, Sally Floyd.  Identifying the TCP Behavior\n           \
+    \  of Web Servers, ACM SIGCOMM, August 2001.\n   [RFC2582] Floyd, S. and T. Henderson,\
+    \ \"The NewReno Modification to\n             TCP's Fast Recovery Algorithm\"\
+    , RFC 2582, April 1999.\n   [RFC2914] Floyd, S., \"Congestion Control Principles\"\
+    , BCP 41, RFC\n             2914, September 2000.\n   [RFC2988] Paxson, V. and\
+    \ M. Allman, \"Computing TCP's Retransmission\n             Timer\", RFC 2988,\
+    \ November 2000.\n   [RFC3042] Allman, M., Balakrishnan, H, and S. Floyd, \"Enhancing\
+    \ TCP's\n             Loss Recovery Using Limited Transmit\", RFC 3042, January\n\
+    \             2001.\n"
+- title: Intellectual Property Rights Notice
+  contents:
+  - "Intellectual Property Rights Notice\n   The IETF takes no position regarding\
+    \ the validity or scope of any\n   intellectual property or other rights that\
+    \ might be claimed to\n   pertain to the implementation or use of the technology\
+    \ described in\n   this document or the extent to which any license under such\
+    \ rights\n   might or might not be available; neither does it represent that it\n\
+    \   has made any effort to identify any such rights.  Information on the\n   IETF's\
+    \ procedures with respect to rights in standards-track and\n   standards-related\
+    \ documentation can be found in BCP-11.  Copies of\n   claims of rights made available\
+    \ for publication and any assurances of\n   licenses to be made available, or\
+    \ the result of an attempt made to\n   obtain a general license or permission\
+    \ for the use of such\n   proprietary rights by implementors or users of this\
+    \ specification can\n   be obtained from the IETF Secretariat.\n   The IETF invites\
+    \ any interested party to bring to its attention any\n   copyrights, patents or\
+    \ patent applications, or other proprietary\n   rights which may cover technology\
+    \ that may be required to practice\n   this standard.  Please address the information\
+    \ to the IETF Executive\n   Director.\n"
+- title: Authors' Addresses
+  contents:
+  - "Authors' Addresses\n   Ethan Blanton\n   Purdue University Computer Sciences\n\
+    \   1398 Computer Science Building\n   West Lafayette, IN  47907\n   EMail: eblanton@cs.purdue.edu\n\
+    \   Mark Allman\n   BBN Technologies/NASA Glenn Research Center\n   Lewis Field\n\
+    \   21000 Brookpark Rd.  MS 54-5\n   Cleveland, OH  44135\n   Phone: 216-433-6586\n\
+    \   Fax: 216-433-8705\n   EMail: mallman@bbn.com\n   http://roland.grc.nasa.gov/~mallman\n\
+    \   Kevin Fall\n   Intel Research\n   2150 Shattuck Ave., PH Suite\n   Berkeley,\
+    \ CA 94704\n   EMail: kfall@intel-research.net\n   Lili Wang\n   Laboratory for\
+    \ Advanced Networking\n   210 Hardymon Building\n   University of Kentucky\n \
+    \  Lexington, KY 40506-0495\n   EMail: lwang0@uky.edu\n"
+- title: Full Copyright Statement
+  contents:
+  - "Full Copyright Statement\n   Copyright (C) The Internet Society (2003).  All\
+    \ Rights Reserved.\n   This document and translations of it may be copied and\
+    \ furnished to\n   others, and derivative works that comment on or otherwise explain\
+    \ it\n   or assist in its implementation may be prepared, copied, published\n\
+    \   and distributed, in whole or in part, without restriction of any\n   kind,\
+    \ provided that the above copyright notice and this paragraph are\n   included\
+    \ on all such copies and derivative works.  However, this\n   document itself\
+    \ may not be modified in any way, such as by removing\n   the copyright notice\
+    \ or references to the Internet Society or other\n   Internet organizations, except\
+    \ as needed for the purpose of\n   developing Internet standards in which case\
+    \ the procedures for\n   copyrights defined in the Internet Standards process\
+    \ must be\n   followed, or as required to translate it into languages other than\n\
+    \   English.\n   The limited permissions granted above are perpetual and will\
+    \ not be\n   revoked by the Internet Society or its successors or assigns.\n \
+    \  This document and the information contained herein is provided on an\n   \"\
+    AS IS\" basis and THE INTERNET SOCIETY AND THE INTERNET ENGINEERING\n   TASK FORCE\
+    \ DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING\n   BUT NOT LIMITED\
+    \ TO ANY WARRANTY THAT THE USE OF THE INFORMATION\n   HEREIN WILL NOT INFRINGE\
+    \ ANY RIGHTS OR ANY IMPLIED WARRANTIES OF\n   MERCHANTABILITY OR FITNESS FOR A\
+    \ PARTICULAR PURPOSE.\n"
+- title: Acknowledgement
+  contents:
+  - "Acknowledgement\n   Funding for the RFC Editor function is currently provided\
+    \ by the\n   Internet Society.\n"

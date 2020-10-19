@@ -1,0 +1,962 @@
+- title: __initial_text__
+  contents:
+  - "                   Simple Network Management Protocol\n                     Distributed\
+    \ Program Interface\nStatus of this Memo\n   This RFC describes a protocol that\
+    \ International Business Machines\n   Corporation (IBM) has been implementing\
+    \ in most of its SNMP agents to\n   allow dynamic extension of supported MIBs.\
+    \  This is an Experimental\n   Protocol for the Internet community.  Discussion\
+    \ and suggestions for\n   improvement are requested.  Please refer to the current\
+    \ edition of\n   the \"IAB Official Protocol Standards\" for the standardization\
+    \ state\n   and status of this protocol.  Distribution of this memo is unlimited.\n\
+    ABSTRACT\n   The Simple Network Management Protocol (SNMP) [1] Distributed Program\n\
+    \   Interface (DPI) is an extension to SNMP agents that permits end-users\n  \
+    \ to dynamically add, delete or replace management variables in the\n   local\
+    \ Management Information Base without requiring recompilation of\n   the SNMP\
+    \ agent.  This is achieved by writing a so-called sub-agent\n   that communicates\
+    \ with the agent via the SNMP-DPI.\n   For the author of a sub-agent, the SNMP-DPI\
+    \ eliminates the need to\n   know the details of ASN.1 [2] or SNMP PDU (Protocol\
+    \ Data Unit)\n   encoding/decoding [1, 3].\n   This protocol has been in use within\
+    \ IBM since 1989 and is included\n   in the SNMP agents for VM, MVS and OS/2.\n\
+    \   Potentially useful sample sub-agent code and implementation examples\n   are\
+    \ available for anonymous FTP from the University of Toronto.\nMOTIVATION\n  \
+    \ The Simple Network Management Protocol [1] defines a protocol that\n   permits\
+    \ operations on a collection of variables.  This set of\n   variables is called\
+    \ the Management Information Base (MIB) and a core\n   set of variables has previously\
+    \ been defined [4, 5]; however, the\n   design of the MIB makes provision for\
+    \ extension of this core set.\n   Thus, an enterprise or individual can define\
+    \ variables of their own\n   which represent information of use to them.  An example\
+    \ of a\n   potentially interesting variable which is not in the core MIB would\n\
+    \   be CPU utilization (percent busy).  Unfortunately, conventional SNMP\n   agent\
+    \ implementations provide no means for an end-user to make\n   available new variables.\n\
+    \   The SNMP DPI addresses this issue by providing a light-weight\n   mechanism\
+    \ by which a process can register the existence of a MIB\n   variable with the\
+    \ SNMP agent.  When requests for the variable are\n   received by the SNMP agent,\
+    \ it will pass the query on to the process\n   acting as a sub-agent.  This sub-agent\
+    \ then returns an appropriate\n   answer to the SNMP agent.  The SNMP agent eventually\
+    \ packages an SNMP\n   response packet and sends the answer back to the remote\
+    \ network\n   management station that initiated the request.\n   None of the remote\
+    \ network management stations have any knowledge\n   that the SNMP agent calls\
+    \ on other processes to obtain an answer.  As\n   far as they can tell, there\
+    \ is only one network management\n   application running on the host.\nTHEORY\
+    \ OF OPERATION\nCONNECTION ESTABLISHMENT\n   Communication between the SNMP Agent\
+    \ and its clients (sub-agents)\n   takes place over a stream connection.  This\
+    \ is typically a TCP\n   connection, but other stream-oriented transport mechanisms\
+    \ can be\n   used.  As an example, the VM SNMP agent allows DPI connections over\n\
+    \   IUCV (Inter-User Communications Vehicle) [6, 7].  Other than the\n   connection\
+    \ establishment procedure, the protocol used is identical in\n   these environments.\n\
+    REGISTRATION\n   Regardless of the connection-oriented transport mechanism used,\
+    \ after\n   establishing a connection to the SNMP agent, the sub-agent registers\n\
+    \   the set of variables it supports.  Finally, when all the variable\n   classes\
+    \ have been registered, the sub-agent then waits for requests\n   from the SNMP\
+    \ agent or generates traps as required.\nDPI ARCHITECTURE\n   There are three\
+    \ requests that can be initiated by the SNMP agent:\n   GET, GET-NEXT and SET.\
+    \  These correspond directly to the three SNMP\n   requests that a network management\
+    \ station can make.  The sub-agent\n   responds to a request with a RESPONSE packet.\n\
+    \   There are currently two requests that can be initiated by a sub-\n   agent:\
+    \ REGISTER and TRAP.\n------------------------------------------------------------------------\n\
+    *---------------------------------*\n|  SNMP Network                   |\n|  Management\
+    \ Station             |\n|                                 |\n|---------------------------------|\n\
+    |  SNMP Protocol                  |\n*---------------------------------*\n   \
+    \   A      | Get         A\n      |      | GetNext     |  GetResponse\n Trap |\
+    \      | Set         |\n      |      V             |\n*---------------------------------*\
+    \            *----------------------*\n|     SNMP Protocol               |   \
+    \         |   DPI Interface      |\n|---------------------------------|  Reply\
+    \     |    *-----------------|\n|                        |        |<-----------|\
+    \    |                 |\n|     SNMP Agent         |        |            |   \
+    \ |   Client        |\n|     A      *-----------+->      | MIB query  |    | \
+    \                |\n|     |      | Get/Set   |        |----------->|    |    \
+    \ or          |\n| Trap|      | info      |  SNMP  |            |    |       \
+    \          |\n|-----+------+-------*   |        |  trap      |    |   SNMP   \
+    \       |\n|     |      V       |   |  DPI   |<-----------|    |   Sub-Agent \
+    \    |\n| TCP/IP layers,     |   |        |            |    |                \
+    \ |\n| Kernel             |   |        |<-----------|    |                 |\n\
+    *---------------------------------*  Register  *----------------------*\n------------------------------------------------------------------------\n\
+    Figure 1. SNMP DPI overview\nRemarks for Figure 1:\n   o   The SNMP agent communicates\
+    \ with the SNMP manager via the\n       standard SNMP protocol.\n   o   The SNMP\
+    \ agent communicates with the TCP/IP layers and kernel\n       (operating system)\
+    \ in an implementation-dependent manner.  It\n       potentially implements the\
+    \ standard MIB view in this way.\n   o   An SNMP sub-agent, running as a separate\
+    \ process (potentially\n       even on another machine), can register objects\
+    \ with the SNMP\n       agent.\n   o   The SNMP agent will decode SNMP Packets.\
+    \  If such a packet\n       contains a Get/GetNext or Set request for an object\
+    \ registered\n       by a sub-agent, it will send the request to the sub-agent\
+    \ via\n       the corresponding query packet.\n   o   The SNMP sub-agent sends\
+    \ responses back via a RESPONSE packet.\n   o   The SNMP agent then encodes the\
+    \ reply into an SNMP packet and\n       sends it back to the requesting SNMP manager.\n\
+    \   o   If the sub-agent wants to report an important state change, it\n     \
+    \  sends a TRAP packet to the SNMP agent, which will encode it\n       into an\
+    \ SNMP trap packet and send it to the manager(s).\nSNMP DPI PROTOCOL\n   This\
+    \ section describes the actual protocol used between the SNMP\n   agent and sub-agents.\
+    \  This information has not previously been\n   published.\nCONNECTION ESTABLISHMENT\n\
+    \   In a TCP/IP environment, the SNMP agent listens on an arbitrary TCP\n   port\
+    \ for a connection request from a sub-agent.  It is important to\n   realize that\
+    \ a well-known port is not used:  every invocation of the\n   SNMP agent will\
+    \ potentially result in a different TCP port being\n   used.\n   A sub-agent needs\
+    \ to determine this port number to establish a\n   connection.  The sub-agent\
+    \ learns the port number from the agent by\n   sending it one conventional SNMP\
+    \ get-request PDU.   The port number\n   is maintained by the SNMP agent as the\
+    \ object whose identifier is\n   1.3.6.1.4.1.2.2.1.1.0; this variable is registered\
+    \ under the IBM\n   enterprise-specific tree.  The SNMP agent replies with a conventional\n\
+    \   SNMP response PDU that contains the port number to be used.  This\n   response\
+    \ is examined by the sub-agent and the port number is\n   extracted.  The sub-agent\
+    \ then establishes the connection to the\n   specified port.\n   On the surface,\
+    \ this procedure appears to mean that the sub-agent\n   must be able to create\
+    \ and parse SNMP packets, but this is not the\n   case.  The DPI Application Program\
+    \ Interface (API) has a library\n   routine, query_DPI_port(), which can be used\
+    \ to generate and parse\n   the required SNMP packets.  This routine is very small\
+    \ (under 100\n   lines of C), so it does not greatly increase the size of any\
+    \ sub-\n   agent).\n   For completeness, byte-by-byte descriptions of the packets\
+    \ generated\n   by the SNMP DPI API routine query_DPI_port() are provided below.\n\
+    \   This is probably of little interest to most readers and reading the\n   source\
+    \ to query_DPI_port() provides much of the same information.\nSNMP PDU TO GET\
+    \ THE AGENT'S DPI PORT\n   As noted, before a TCP connection to the SNMP agent\
+    \ can be made, the\n   sub-agent must learn which TCP port that the agent is listening\
+    \ on.\n   To do so, it can issue an SNMP GET for an IBM enterprise-specific\n\
+    \   variable 1.3.6.1.4.1.2.2.1.1.0.\n   NOTE:  the object instance of \".0\" is\
+    \ included for clarity in this\n   document.\n   The SNMP PDU can be constructed\
+    \ as shown below.  This PDU must be\n   sent to UDP port 161 on the host where\
+    \ the agent runs (probably the\n   same host where the sub-agent runs).\n+----------------------------------------------------------------------+\n\
+    | Table 1. SNMP PDU for GET DPI_port.  This is the layout of an SNMP   |\n|  \
+    \        PDU for GET DPI_port                                        |\n+-----------------+-----------------+----------------------------------+\n\
+    | OFFSET          | VALUE           | FIELD                            |\n+-----------------+-----------------+----------------------------------+\n\
+    | 0               | 0x30            | ASN.1 header                     |\n+-----------------+-----------------+----------------------------------+\n\
+    | 1               | 34 + len        | pdu_length, see formula below    |\n+-----------------+-----------------+----------------------------------+\n\
+    | 2               | 0x02 0x01 0x00  | version (integer, length=1,      |\n|  \
+    \               | 0x04            | value=0), community name         |\n|    \
+    \             |                 | (string)                         |\n+-----------------+-----------------+----------------------------------+\n\
+    | 6               | len             | length of community name         |\n+-----------------+-----------------+----------------------------------+\n\
+    | 7               | community name  |                                  |\n+-----------------+-----------------+----------------------------------+\n\
+    | 7 + len         | 0xa0 0x1b       | SNMP GET request:                |\n|  \
+    \               |                 | request_type=0xa0, length=0x1b   |\n+-----------------+-----------------+----------------------------------+\n\
+    | 7 + len + 2     | 0x02 0x01 0x01  | SNMP request ID: integer,        |\n|  \
+    \               |                 | length=1, ID=1                   |\n+-----------------+-----------------+----------------------------------+\n\
+    | 7 + len + 5     | 0x02 0x01 0x00  | SNMP error status: integer,      |\n|  \
+    \               |                 | length=1, error=0                |\n+-----------------+-----------------+----------------------------------+\n\
+    | 7 + len + 8     | 0x02 0x01 0x00  | SNMP index: integer, length=1,   |\n|  \
+    \               |                 | index=0                          |\n+-----------------+-----------------+----------------------------------+\n\
+    | 7 + len + 11    | 0x30 0x10       | Varbind list, length=0x10        |\n+-----------------+-----------------+----------------------------------+\n\
+    | 7 + len + 13    | 0x30 0x0e       | Varbind, length=0x0e             |\n+-----------------+-----------------+----------------------------------+\n\
+    | 7 + len + 15    | 0x06 0x0a       | Object ID, length=0x0a           |\n+-----------------+-----------------+----------------------------------+\n\
+    | 7 + len + 17    | 0x2b 0x06 0x01  | Object instance:                 |\n|  \
+    \               | 0x04 0x01 0x02  | 1.3.6.1.4.1.2.2.1.1.0            |\n|    \
+    \             | 0x02 0x01 0x01  |                                  |\n|      \
+    \           | 0x00            |                                  |\n+-----------------+-----------------+----------------------------------+\n\
+    | 7 + len + 27    | 0x05 0x00       | null value, length=0             |\n+-----------------+-----------------+----------------------------------+\n\
+    +----------------------------------------------------------------------+\nThe\
+    \ formula to calculate the length field \"pdu_length\" is as follows:\n  pdu_length\
+    \ =   length of version field and string tag (4 bytes)\n             +   length\
+    \ of community length field (1 byte)\n             +   length of community name\
+    \ (depends...)\n             +   length of SNMP GET request (29 bytes)\n     \
+    \        =   34 + length of community name\nSNMP PDU CONTAINING THE RESPONSE TO\
+    \ THE GET\nAssuming that no errors occured, then the port is returned in the last\
+    \ 2\noctets of the received packet.  The format of the packet is shown below:\n\
+    +----------------------------------------------------------------------+\n| Table\
+    \ 2. SNMP RESPONSE PDU for GET of Agent's DPI port.  This is the |\n|        \
+    \  layout of an SNMP RESPONSE PDU for GET DPI_port             |\n+-----------------+-----------------+----------------------------------+\n\
+    | OFFSET          | VALUE           | FIELD                            |\n+-----------------+-----------------+----------------------------------+\n\
+    | 0               | 0x30            | ASN.1 header                     |\n+-----------------+-----------------+----------------------------------+\n\
+    | 1               | 36 + len        | length, see formula below        |\n+-----------------+-----------------+----------------------------------+\n\
+    | 2               | 0x02 0x01 0x00  | version (integer, length=1,      |\n|  \
+    \               | 0x04            | value=0), community name         |\n|    \
+    \             |                 | (string)                         |\n+-----------------+-----------------+----------------------------------+\n\
+    | 6               | len             | length of community name         |\n+-----------------+-----------------+----------------------------------+\n\
+    | 7               | community name  |                                  |\n+-----------------+-----------------+----------------------------------+\n\
+    | 7 + len         | 0xa2 0x1d       | SNMP RESPONSE:                   |\n|  \
+    \               |                 | request_type=0xa2, length=0x1d   |\n+-----------------+-----------------+----------------------------------+\n\
+    | 7 + len + 2     | 0x02 0x01 0x01  | SNMP request ID: integer,        |\n|  \
+    \               |                 | length=1, ID=1                   |\n+-----------------+-----------------+----------------------------------+\n\
+    | 7 + len + 5     | 0x02 0x01 0x00  | SNMP error status: integer,      |\n|  \
+    \               |                 | length=1, error=0                |\n+-----------------+-----------------+----------------------------------+\n\
+    | 7 + len + 8     | 0x02 0x01 0x00  | SNMP index: integer, length=1,   |\n|  \
+    \               |                 | index=0                          |\n+-----------------+-----------------+----------------------------------+\n\
+    | 7 + len + 11    | 0x30 0x12       | Varbind list, length=0x12        |\n+-----------------+-----------------+----------------------------------+\n\
+    | 7 + len + 13    | 0x30 0x10       | Varbind, length=0x10             |\n+-----------------+-----------------+----------------------------------+\n\
+    | 7 + len + 15    | 0x06 0x0a       | Object ID, length=0x0a           |\n+-----------------+-----------------+----------------------------------+\n\
+    +----------------------------------------------------------------------+\n+----------------------------------------------------------------------+\n\
+    | Table 2. SNMP RESPONSE PDU for GET of Agent's DPI port.  This is the |\n|  \
+    \        layout of an SNMP RESPONSE PDU for GET DPI_port             |\n+-----------------+-----------------+----------------------------------+\n\
+    | OFFSET          | VALUE           | FIELD                            |\n+-----------------+-----------------+----------------------------------+\n\
+    | 7 + len + 17    | 0x2b 0x06 0x01  | Object instance:                 |\n|  \
+    \               | 0x04 0x01 0x02  | 1.3.6.1.4.1.2.2.1.1.0            |\n|    \
+    \             | 0x02 0x01 0x01  |                                  |\n|      \
+    \           | 0x00            |                                  |\n+-----------------+-----------------+----------------------------------+\n\
+    | 7 + len + 27    | 0x02 0x02       | integer, length=2                |\n+-----------------+-----------------+----------------------------------+\n\
+    | 7 + len + 29    | msb lsb         | port number (msb, lsb)           |\n+-----------------+-----------------+----------------------------------+\n\
+    +----------------------------------------------------------------------+\nThe\
+    \ formula to calculate the length field \"pdu_length\" is as follows:\n  pdu_length\
+    \ =   length of version field and string tag (4 bytes)\n             +   length\
+    \ of community length field (1 byte)\n             +   length of community name\
+    \ (depends...)\n             +   length of SNMP RESPONSE (31 bytes)\n        \
+    \     =   36 + length of community name\nSNMP DPI PACKET FORMATS\n   Each request\
+    \ to or response from the agent is constructed as a\n   \"packet\" and is written\
+    \ to the stream.\n   Each packet is prefaced with the length of the data remaining\
+    \ in the\n   packet.  The length is stored in network byte order (most significant\n\
+    \   byte first, least significant last).  The receiving side will read\n   the\
+    \ packet by doing something similar to:\n      unsigned char len_bfr[2];\n   \
+    \   char *bfr;\n      int len;\n      read(fd,len_bfr,2);\n      len = len_bfr[0]\
+    \ * 256 + len_bfr[1];\n      bfr = malloc(len);\n      read(fd,bfr,len);\n   NOTE:\
+    \  the above example makes no provisions for error handling or a\n   read returning\
+    \ less than the requested amount of data.  This is not a\n   suggested coding\
+    \ style.\n   The first part of every packet identifies the application protocol\n\
+    \   being used, as well as some version information.  The protocol major\n   version\
+    \ is intended to indicate in broad terms what version of the\n   protocol is used.\
+    \  The protocol minor version is intended to identify\n   major incompatible versions\
+    \ of the protocol.  The protocol release is\n   intended to indicate incremental\
+    \ modifications to the protocol.  The\n   constants that are valid for these fields\
+    \ are defined in Table 10 on\n   page 18.\n   The next (common) field in all packets\
+    \ is the packet type.  This\n   field indicates what kind of packet we're dealing\
+    \ with (SNMP DPI GET,\n   GET-NEXT, SET, TRAP, RESPONSE or REGISTER).  The permitted\
+    \ values for\n   this field are defined in Table 11 on page 18.\n+----------------------------------------------------------------------+\n\
+    | Table 3. SNMP DPI packet header.  This header is present in all      |\n|  \
+    \        packets.                                                    |\n+-------------+--------------------------------------------------------+\n\
+    | OFFSET      | FIELD                                                  |\n+-------------+--------------------------------------------------------+\n\
+    | 0           | packet length to follow (MSB)                          |\n+-------------+--------------------------------------------------------+\n\
+    | 1           | packet length to follow (LSB)                          |\n+-------------+--------------------------------------------------------+\n\
+    | 2           | protocol major version                                 |\n+-------------+--------------------------------------------------------+\n\
+    | 3           | protocol minor version                                 |\n+-------------+--------------------------------------------------------+\n\
+    | 4           | protocol release                                       |\n+-------------+--------------------------------------------------------+\n\
+    | 5           | packet type                                            |\n+-------------+--------------------------------------------------------+\n\
+    +----------------------------------------------------------------------+\n>From\
+    \ this point onwards, the contents of the packet are defined by the\nprotocol\
+    \ being used.  The remainder of this section describes:\n   o   the structure\
+    \ of packets for the SNMP DPI protocol, version 1.0.\n   o   The constants as\
+    \ defined with this version of the protocol.\nREGISTER\n   In order to register\
+    \ a branch in the MIB tree, an SNMP sub-agent\n   sends an SNMP DPI REGISTER packet\
+    \ to the agent.\n   Such a packet contains the standard SNMP DPI header plus REGISTER-\n\
+    \   specific data, which basically is a null terminated string\n   representing\
+    \ the object ID in dotted ASN.1 notation (with a trailing\n   dot!).\n+----------------------------------------------------------------------+\n\
+    | Table 4. SNMP DPI REGISTER packet.  This is the layout of an SNMP    |\n|  \
+    \        DPI REGISTER packet                                         |\n+-------------+--------------------------------------------------------+\n\
+    | OFFSET      | FIELD                                                  |\n+-------------+--------------------------------------------------------+\n\
+    | 0           | packet length to follow (MSB)                          |\n+-------------+--------------------------------------------------------+\n\
+    | 1           | packet length to follow (LSB)                          |\n+-------------+--------------------------------------------------------+\n\
+    | 2           | protocol major version                                 |\n+-------------+--------------------------------------------------------+\n\
+    | 3           | protocol minor version                                 |\n+-------------+--------------------------------------------------------+\n\
+    | 4           | protocol release                                       |\n+-------------+--------------------------------------------------------+\n\
+    | 5           | packet type = SNMP_DPI_REGISTER                        |\n+-------------+--------------------------------------------------------+\n\
+    | 6           | null terminated object ID                              |\n+-------------+--------------------------------------------------------+\n\
+    +----------------------------------------------------------------------+\nGET\n\
+    \   When the SNMP agent receives a PDU containing an SNMP GET request for\n  \
+    \ a variable that a sub-agent registered with the agent, it passes an\n   SNMP\
+    \ DPI GET packet to the sub-agent.\n   Such a packet contains the standard SNMP\
+    \ DPI header plus GET-specific\n   data, which is basically a null terminated\
+    \ string representing the\n   object ID in dotted ASN.1 notation.\n+----------------------------------------------------------------------+\n\
+    | Table 5. SNMP DPI GET packet.  This is the layout of an SNMP DPI GET |\n|  \
+    \        packet                                                      |\n+-------------+--------------------------------------------------------+\n\
+    | OFFSET      | FIELD                                                  |\n+-------------+--------------------------------------------------------+\n\
+    | 0           | packet length to follow (MSB)                          |\n+-------------+--------------------------------------------------------+\n\
+    | 1           | packet length to follow (LSB)                          |\n+-------------+--------------------------------------------------------+\n\
+    | 2           | protocol major version                                 |\n+-------------+--------------------------------------------------------+\n\
+    | 3           | protocol minor version                                 |\n+-------------+--------------------------------------------------------+\n\
+    | 4           | protocol release                                       |\n+-------------+--------------------------------------------------------+\n\
+    | 5           | packet type = SNMP_DPI_GET                             |\n+-------------+--------------------------------------------------------+\n\
+    | 6           | null terminated object ID                              |\n+-------------+--------------------------------------------------------+\n\
+    +----------------------------------------------------------------------+\nGET-NEXT\n\
+    \   When the SNMP agent receives a PDU containing an SNMP GET-NEXT\n   request\
+    \ for a variable for which a sub-agent may be authoritative, it\n   passes an\
+    \ SNMP DPI GET-NEXT packet to the sub-agent.\n   Such a packet contains the standard\
+    \ SNMP DPI header plus GET-NEXT-\n   specific data.  These data take the form\
+    \ of two null terminated\n   strings.  The first string represents the object\
+    \ ID in dotted ASN.1\n   notation; the second string represents the group ID in\
+    \ dotted ASN.1\n   notation.\n+----------------------------------------------------------------------+\n\
+    | Table 6. SNMP DPI GET NEXT packet.  This is the layout of an SNMP    |\n|  \
+    \        DPI GET NEXT packet                                         |\n+-------------+--------------------------------------------------------+\n\
+    | OFFSET      | FIELD                                                  |\n+-------------+--------------------------------------------------------+\n\
+    | 0           | packet length to follow (MSB)                          |\n+-------------+--------------------------------------------------------+\n\
+    | 1           | packet length to follow (LSB)                          |\n+-------------+--------------------------------------------------------+\n\
+    | 2           | protocol major version                                 |\n+-------------+--------------------------------------------------------+\n\
+    | 3           | protocol minor version                                 |\n+-------------+--------------------------------------------------------+\n\
+    | 4           | protocol release                                       |\n+-------------+--------------------------------------------------------+\n\
+    | 5           | packet type = SNMP_DPI_GET_NEXT                        |\n+-------------+--------------------------------------------------------+\n\
+    | 6           | null terminated object ID                              |\n+-------------+--------------------------------------------------------+\n\
+    | 6 + len     | null terminated group ID                               |\n+-------------+--------------------------------------------------------+\n\
+    | NOTE:  len=strlen(object ID)+1                                       |\n+----------------------------------------------------------------------+\n\
+    +----------------------------------------------------------------------+\nSET\n\
+    \   When the SNMP agent receives a PDU containing an SNMP SET request for\n  \
+    \ a variable that a sub-agent registered with the agent, it passes an\n   SNMP\
+    \ DPI SET packet to the sub-agent.\n   Such a packet contains the standard SNMP\
+    \ DPI header plus SET specific\n   data, which is basically a null terminated\
+    \ string representing the\n   object ID in ASN.1 notation, with the type, value\
+    \ length and value to\n   be set.  The permitted types for the type field are\
+    \ defined in Table\n   12 on page 19.  Integer values are sent as 4-byte elements\
+    \ in network\n   byte order (most significant byte first, least significant byte\n\
+    \   last).\n+----------------------------------------------------------------------+\n\
+    | Table 7. SNMP DPI SET packet.  This is the layout of an SNMP DPI SET |\n|  \
+    \        packet                                                      |\n+-------------+--------------------------------------------------------+\n\
+    | OFFSET      | FIELD                                                  |\n+-------------+--------------------------------------------------------+\n\
+    | 0           | packet length to follow (MSB)                          |\n+-------------+--------------------------------------------------------+\n\
+    | 1           | packet length to follow (LSB)                          |\n+-------------+--------------------------------------------------------+\n\
+    | 2           | protocol major version                                 |\n+-------------+--------------------------------------------------------+\n\
+    | 3           | protocol minor version                                 |\n+-------------+--------------------------------------------------------+\n\
+    | 4           | protocol release                                       |\n+-------------+--------------------------------------------------------+\n\
+    | 5           | packet type = SNMP_DPI_SET                             |\n+-------------+--------------------------------------------------------+\n\
+    | 6           | null terminated object ID                              |\n+-------------+--------------------------------------------------------+\n\
+    | 6 + len     | SNMP Variable Type Value                               |\n+-------------+--------------------------------------------------------+\n\
+    | 6 + len + 1 | Length of value (MSB)                                  |\n+-------------+--------------------------------------------------------+\n\
+    | 6 + len + 2 | Length of value (LSB)                                  |\n+-------------+--------------------------------------------------------+\n\
+    | 6 + len + 3 | Value                                                  |\n+-------------+--------------------------------------------------------+\n\
+    | NOTE:  len=strlen(object ID)+1                                       |\n+----------------------------------------------------------------------+\n\
+    +----------------------------------------------------------------------+\nRESPONSE\n\
+    \   An SNMP sub-agent must respond to a GET, GET_NEXT or SET request that\n  \
+    \ it has received from the agent (unless it fails or has a bug).  To do\n   so,\
+    \ it sends an SNMP DPI RESPONSE packet to the agent.\n   Such a packet contains\
+    \ the standard SNMP DPI header plus RESPONSE\n   specific data, which basically\
+    \ is an error_code plus (if there was no\n   error), the name/type/value tuple\
+    \ representing the returned object.\n   This is described as by a string representing\
+    \ the object ID in ASN.1\n   notation, plus the type, value length and value of\
+    \ the object that\n   was manipulated.  The permitted types for the type field\
+    \ are defined\n   in Table 12 on page 19.  Integer values are sent as 4-byte elements\n\
+    \   in network byte order (most significant byte first, least significant\n  \
+    \ byte last).\n+----------------------------------------------------------------------+\n\
+    | Table 8. SNMP DPI RESPONSE packet.  This is the layout of an SNMP    |\n|  \
+    \        DPI RESPONSE packet                                         |\n+-------------+--------------------------------------------------------+\n\
+    | OFFSET      | FIELD                                                  |\n+-------------+--------------------------------------------------------+\n\
+    | 0           | packet length to follow (MSB)                          |\n+-------------+--------------------------------------------------------+\n\
+    | 1           | packet length to follow (LSB)                          |\n+-------------+--------------------------------------------------------+\n\
+    | 2           | protocol major version                                 |\n+-------------+--------------------------------------------------------+\n\
+    | 3           | protocol minor version                                 |\n+-------------+--------------------------------------------------------+\n\
+    | 4           | protocol release                                       |\n+-------------+--------------------------------------------------------+\n\
+    | 5           | packet type = SNMP_DPI_RESPONSE                        |\n+-------------+--------------------------------------------------------+\n\
+    | 6           | SNMP error code                                        |\n+-------------+--------------------------------------------------------+\n\
+    | 7           | null terminated object ID                              |\n+-------------+--------------------------------------------------------+\n\
+    | 7 + len     | SNMP Variable Type Value                               |\n+-------------+--------------------------------------------------------+\n\
+    | 7 + len + 1 | Length of value (MSB)                                  |\n+-------------+--------------------------------------------------------+\n\
+    | 7 + len + 2 | Length of value (LSB)                                  |\n+-------------+--------------------------------------------------------+\n\
+    | 7 + len + 3 | Value                                                  |\n+-------------+--------------------------------------------------------+\n\
+    | NOTE:  len=strlen(object ID)+1                                       |\n+----------------------------------------------------------------------+\n\
+    +----------------------------------------------------------------------+\nTRAP\n\
+    \   An SNMP sub-agent can request the agent to generate a TRAP by sending\n  \
+    \ an SNMP DPI TRAP packet to the agent.\n   Such a packet contains the standard\
+    \ SNMP DPI header plus TRAP\n   specific data, which is basically the generic\
+    \ and specific trap code,\n   plus a name/type/value tuple.  The tuple is described\
+    \ by a string\n   representing the object ID in ASN.1 notation, plus the type,\
+    \ value\n   length and value of the object that is being sent in the trap.  The\n\
+    \   permitted types for the type field are defined in Table 12 on page\n   19.\
+    \  Integer values are sent as 4-byte elements in network byte order\n   (most\
+    \ significant byte first, least significant byte last).\n+----------------------------------------------------------------------+\n\
+    | Table 9. SNMP DPI TRAP packet.  This is the layout of an SNMP DPI    |\n|  \
+    \        TRAP packet                                                 |\n+-------------+--------------------------------------------------------+\n\
+    | OFFSET      | FIELD                                                  |\n+-------------+--------------------------------------------------------+\n\
+    | 0           | packet length to follow (MSB)                          |\n+-------------+--------------------------------------------------------+\n\
+    | 1           | packet length to follow (LSB)                          |\n+-------------+--------------------------------------------------------+\n\
+    | 2           | protocol major version                                 |\n+-------------+--------------------------------------------------------+\n\
+    | 3           | protocol minor version                                 |\n+-------------+--------------------------------------------------------+\n\
+    | 4           | protocol release                                       |\n+-------------+--------------------------------------------------------+\n\
+    | 5           | packet type - SNMP_DPI_TRAP                            |\n+-------------+--------------------------------------------------------+\n\
+    | 6           | SNMP generic trap code                                 |\n+-------------+--------------------------------------------------------+\n\
+    | 7           | SNMP specific trap code                                |\n+-------------+--------------------------------------------------------+\n\
+    | 8           | null terminated object ID                              |\n+-------------+--------------------------------------------------------+\n\
+    | 8 + len     | SNMP Variable Type Value                               |\n+-------------+--------------------------------------------------------+\n\
+    | 8 + len + 1 | Length of value (MSB)                                  |\n+-------------+--------------------------------------------------------+\n\
+    | 8 + len + 2 | Length of value (LSB)                                  |\n+-------------+--------------------------------------------------------+\n\
+    | 8 + len + 3 | Value                                                  |\n+-------------+--------------------------------------------------------+\n\
+    | NOTE:  len=strlen(object ID)+1                                       |\n+----------------------------------------------------------------------+\n\
+    +----------------------------------------------------------------------+\nCONSTANTS\
+    \ AND VALUES\n   This section describes the constants that have been defined for\
+    \ this\n   version of the SNMP DPI Protocol.\nPROTOCOL VERSION AND RELEASE VALUES\n\
+    +----------------------------------------------------------------------+\n| Table\
+    \ 10. Protocol version and release values                        |\n+-----------------------------------+----------------------------------+\n\
+    | FIELD                             | VALUE                            |\n+-----------------------------------+----------------------------------+\n\
+    | protocol major version            | 2 (SNMP DPI protocol)            |\n+-----------------------------------+----------------------------------+\n\
+    | protocol minor version            | 1 (version 1)                    |\n+-----------------------------------+----------------------------------+\n\
+    | protocol release                  | 0 (release 0)                    |\n+-----------------------------------+----------------------------------+\n\
+    +----------------------------------------------------------------------+\nAny\
+    \ other values are currently undefined.\nPACKET TYPE VALUES\n   The packet type\
+    \ field can have the following values:\n+----------------------------------------------------------------------+\n\
+    | Table 11. Valid values for the packet type field                     |\n+-------+--------------------------------------------------------------+\n\
+    | VALUE | PACKET TYPE                                                  |\n+-------+--------------------------------------------------------------+\n\
+    | 1     | SNMP_DPI_GET                                                 |\n+-------+--------------------------------------------------------------+\n\
+    | 2     | SNMP_DPI_GET_NEXT                                            |\n+-------+--------------------------------------------------------------+\n\
+    | 3     | SNMP_DPI_SET                                                 |\n+-------+--------------------------------------------------------------+\n\
+    | 4     | SNMP_DPI_TRAP                                                |\n+-------+--------------------------------------------------------------+\n\
+    | 5     | SNMP_DPI_RESPONSE                                            |\n+-------+--------------------------------------------------------------+\n\
+    | 6     | SNMP_DPI_REGISTER                                            |\n+-------+--------------------------------------------------------------+\n\
+    +----------------------------------------------------------------------+\nVARIABLE\
+    \ TYPE VALUES\n   The variable type field can have the following values:\n+----------------------------------------------------------------------+\n\
+    | Table 12. Valid values for the Value Type field                      |\n+-------+--------------------------------------------------------------+\n\
+    | VALUE | VALUE TYPE                                                   |\n+-------+--------------------------------------------------------------+\n\
+    | 0     | text representation                                          |\n+-------+--------------------------------------------------------------+\n\
+    | 129   | number (integer)                                             |\n+-------+--------------------------------------------------------------+\n\
+    | 2     | octet string                                                 |\n+-------+--------------------------------------------------------------+\n\
+    | 3     | object identifier                                            |\n+-------+--------------------------------------------------------------+\n\
+    | 4     | empty (no value)                                             |\n+-------+--------------------------------------------------------------+\n\
+    | 133   | internet address                                             |\n+-------+--------------------------------------------------------------+\n\
+    | 134   | counter (unsigned)                                           |\n+-------+--------------------------------------------------------------+\n\
+    | 135   | gauge (unsigned)                                             |\n+-------+--------------------------------------------------------------+\n\
+    | 136   | time ticks (1/100ths seconds)                                |\n+-------+--------------------------------------------------------------+\n\
+    | 9     | display string                                               |\n+-------+--------------------------------------------------------------+\n\
+    +----------------------------------------------------------------------+\n   NOTE:\
+    \  Fields which represent values that are stored as a 4-byte\n   integer are indicated\
+    \ by ORing their base type value with 128.\nError Code Values for SNMP Agent Detected\
+    \ Errors\n   The error code can have one of the following values:\n+----------------------------------------------------------------------+\n\
+    | Table 13. Valid values for the SNMP Agent Minor Error Code field     |\n+-------+--------------------------------------------------------------+\n\
+    | VALUE | SNMP AGENT ERROR CODE                                        |\n+-------+--------------------------------------------------------------+\n\
+    | 0     | no error                                                     |\n+-------+--------------------------------------------------------------+\n\
+    | 1     | too big                                                      |\n+-------+--------------------------------------------------------------+\n\
+    | 2     | no such name                                                 |\n+-------+--------------------------------------------------------------+\n\
+    | 3     | bad value                                                    |\n+-------+--------------------------------------------------------------+\n\
+    | 4     | read only                                                    |\n+-------+--------------------------------------------------------------+\n\
+    | 5     | general error                                                |\n+-------+--------------------------------------------------------------+\n\
+    +----------------------------------------------------------------------+\nSNMP\
+    \ DPI APPLICATION PROGRAM INTERFACE\n   This section documents an API that implements\
+    \ the SNMP DPI.  This\n   information has been previously published [6, 8], but\
+    \ the information\n   provided below is more current as of May 14, 1991.\nOVERVIEW\
+    \ OF REQUEST PROCESSING\nGET PROCESSING\n   A GET request is the easiest to process.\
+    \  When the DPI packet is\n   parsed, the parse tree holds the object ID of the\
+    \ variable being\n   requested.\n   If the specified object is not supported by\
+    \ the sub-agent, it would\n   return an error indication of \"no such name\".\
+    \  No name/type/value\n   information would be returned.\n        unsigned char\
+    \ *cp;\n        cp = mkDPIresponse(SNMP_NO_SUCH_NAME,0);\n   If the object is\
+    \ recognized, then the sub-agent creates a parse tree\n   representing the name/type/value\
+    \ of the object in question (using the\n   DPI API routine mkDPIset()), and returns\
+    \ no error indication.  This\n   is demonstrated below (a string is being returned).\n\
+    \        char *obj_id;\n        unsigned char *cp;\n        struct dpi_set_packet\
+    \ *ret_value;\n        char *data;\n        /* obj_id = object ID of variable,\
+    \ like 1.3.6.1.2.1.1.1 */\n        /* should be identical to object ID sent in\
+    \ get request */\n        data = \"a string to be returned\";\n        ret_value\
+    \ = mkDPIset(obj_id,SNMP_TYPE_STRING,\n                        strlen(data)+1,data);\n\
+    \        cp = mkDPIresponse(0,ret_value);\nSET PROCESSING\n   Processing a SET\
+    \ request is only slightly more difficult than a GET\n   request.  In this case,\
+    \ additional information is made available in\n   the parse tree, namely the type,\
+    \ length and value to be set.\n   The sub-agent may return an error indication\
+    \ of \"no such name\" if the\n   variable is unrecognized, just as in a GET request.\
+    \  If the variable\n   is recognized, but cannot be set, an error indication of\
+    \ \"no such\n   name\" should be also be returned, although it is tempting to\
+    \ return a\n   \"read only\" error.\nGET NEXT PROCESSING\n   GET-NEXT requests\
+    \ are the most complicated requests to process.\n   After parsing a GET-NEXT request,\
+    \ the parse tree will contain two\n   parameters.  One is the object ID on which\
+    \ the GET-NEXT operation is\n   being performed.  The semantics of the operation\
+    \ are that the sub-\n   agent is to return the name/type/value of the next variable\
+    \ it\n   supports whose name lexicographically follows the passed object ID.\n\
+    \   It is important to realize that a given sub-agent may support several\n  \
+    \ discontiguous sections of the MIB tree.  In such a situation it would\n   be\
+    \ incorrect to jump from one section to another.  This problem is\n   correctly\
+    \ handled by examining the second parameter which is passed.\n   This parameter\
+    \ represents the \"reason\" why the sub-agent is being\n   called.  It holds the\
+    \ prefix of the tree that the sub-agent had\n   indicated it supported.\n   If\
+    \ the next variable supported by the sub-agent does not begin with\n   that prefix,\
+    \ the sub-agent must return an error indication of \"no\n   such name\".  If required,\
+    \ the SNMP agent will call upon the sub-agent\n   again, but pass it a different\
+    \ group prefix.  This is illustrated in\n   the discussion below:\n   Assume there\
+    \ are two sub-agents.  The first sub-agent registers two\n   distinct sections\
+    \ of the tree, A and C.  In reality, the sub-agent\n   supports variables A.1\
+    \ and A.2, but it correctly registers the\n   minimal prefix required to uniquely\
+    \ identify the variable class it\n   supports.\n   The second sub-agent registers\
+    \ a different section, B, which appears\n   between the two sections registered\
+    \ by the first agent.\n   If a remote management station begins dumping the MIB,\
+    \ starting from\n   A, the following sequence of queries would be performed:\n\
+    \     Sub-agent 1 gets called:\n            get-next(A,A) == A.1\n           \
+    \ get-next(A.1,A) = A.2\n            get-next(A.2,A) = error(no such name)\n \
+    \    Sub-agent 2 is then called:\n            get-next(A.2,B) = B.1\n        \
+    \    get-next(B.1,B) = error(no such name)\n     Sub-agent 1 gets called again:\n\
+    \            get-next(B.1,C) = C.1\nREGISTER REQUESTS\n   A sub-agent must register\
+    \ the variables it supports with the SNMP\n   agent.  The appropriate packets\
+    \ may be created using the DPI API\n   library routine mkDPIregister().\n    \
+    \     unsigned char *cp;\n         cp = mkDPIregister(\"1.3.6.1.2.1.1.2.\");\n\
+    NOTE:  object IDs are registered with a trailing dot (\".\").\nTRAP REQUESTS\n\
+    \   A sub-agent can request that the SNMP agent generate a trap for it.\n   The\
+    \ sub-agent must provide the desired values for the generic and\n   specific parameters\
+    \ of the trap.  It may optionally provide a\n   name/type/value parameter that\
+    \ will be included in the trap packet.\n   The DPI API library routine mkDPItrap()\
+    \ can be used to generate the\n   required packet.\nDPI API LIBRARY ROUTINES\n\
+    \   This section documents Application Program Interfaces to the DPI.\n   QUERY_DPI_PORT()\n\
+    \     int port;\n     char *hostname, *community_name;\n     port = query_DPI_port(hostname,\
+    \ community_name);\n   The query_DPI_port() function is used by a DPI client to\
+    \ determine\n   what TCP port number is associated with the DPI.  This port number\
+    \ is\n   needed to connect() to the SNMP agent.  If the port cannot be\n   determined,\
+    \ -1 is returned.\n   The function is passed two arguments:  a string representing\
+    \ the\n   host's name or IP address and the community name to be used when\n \
+    \  making the request.\n   This function enables a DPI client to \"bootstrap\"\
+    \ itself.  The port\n   number is obtained via an SNMP GET request, but the DPI\
+    \ client does\n   not have to be able to create and parse SNMP packets--this is\
+    \ all\n   done by the query_DPI_port() function.\n   NOTE:  the query_DPI_port()\
+    \ function assumes that the community name\n   does not contain any null characters.\
+    \  If this is not the case, use\n   the _query_DPI_port() function which takes\
+    \ a third parameter, the\n   length of the community name.\nMKDPIREGISTER\n  \
+    \   #include \"snmp_dpi.h\"\n     unsigned char *packet;\n     int len;\n    \
+    \ /* register sysDescr variable */\n     packet = mkDPIregister(\"1.3.6.1.2.1.1.1.\"\
+    );\n     len = *packet * 256 + *(packet + 1);\n     len += 2;  /* include length\
+    \ bytes */\n   The mkDPIregister() function creates the necessary register-request\n\
+    \   packet and returns a pointer to a static buffer holding the packet\n   contents.\
+    \  The null pointer (0) is returned if there is an error\n   detected during the\
+    \ creation of the packet.\n   The length of the remainder packet is stored in\
+    \ the first two bytes\n   of the packet, as demonstrated in the example above.\n\
+    \   NOTE:  object identifiers are registered with a trailing dot (\".\").\nMKDPISET\n\
+    \     #include \"snmp_dpi.h\"\n     struct dpi_set_packet *set_value;\n     char\
+    \ *obj_id;\n     int type, length;\n     char *value;\n     set_value = mkDPIset(obj_id,\
+    \ type, length, value);\n   The mkDPIset() function can be used to create the\
+    \ portion of a parse\n   tree that represents a name/value pair (as would be normally\
+    \ be\n   returned in a response packet).  It returns a pointer to a\n   dynamically\
+    \ allocated parse tree representing the name/type/value\n   information.  If there\
+    \ is an error detected while creating the parse\n   tree, the null pointer (0)\
+    \ is returned.\n   The value of type can be one of the following (which are defined\
+    \ in\n   the include file \"snmp_dpi.h\"):\n      o   SNMP_TYPE_NUMBER\n     \
+    \ o   SNMP_TYPE_STRING\n      o   SNMP_TYPE_OBJECT\n      o   SNMP_TYPE_INTERNET\n\
+    \      o   SNMP_TYPE_COUNTER\n      o   SNMP_TYPE_GAUGE\n      o   SNMP_TYPE_TICKS\n\
+    \   The value parameter is always a pointer to the first byte of the\n   object's\
+    \ value.\n   NOTE:  the parse tree is dynamically allocated and copies are made\
+    \ of\n   the passed parameters.  After a successful call to mkDPIset(), they\n\
+    \   can be disposed of in any manner the application chooses without\n   affecting\
+    \ the parse tree contents.\nMKDPIRESPONSE\n     #include \"snmp_dpi.h\"\n    \
+    \ unsigned char *packet;\n     int error_code;\n     struct dpi_set_packet *ret_value;\n\
+    \     packet = mkDPIresponse(error_code, ret_value);\n     len = *packet * 256\
+    \ + *(packet + 1);\n     len += 2;  /* include length bytes */\n   The mkDPIresponse()\
+    \ function creates an appropriate response packet.\n   It takes two parameters.\
+    \  The first is the error code to be returned.\n   It may be 0 (indicating no\
+    \ error) or one of the following (which are\n   defined in the include file \"\
+    snmp_dpi.h\"):\n      o   SNMP_NO_ERROR\n      o   SNMP_TOO_BIG\n      o   SNMP_NO_SUCH_NAME\n\
+    \      o   SNMP_BAD_VALUE\n      o   SNMP_READ_ONLY\n      o   SNMP_GEN_ERR\n\
+    \   If the error code indicates no error, then the second parameter is a\n   pointer\
+    \ to a parse tree (created by mkDPIset()) which represents the\n   name/type/value\
+    \ information being returned.  If an error is\n   indicated, the second parameter\
+    \ is passed as a null pointer (0).\n   If the packet can be created, a pointer\
+    \ to a static buffer containing\n   the packet contents is returned.  This is\
+    \ the same buffer used by\n   mkDPIregister().  If an error is encountered while\
+    \ creating the\n   packet, the null pointer (0) is returned.\n   The length of\
+    \ the remainder packet is stored in the first two bytes\n   of the packet, as\
+    \ demonstrated in the example above.\n   NOTE:  mkDPIresponse() always frees the\
+    \ passed parse tree.\nMKDPITRAP\n     #include \"snmp_dpi.h\"\n     unsigned char\
+    \ *packet;\n     int generic, specific;\n     struct dpi_set_packet *ret_value;\n\
+    \     packet = mkDPItrap(generic, specific, ret_value);\n     len = *packet *\
+    \ 256 + *(packet + 1);\n     len += 2;  /* include length bytes */\n   The mkDPItrap()\
+    \ function creates an appropriate trap request packet.\n   The first two parameters\
+    \ correspond to to value of the generic and\n   specific fields in the SNMP trap\
+    \ packet.  The third field can be used\n   to pass a name/value pair to be provided\
+    \ in the SNMP trap packet.\n   This information is passed as the set-packet portion\
+    \ of the parse\n   tree.  As an example, a linkDown trap for interface 3 might\
+    \ be\n   generated by the following:\n     struct dpi_set_packet *if_index_value;\n\
+    \     unsigned long data;\n     unsigned char *packet;\n     int len;\n     data\
+    \ = 3;  /* interface number = 3 */\n     if_index_value = mkDPIset(\"1.3.6.1.2.1.2.2.1.1\"\
+    , SNMP_TYPE_NUMBER,\n             sizeof(unsigned long), &data);\n     packet\
+    \ = mkDPItrap(2, 0, if_index_value);\n     len = *packet * 256 + *(packet + 1);\n\
+    \     len += 2;  /* include length bytes */\n     write(fd,packet,len);\n   If\
+    \ the packet can be created, a pointer to a static buffer containing\n   the packet\
+    \ contents is returned.  This is the same buffer used by\n   mkDPIregister().\
+    \  If an error is encountered while creating the\n   packet, the null pointer\
+    \ (0) is returned.\n   The length of the remainder packet is stored in the first\
+    \ two bytes\n   of the packet, as demonstrated in the example above.\n   NOTE:\
+    \  mkDPItrap() always frees the passed parse tree.\nPDPIPACKET\n     #include\
+    \ \"snmp_dpi.h\"\n     unsigned char *packet;\n     struct snmp_dpi_hdr *hdr;\n\
+    \     hdr = pDPIpacket(packet)\n   The pDPIpacket() function parses a DPI packet\
+    \ and returns a parse\n   tree representing its contents.  The parse tree is dynamically\n\
+    \   allocated and contains copies of the information within the DPI\n   packet.\
+    \  After a successful call to pDPIpacket(), the packet may be\n   disposed of\
+    \ in any manner the application chooses without affecting\n   the contents of\
+    \ the parse tree.  If an error is encountered during\n   the parse, the null pointer\
+    \ (0) is returned.\n   NOTE:  the relevant parse tree structures are defined in\
+    \ the include\n   file \"snmp_dpi.h\", and that file remains the definitive reference.\n\
+    \   The root of the parse tree is represented by a snmp_dpi_hdr\n   structure:\n\
+    \     struct snmp_dpi_hdr {\n         unsigned char  proto_major;\n         unsigned\
+    \ char  proto_minor;\n         unsigned char  proto_release;\n         unsigned\
+    \ char  packet_type;\n         union {\n              struct dpi_get_packet  \
+    \  *dpi_get;\n              struct dpi_next_packet   *dpi_next;\n            \
+    \  struct dpi_set_packet    *dpi_set;\n              struct dpi_resp_packet  \
+    \ *dpi_response;\n              struct dpi_trap_packet   *dpi_trap;\n        \
+    \ } packet_body;\n     };\n   The field of immediate interest is packet_type.\
+    \  This field can have\n   one of the following values (which are defined in the\
+    \ include file\n   \"snmp_dpi.h\"):\n      o   SNMP_DPI_GET\n      o   SNMP_DPI_GET_NEXT\n\
+    \      o   SNMP_DPI_SET\n   The packet_type field indicates what request is being\
+    \ made of the DPI\n   client.  For each of these requests, the remainder of the\
+    \ packet_body\n   will be different.\n   If a get request is indicated, the object\
+    \ ID of the desired variable\n   is passed in a dpi_get_packet structure:\n  \
+    \   struct dpi_get_packet {\n         char *object_id;\n     };\n   A get-next\
+    \ request is similar, but the dpi_next_packet structure also\n   contains the\
+    \ object ID prefix of the group that is currently being\n   traversed:\n     struct\
+    \ dpi_next_packet {\n         char *object_id;\n         char *group_id;\n   \
+    \  };\n   If the next object whose object ID lexicographically follows the\n \
+    \  object ID indicated by object_id does not begin with the suffix\n   indicated\
+    \ by group_id, the DPI client must return an error indication\n   of SNMP_NO_SUCH_NAME.\n\
+    \   A set request has the most amount of data associated with it and this\n  \
+    \ is contained in a dpi_set_packet structure:\n     struct dpi_set_packet {\n\
+    \         char      *object_id;\n         unsigned char  type;\n         unsigned\
+    \ short value_len;\n         char      *value;\n     };\n   The object ID of the\
+    \ variable to be modified is indicated by\n   object_id The type of the variable\
+    \ is provided in type and may have\n   one of the following values:\n      o \
+    \  SNMP_TYPE_NUMBER\n      o   SNMP_TYPE_STRING\n      o   SNMP_TYPE_OBJECT\n\
+    \      o   SNMP_TYPE_EMPTY\n      o   SNMP_TYPE_INTERNET\n      o   SNMP_TYPE_COUNTER\n\
+    \      o   SNMP_TYPE_GAUGE\n      o   SNMP_TYPE_TICKS\n   The length of the value\
+    \ to be set is stored in value_len and value\n   contains a pointer to the value.\n\
+    \   NOTE:  the storage pointed to by value will be reclaimed when the\n   parse\
+    \ tree is freed.  The DPI client must make provision for copying\n   the value\
+    \ contents.\nFDPIPARSE\n     #include \"snmp_dpi.h\"\n     struct snmp_dpi_hdr\
+    \ *hdr;\n     fDPIparse(hdr);\n   The routine fDPIparse() frees a parse tree previously\
+    \ created by a\n   call to pDPIpacket This routine is declared as void--it has\
+    \ no return\n   value.\n   NOTE:  after calling fDPIparse(), no further references\
+    \ to the parse\n   tree can be made.\nAGENT IMPLEMENTATION ISSUES\n   Although\
+    \ the SNMP DPI protocol is completely documented in this\n   paper, the document\
+    \ itself is somewhat biased towards clearly\n   defining the interface provided\
+    \ to sub-agents (i.e., it provides a\n   specification of a C language API). \
+    \ This detailed coverage is\n   possible because the client side of the interface\
+    \ is completely\n   self-contained.\n   The agent side of the interface has to\
+    \ be integrated into individual\n   vendor implementations, many of which may\
+    \ have a unique\n   organizational structure in an attempt to address various\
+    \ performance\n   and storage constraints.  This makes it infeasible to provide\
+    \ much\n   more than suggestions for SNMP agent implementers.  Unfortunately,\n\
+    \   this leaves room for a large amount of interpretation which can lead\n   to\
+    \ implementations that don't necessarily work they way they should-\n   -too much\
+    \ ambiguity can be a bad thing.\n   The following characteristics of an agent\
+    \ implementation are to be\n   considered mandatory:\nDUPLICATE REGISTRATIONS\n\
+    \   With this release of the protocol, order of registration is\n   significant.\
+    \  The last sub-agent to register a variable is the one\n   that is deemed to\
+    \ be authoritative.  Variables implemented by the\n   base SNMP agent are considered\
+    \ to have been registered prior to any\n   sub-agent registrations.  Thus sub-agents\
+    \ may re-implement support\n   for variables that were incorrectly implemented\
+    \ by a vendor.\nAUTOMATIC DEREGISTRATION ON CLOSE\n   All SNMP DPI connections\
+    \ are carried over a stream connection.  When\n   the connection is closed by\
+    \ the client (no matter what the cause),\n   the agent must automatically unregister\
+    \ all of the variables that\n   were registered by the sub-agent.\nTIMELY RESPONSE\
+    \ CONSTRAINTS\n   A sub-agent must respond to a request in a timely fashion. \
+    \ In this\n   version of the protocol, we specify that a sub-agent must respond\
+    \ to\n   a request by the SNMP agent within 5 seconds.  If the sub-agent does\n\
+    \   not respond in time, the SNMP agent should terminate the connection\n   and\
+    \ unregister all of the variables that were previously registered\n   by the sub-agent\
+    \ in question.\n   NOTE:  agent implementations that do not have access to a timer\
+    \ may\n   not be able to implement this.  In that case, they leave themselves\n\
+    \   open to being placed in a state where they are blocked forever if the\n  \
+    \ sub-agent malfunctions.\nSUPPORT FOR MULTIPLE MIB VIEWS\n   Some agents allow\
+    \ different MIB views to be selected based on the\n   community name used.  It\
+    \ is not the intention of this document to\n   pass judgement on the various approaches\
+    \ that have been proposed or\n   implemented, but instead merely to recognize\
+    \ the existence of\n   implementations that support this feature.\n   The point\
+    \ of this discussion is to specify clearly that objects\n   supported by an SNMP\
+    \ DPI sub-agent are to be registered under the MIB\n   view that was selected\
+    \ by the community name used in the SNMP GET\n   request that obtained the DPI_port\
+    \ value.\n   The SNMP DPI does not specify a reserved port, but instead sub-agents\n\
+    \   bootstrap themselves by making an SNMP GET request for the DPI_port\n   variable.\
+    \  This variable represents the TCP port to which the sub-\n   agent should connect.\
+    \  It should be understood that there is no\n   reason why the SNMP agent cannot\
+    \ have several listens (passive opens)\n   active, each corresponding to a distinct\
+    \ MIB view.  The port number\n   returned then would be different based on the\
+    \ community name used in\n   the SNMP GET request for the DPI_port variable.\n\
+    CONSIDERATIONS FOR THE NEXT RELEASE\n   The SNMP DPI protocol makes provision\
+    \ for extension and parallel use\n   of potentially incompatible releases.  The\
+    \ discussion above documents\n   the protocol as it is currently in use and has\
+    \ not discussed features\n   of interest that should be considered for a future\
+    \ revision.\nUNREGISTER\n   For closure, an UNREGISTER request could be of use.\n\
+    SUPPORT FOR ATOMIC SETS\n   The SNMP protocol [1] specifies that:\n      Each\
+    \ variable assignment specified by the SetRequest-PDU should be\n      effected\
+    \ as if simultaneously set with respect to all other\n      assignments specified\
+    \ in the same message.\n   The SNMP DPI has no provision for backing out a successfully\n\
+    \   processed SET request if one of the subsequent variable assignments\n   fails.\
+    \  This omission is a reflection of several biases:\n   o   the SNMP DPI was intended\
+    \ to be light-weight.\n   o   a belief that the SNMP RFC prescribes semantics\
+    \ which are infeasible\n       to implement unless the range of applications is\
+    \ restricted.\n   It has been suggested that a new request, TEST_SET, be added\
+    \ to the\n   DPI protocol.  Processing of a SET request would then be performed\
+    \ as\n   follows:\n   o   all variables would be processed using TEST_SET unless\
+    \ any error\n       occurred.  The subagents would verify that they could process\
+    \ the\n       request.\n   o   if no error occurred, each of the variables would\
+    \ be reprocessed,\n       this time with a SET request.\n   A problem with such\
+    \ an approach is that it relies on the TEST_SET\n   operation to make an assertion\
+    \ that the request can be successfully\n   performed.  If this is not possible,\
+    \ then it cannot be asserted that\n   the prescribed semantics will be provided.\
+    \  Such situations do exist,\n   for example, a SET request that causes the far-end\
+    \ channel service\n   unit to be looped up--one does not know if the operation\
+    \ will be\n   successful until it is performed.\nSAMPLE SNMP DPI API IMPLEMENTATION\n\
+    \   The following C language sources show an example implementation of\n   the\
+    \ SNMP DPI Application Programming Interface as it would be exposed\n   to the\
+    \ sub-agents.\nSAMPLE SNMP DPI INCLUDE FILE\n  /* SNMP distributed program interface\
+    \ */\n  #define SNMP_DPI_GET            1\n  #define SNMP_DPI_GET_NEXT       2\n\
+    \  #define SNMP_DPI_SET            3\n  #define SNMP_DPI_TRAP           4\n  #define\
+    \ SNMP_DPI_RESPONSE       5\n  #define SNMP_DPI_REGISTER       6\n  #define SNMP_DPI_PROTOCOL\
+    \       2\n  #define SNMP_DPI_VERSION        1\n  #define SNMP_DPI_RELEASE   \
+    \     0\n  /* SNMP error codes from RFC 1098 (1067) */\n  #define SNMP_NO_ERROR\
+    \           0\n  #define SNMP_TOO_BIG            1\n  #define SNMP_NO_SUCH_NAME\
+    \       2\n  #define SNMP_BAD_VALUE          3\n  #define SNMP_READ_ONLY     \
+    \     4\n  #define SNMP_GEN_ERR            5\n  /* variable types */\n  #define\
+    \ SNMP_TYPE_TEXT          0       /* textual representation */\n  #define SNMP_TYPE_NUMBER\
+    \        (128|1) /* number */\n  #define SNMP_TYPE_STRING        2       /* text\
+    \ string */\n  #define SNMP_TYPE_OBJECT        3       /* object identifier */\n\
+    \  #define SNMP_TYPE_EMPTY         4       /* no value */\n  #define SNMP_TYPE_INTERNET\
+    \      (128|5) /* internet address */\n  #define SNMP_TYPE_COUNTER       (128|6)\
+    \ /* counter */\n  #define SNMP_TYPE_GAUGE         (128|7) /* gauge */\n  #define\
+    \ SNMP_TYPE_TICKS         (128|8) /* time ticks (1/100th sec) */\n  #define SNMP_TYPE_MASK\
+    \          0x7f    /* mask for type */\n  struct dpi_get_packet {\n          char\
+    \    *object_id;\n  };\n  struct dpi_next_packet {\n          char    *object_id;\n\
+    \          char    *group_id;\n  };\n  struct dpi_set_packet {\n          char\
+    \            *object_id;\n          unsigned char   type;\n          unsigned\
+    \ short  value_len;\n          char            *value;\n  };\n  struct dpi_resp_packet\
+    \ {\n          unsigned char   ret_code;\n          struct dpi_set_packet   *ret_data;\n\
+    \  };\n  struct dpi_trap_packet {\n          unsigned char   generic;\n      \
+    \    unsigned char   specific;\n          struct dpi_set_packet   *info;\n  };\n\
+    \  struct snmp_dpi_hdr {\n          unsigned char   proto_major;\n          unsigned\
+    \ char   proto_minor;\n          unsigned char   proto_release;\n          unsigned\
+    \ char   packet_type;\n          union {\n                  struct dpi_get_packet\
+    \   *dpi_get;\n                  struct dpi_next_packet  *dpi_next;\n        \
+    \          struct dpi_set_packet   *dpi_set;\n                  struct dpi_resp_packet\
+    \  *dpi_response;\n                  struct dpi_trap_packet  *dpi_trap;\n    \
+    \      } packet_body;\n  };\n  extern struct snmp_dpi_hdr *pDPIpacket();\n  extern\
+    \ void fDPIparse();\n  extern unsigned char *mkMIBquery();\n  extern unsigned\
+    \ char *mkDPIregister();\n  extern unsigned char *mkDPIresponse();\n  extern unsigned\
+    \ char *mkDPItrap();\n  extern struct dpi_set_packet *mkDPIset();\nSAMPLE QUERY_DPI_PORT()\
+    \ FUNCTION\n  #ifdef VM\n  #include <manifest.h>\n  #include <snmp_vm.h>\n  #include\
+    \ <bsdtime.h>\n  #include <bsdtypes.h>\n  #include <socket.h>\n  #include <in.h>\n\
+    \  #include <netdb.h>\n  #include <inet.h>\n  #else\n  #include <sys/time.h>\n\
+    \  #include <sys/types.h>\n  #include <sys/socket.h>\n  #include <netinet/in.h>\n\
+    \  #include <netdb.h>\n  #include <arpa/inet.h>\n  #endif\n  static unsigned char\
+    \ asn1_hdr[] = {0x30};\n  /* insert length of remaining packet, not including\
+    \ this */\n  static unsigned char version[] = {0x02, 0x01, 0x00, 0x04};\n  /*\
+    \ integer, len=1, value=0, string */\n  /* insert community name length and community\
+    \ name */\n  static unsigned char request[] = {\n      0xa0, 0x1b,         /*\
+    \ get request, len=0x1b */\n      0x02, 0x01, 0x01,   /* integer, len=1,request_id\
+    \ = 1 */\n      0x02, 0x01, 0x00,   /* integer, len=1, error_status = 0 */\n \
+    \     0x02, 0x01, 0x00,   /* integer, len=1, error_index = 0 */\n      0x30, 0x10,\
+    \         /* varbind list, len=0x10 */\n      0x30, 0x0e,         /* varbind ,\
+    \ len=0x0e */\n      0x06, 0x0a,         /* object ID, len=0x0a */\n      0x2b,\
+    \ 0x06, 0x01, 0x04, 0x01, 0x02, 0x02, 0x01, 0x01, 0x00,\n      0x05, 0x00    \
+    \      /* value, len = 0 */\n  };\n  static          extract_DPI_port();\n  query_DPI_port(hostname,\
+    \ community_name)\n  char           *hostname;\n  char           *community_name;\n\
+    \  {\n      int             community_len;\n      int             rc;\n      community_len\
+    \ = strlen(community_name);\n      rc = _query_DPI_port(hostname, community_name,\
+    \ community_len);\n      return (rc);\n  }\n  /* use if community_name has embedded\
+    \ nulls */\n  _query_DPI_port(hostname, community_name, community_len)\n  char\
+    \           *hostname;\n  char           *community_name;\n  int             community_len;\n\
+    \  {\n      unsigned char   packet[1024];\n      int             packet_len;\n\
+    \      int             remaining_len;\n      int             fd, rc, sock_len;\n\
+    \      struct sockaddr_in sock, dest_sock;\n      struct timeval  timeout;\n \
+    \     unsigned long   host_addr, read_mask;\n      int             tries;\n  \
+    \    host_addr = lookup_host(hostname);\n      packet_len = 0;\n      bcopy(asn1_hdr,\
+    \ packet, sizeof(asn1_hdr));\n      packet_len += sizeof(asn1_hdr);\n      remaining_len\
+    \ = sizeof(version) + 1 +\n        community_len + sizeof(request);\n      packet[packet_len++]\
+    \ = remaining_len & 0xff;\n      bcopy(version, packet + packet_len, sizeof(version));\n\
+    \      packet_len += sizeof(version);\n      packet[packet_len++] = community_len\
+    \ & 0xff;\n      bcopy(community_name, packet + packet_len, community_len);\n\
+    \      packet_len += community_len;\n      bcopy(request, packet + packet_len,\
+    \ sizeof(request));\n      packet_len += sizeof(request);\n      fd = socket(AF_INET,\
+    \ SOCK_DGRAM, 0);\n      if (fd < 0) {\n      return (-1);\n      }\n      bzero(&sock,\
+    \ sizeof(sock));\n      sock.sin_family = AF_INET;\n      sock.sin_port = 0;\n\
+    \      sock.sin_addr.s_addr = 0;\n      rc = bind(fd, &sock, sizeof(sock));\n\
+    \      if (rc < 0)\n      return (-1);\n      timeout.tv_sec = 3;\n      timeout.tv_usec\
+    \ = 0;\n      bzero(&dest_sock, sizeof(dest_sock));\n      dest_sock.sin_family\
+    \ = AF_INET;\n      dest_sock.sin_port = htons(161);\n      dest_sock.sin_addr.s_addr\
+    \ = host_addr;\n      tries = 0;\n      while (++tries < 4) {\n      rc = sendto(fd,\
+    \ packet, packet_len, 0, &dest_sock,\n               sizeof(dest_sock));\n   \
+    \   read_mask = 1 << fd;\n      rc = select(read_mask + 1, &read_mask, 0, 0, &timeout);\n\
+    \      if (rc <= 0)\n          continue;\n      sock_len = sizeof(dest_sock);\n\
+    \      packet_len = recvfrom(fd, packet, sizeof(packet), 0,\n                \
+    \      &dest_sock, &sock_len);\n      if (packet_len <= 0) {\n          return\
+    \ (-1);\n      }\n      rc = extract_DPI_port(packet, packet_len);\n      return\
+    \ (rc);\n      }\n      return (-1);\n  }\n  static          extract_DPI_port(packet,\
+    \ len)\n  unsigned char   packet[];\n  int             len;\n  {\n      int  \
+    \           offset;\n      int             port;\n      /* should do error checking\
+    \ (like for noSuchName) */\n      offset = len - 2;\n      port = (packet[offset]\
+    \ << 8) + packet[offset + 1];\n      return (port);\n  }\nSAMPLE DPI FUNCTIONS\n\
+    \  /* DPI parser */\n  #ifdef VM\n  #include \"manifest.h\"\n  #endif\n  #include\
+    \ \"snmp_dpi.h\"\n  static struct dpi_get_packet *pDPIget();\n  static struct\
+    \ dpi_next_packet *pDPInext();\n  static struct dpi_set_packet *pDPIset();\n \
+    \ static struct dpi_trap_packet *pDPItrap();\n  static struct dpi_resp_packet\
+    \ *pDPIresponse();\n  static void     fDPIget();\n  static void     fDPInext();\n\
+    \  static void     fDPIset();\n  static void     fDPItrap();\n  static void  \
+    \   fDPIresponse();\n  static int      cDPIget();\n  static int      cDPInext();\n\
+    \  static int      cDPIset();\n  static int      cDPItrap();\n  static int   \
+    \   cDPIresponse();\n  static struct snmp_dpi_hdr *mkDPIhdr();\n  static struct\
+    \ dpi_get_packet *mkDPIget();\n  static struct dpi_next_packet *mkDPInext();\n\
+    \  struct dpi_set_packet *mkDPIset();\n  extern char    *malloc();\n  static unsigned\
+    \ char new_packet[1024];\n  static int      packet_len;\n  struct snmp_dpi_hdr\
+    \ *pDPIpacket(packet)\n  unsigned char  *packet;\n  {\n      struct snmp_dpi_hdr\
+    \ *hdr;\n      int             len, offset;\n      hdr = (struct snmp_dpi_hdr\
+    \ *) malloc(sizeof(struct snmp_dpi_hdr));\n      if (hdr == 0)\n          return\
+    \ (0);\n      len = (packet[0] << 8) + packet[1];\n      len += 2;\n      offset\
+    \ = 2;\n      hdr->proto_major = packet[offset++];\n      hdr->proto_minor = packet[offset++];\n\
+    \      hdr->proto_release = packet[offset++];\n      hdr->packet_type = packet[offset++];\n\
+    \      switch (hdr->packet_type) {\n      case SNMP_DPI_GET:\n      case SNMP_DPI_REGISTER:\n\
+    \          hdr->packet_body.dpi_get =\n            pDPIget(packet + offset, len\
+    \ - offset);\n          break;\n      case SNMP_DPI_GET_NEXT:\n          hdr->packet_body.dpi_next\
+    \ =\n            pDPInext(packet + offset, len - offset);\n          break;\n\
+    \      case SNMP_DPI_SET:\n          hdr->packet_body.dpi_set =\n            pDPIset(packet\
+    \ + offset, len - offset);\n          break;\n      case SNMP_DPI_TRAP:\n    \
+    \      hdr->packet_body.dpi_trap =\n            pDPItrap(packet + offset, len\
+    \ - offset);\n          break;\n      case SNMP_DPI_RESPONSE:\n          hdr->packet_body.dpi_response\
+    \ =\n            pDPIresponse(packet + offset, len - offset);\n          break;\n\
+    \      }\n      return (hdr);\n  }\n  static struct dpi_get_packet *pDPIget(packet,\
+    \ len)\n  unsigned char  *packet;\n  int             len;\n  {\n      struct dpi_get_packet\
+    \ *get;\n      int             l;\n      get = (struct dpi_get_packet *)\n   \
+    \     malloc(sizeof(struct dpi_get_packet));\n      if (get == 0)\n          return\
+    \ (0);\n      l = strlen(packet) + 1;\n      get->object_id = malloc(l);\n   \
+    \   strcpy(get->object_id, packet);\n      return (get);\n  }\n  static struct\
+    \ dpi_next_packet *pDPInext(packet, len)\n  unsigned char  *packet;\n  int   \
+    \          len;\n  {\n      struct dpi_next_packet *next;\n      int         \
+    \    l;\n      unsigned char  *cp;\n      next = (struct dpi_next_packet *)\n\
+    \        malloc(sizeof(struct dpi_next_packet));\n      if (next == 0)\n     \
+    \     return (0);\n      cp = packet;\n      l = strlen(cp) + 1;\n      next->object_id\
+    \ = malloc(l);\n      strcpy(next->object_id, cp);\n      cp += l;\n      l =\
+    \ strlen(cp) + 1;\n      next->group_id = malloc(l);\n      strcpy(next->group_id,\
+    \ cp);\n      return (next);\n  }\n  static struct dpi_set_packet *pDPIset(packet,\
+    \ len)\n  unsigned char  *packet;\n  int             len;\n  {\n      struct dpi_set_packet\
+    \ *set;\n      int             l;\n      unsigned char  *cp;\n      if (len ==\
+    \ 0)\n          return (0);     /* nothing to parse */\n      set = (struct dpi_set_packet\
+    \ *)\n        malloc(sizeof(struct dpi_set_packet));\n      if (set == 0)\n  \
+    \        return (0);\n      cp = packet;\n      l = strlen(cp) + 1;\n      set->object_id\
+    \ = malloc(l);\n      strcpy(set->object_id, cp);\n      cp += l;\n      set->type\
+    \ = *(cp++);\n      l = (*(cp++) << 8);\n      l += *(cp++);\n      set->value_len\
+    \ = l;\n      set->value = malloc(l);\n      bcopy(cp, set->value, l);\n     \
+    \ return (set);\n  }\n  static struct dpi_trap_packet *pDPItrap(packet, len)\n\
+    \  unsigned char  *packet;\n  int             len;\n  {\n      struct dpi_trap_packet\
+    \ *trap;\n      trap = (struct dpi_trap_packet *)\n        malloc(sizeof(struct\
+    \ dpi_trap_packet));\n      if (trap == 0)\n          return (0);\n      trap->generic\
+    \ = *packet;\n      trap->specific = *(packet + 1);\n      trap->info = pDPIset(packet\
+    \ + 2, len - 2);\n      return (trap);\n  }\n  static struct dpi_resp_packet *pDPIresponse(packet,\
+    \ len)\n  unsigned char  *packet;\n  int             len;\n  {\n      struct dpi_resp_packet\
+    \ *resp;\n      resp = (struct dpi_resp_packet *)\n        malloc(sizeof(struct\
+    \ dpi_resp_packet));\n      if (resp == 0)\n          return (0);\n      resp->ret_code\
+    \ = *packet;\n      resp->ret_data = pDPIset(packet + 1, len - 1);\n      return\
+    \ (resp);\n  }\n  void            fDPIparse(hdr)\n  struct snmp_dpi_hdr *hdr;\n\
+    \  {\n      if (hdr == 0)\n          return;\n      switch (hdr->packet_type)\
+    \ {\n      case SNMP_DPI_GET:\n      case SNMP_DPI_REGISTER:\n          fDPIget(hdr);\n\
+    \          break;\n      case SNMP_DPI_GET_NEXT:\n          fDPInext(hdr);\n \
+    \         break;\n      case SNMP_DPI_SET:\n          fDPIset(hdr);\n        \
+    \  break;\n      case SNMP_DPI_TRAP:\n          fDPItrap(hdr);\n          break;\n\
+    \      case SNMP_DPI_RESPONSE:\n          fDPIresponse(hdr);\n          break;\n\
+    \      }\n      free(hdr);\n  }\n  static void     fDPIget(hdr)\n  struct snmp_dpi_hdr\
+    \ *hdr;\n  {\n      struct dpi_get_packet *get;\n      get = hdr->packet_body.dpi_get;\n\
+    \      if (get == 0)\n          return;\n      if (get->object_id)\n         \
+    \ free(get->object_id);\n      free(get);\n  }\n  static void     fDPInext(hdr)\n\
+    \  struct snmp_dpi_hdr *hdr;\n  {\n      struct dpi_next_packet *next;\n     \
+    \ next = hdr->packet_body.dpi_next;\n      if (next == 0)\n          return;\n\
+    \      if (next->object_id)\n          free(next->object_id);\n      if (next->group_id)\n\
+    \          free(next->group_id);\n      free(next);\n  }\n  static void     fDPIset(hdr)\n\
+    \  struct snmp_dpi_hdr *hdr;\n  {\n      struct dpi_set_packet *set;\n      set\
+    \ = hdr->packet_body.dpi_set;\n      if (set == 0)\n          return;\n      if\
+    \ (set->object_id)\n          free(set->object_id);\n      if (set->value)\n \
+    \         free(set->value);\n      free(set);\n  }\n  static void     fDPItrap(hdr)\n\
+    \  struct snmp_dpi_hdr *hdr;\n  {\n      struct dpi_trap_packet *trap;\n     \
+    \ struct dpi_set_packet *set;\n      trap = hdr->packet_body.dpi_trap;\n     \
+    \ if (trap == 0)\n          return;\n      set = trap->info;\n      if (set !=\
+    \ 0) {\n          if (set->object_id)\n              free(set->object_id);\n \
+    \         if (set->value)\n              free(set->value);\n          free(set);\n\
+    \      }\n      free(trap);\n  }\n  static void     fDPIresponse(hdr)\n  struct\
+    \ snmp_dpi_hdr *hdr;\n  {\n      struct dpi_resp_packet *resp;\n      struct dpi_set_packet\
+    \ *set;\n      resp = hdr->packet_body.dpi_response;\n      if (resp == 0)\n \
+    \         return;\n      set = resp->ret_data;\n      if (set != 0) {\n      \
+    \    if (set->object_id)\n              free(set->object_id);\n          if (set->value)\n\
+    \              free(set->value);\n          free(set);\n      }\n      free(resp);\n\
+    \  }\n  unsigned char  *cDPIpacket(hdr)\n  struct snmp_dpi_hdr *hdr;\n  {\n  \
+    \    int             rc, len;\n      if (hdr == 0) {\n          return (0);\n\
+    \      }\n      packet_len = 2;\n      new_packet[packet_len++] = hdr->proto_major;\n\
+    \      new_packet[packet_len++] = hdr->proto_minor;\n      new_packet[packet_len++]\
+    \ = hdr->proto_release;\n      new_packet[packet_len++] = hdr->packet_type;\n\
+    \      switch (hdr->packet_type) {\n      case SNMP_DPI_GET:\n      case SNMP_DPI_REGISTER:\n\
+    \          rc = cDPIget(hdr->packet_body.dpi_get);\n          break;\n      case\
+    \ SNMP_DPI_GET_NEXT:\n          rc = cDPInext(hdr->packet_body.dpi_next);\n  \
+    \        break;\n      case SNMP_DPI_SET:\n          rc = cDPIset(hdr->packet_body.dpi_set);\n\
+    \          break;\n      case SNMP_DPI_TRAP:\n          rc = cDPItrap(hdr->packet_body.dpi_trap);\n\
+    \          break;\n      case SNMP_DPI_RESPONSE:\n          rc = cDPIresponse(hdr->packet_body.dpi_response);\n\
+    \          break;\n      }\n      if (rc == -1)\n          return (0);\n     \
+    \ len = packet_len - 2;\n      new_packet[1] = len & 0xff;\n      len >>= 8;\n\
+    \      new_packet[0] = len & 0xff;\n      return (new_packet);\n  }\n  static\
+    \ int      cDPIget(get)\n  struct dpi_get_packet *get;\n  {\n      if (get->object_id\
+    \ == 0)\n          return (-1);\n      strcpy(&new_packet[packet_len], get->object_id);\n\
+    \      packet_len += strlen(get->object_id) + 1;\n      return (0);\n  }\n  static\
+    \ int      cDPInext(next)\n  struct dpi_next_packet *next;\n  {\n      if (next->object_id\
+    \ == 0)\n          return (-1);\n      if (next->group_id == 0)\n          return\
+    \ (-1);\n      strcpy(&new_packet[packet_len], next->object_id);\n      packet_len\
+    \ += strlen(next->object_id) + 1;\n      strcpy(&new_packet[packet_len], next->group_id);\n\
+    \      packet_len += strlen(next->group_id) + 1;\n      return (0);\n  }\n  static\
+    \ int      cDPIset(set)\n  struct dpi_set_packet *set;\n  {\n      int       \
+    \      len;\n      if (set->object_id == 0)\n          return (-1);\n      if\
+    \ ((set->value == 0) && (set->value_len != 0))\n          return (-1);\n     \
+    \ strcpy(&new_packet[packet_len], set->object_id);\n      packet_len += strlen(set->object_id)\
+    \ + 1;\n      new_packet[packet_len++] = set->type;\n      len = set->value_len\
+    \ >> 8;\n      new_packet[packet_len++] = len & 0xff;\n      new_packet[packet_len++]\
+    \ = set->value_len & 0xff;\n      bcopy(set->value, &new_packet[packet_len], set->value_len);\n\
+    \      packet_len += set->value_len;\n      return (0);\n  }\n  static int   \
+    \   cDPIresponse(resp)\n  struct dpi_resp_packet *resp;\n  {\n      int      \
+    \       rc;\n      if (resp == 0)\n          return (-1);\n      new_packet[packet_len++]\
+    \ = resp->ret_code;\n      if (resp->ret_data != 0) {\n          rc = cDPIset(resp->ret_data);\n\
+    \      } else\n          rc = 0;\n      return (rc);\n  }\n  static int      cDPItrap(trap)\n\
+    \  struct dpi_trap_packet *trap;\n  {\n      int             rc;\n      new_packet[packet_len++]\
+    \ = trap->generic;\n      new_packet[packet_len++] = trap->specific;\n      if\
+    \ (trap->info != 0)\n          rc = cDPIset(trap->info);\n      else\n       \
+    \   rc = 0;\n      return (rc);\n  }\n  unsigned char  *mkMIBquery(cmd, oid_name,\
+    \ group_oid, type, len, value)\n  int             cmd;\n  char           *oid_name,\
+    \ *group_oid;\n  int             type, len;\n  char           *value;\n  {\n \
+    \     struct snmp_dpi_hdr *hdr;\n      unsigned char  *cp;\n      hdr = mkDPIhdr(cmd);\n\
+    \      if (hdr == 0)\n          return (0);\n      switch (hdr->packet_type) {\n\
+    \      case SNMP_DPI_GET:\n      case SNMP_DPI_REGISTER:\n          hdr->packet_body.dpi_get\
+    \ = mkDPIget(oid_name);\n          break;\n      case SNMP_DPI_GET_NEXT:\n   \
+    \       hdr->packet_body.dpi_next = mkDPInext(oid_name, group_oid);\n        \
+    \  break;\n      case SNMP_DPI_SET:\n          hdr->packet_body.dpi_set =\n  \
+    \          mkDPIset(oid_name, type, len, value);\n          break;\n      }\n\
+    \      cp = cDPIpacket(hdr);\n      fDPIparse(hdr);\n      return (cp);\n  }\n\
+    \  unsigned char  *mkDPIregister(oid_name)\n  char           *oid_name;\n  {\n\
+    \      return (mkMIBquery(SNMP_DPI_REGISTER, oid_name));\n  }\n  unsigned char\
+    \  *mkDPIresponse(ret_code, value_list)\n  int             ret_code;\n  struct\
+    \ dpi_set_packet *value_list;\n  {\n      struct snmp_dpi_hdr *hdr;\n      struct\
+    \ dpi_resp_packet *resp;\n      unsigned char  *cp;\n      hdr = mkDPIhdr(SNMP_DPI_RESPONSE);\n\
+    \      resp = (struct dpi_resp_packet *)\n        malloc(sizeof(struct dpi_resp_packet));\n\
+    \      if (resp == 0) {\n          free(hdr);\n          return (0);\n      }\n\
+    \      hdr->packet_body.dpi_response = resp;\n      resp->ret_code = ret_code;\n\
+    \      resp->ret_data = value_list;\n      cp = cDPIpacket(hdr);\n      fDPIparse(hdr);\n\
+    \      return (cp);\n  }\n  unsigned char  *mkDPItrap(generic, specific, value_list)\n\
+    \  int             generic, specific;\n  struct dpi_set_packet *value_list;\n\
+    \  {\n      struct snmp_dpi_hdr *hdr;\n      struct dpi_trap_packet *trap;\n \
+    \     unsigned char  *cp;\n      hdr = mkDPIhdr(SNMP_DPI_TRAP);\n      trap =\
+    \ (struct dpi_trap_packet *)\n        malloc(sizeof(struct dpi_trap_packet));\n\
+    \      if (trap == 0) {\n          free(hdr);\n          return (0);\n      }\n\
+    \      hdr->packet_body.dpi_trap = trap;\n      trap->generic = generic;\n   \
+    \   trap->specific = specific;\n      trap->info = value_list;\n      cp = cDPIpacket(hdr);\n\
+    \      fDPIparse(hdr);\n      return (cp);\n  }\n  static struct snmp_dpi_hdr\
+    \ *mkDPIhdr(type)\n  int             type;\n  {\n      struct snmp_dpi_hdr *hdr;\n\
+    \      hdr = (struct snmp_dpi_hdr *) malloc(sizeof(struct snmp_dpi_hdr));\n  \
+    \    if (hdr == 0)\n          return (0);\n      hdr->proto_major = SNMP_DPI_PROTOCOL;\n\
+    \      hdr->proto_minor = SNMP_DPI_VERSION;\n      hdr->proto_release = SNMP_DPI_RELEASE;\n\
+    \      hdr->packet_type = type;\n      return (hdr);\n  }\n  static struct dpi_get_packet\
+    \ *mkDPIget(oid_name)\n  char           *oid_name;\n  {\n      struct dpi_get_packet\
+    \ *get;\n      int             l;\n      get = (struct dpi_get_packet *)\n   \
+    \     malloc(sizeof(struct dpi_get_packet));\n      if (get == 0)\n          return\
+    \ (0);\n      l = strlen(oid_name) + 1;\n      get->object_id = malloc(l);\n \
+    \     strcpy(get->object_id, oid_name);\n      return (get);\n  }\n  static struct\
+    \ dpi_next_packet *mkDPInext(oid_name, group_oid)\n  char           *oid_name;\n\
+    \  char           *group_oid;\n  {\n      struct dpi_next_packet *next;\n    \
+    \  int             l;\n      next = (struct dpi_next_packet *)\n        malloc(sizeof(struct\
+    \ dpi_next_packet));\n      if (next == 0)\n          return (0);\n      l = strlen(oid_name)\
+    \ + 1;\n      next->object_id = malloc(l);\n      strcpy(next->object_id, oid_name);\n\
+    \      l = strlen(group_oid) + 1;\n      next->group_id = malloc(l);\n      strcpy(next->group_id,\
+    \ group_oid);\n      return (next);\n  }\n  struct dpi_set_packet *mkDPIset(oid_name,\
+    \ type, len, value)\n  char           *oid_name;\n  int             type;\n  int\
+    \             len;\n  char           *value;\n  {\n      struct dpi_set_packet\
+    \ *set;\n      int             l;\n      set = (struct dpi_set_packet *)\n   \
+    \     malloc(sizeof(struct dpi_set_packet));\n      if (set == 0)\n          return\
+    \ (0);\n      l = strlen(oid_name) + 1;\n      set->object_id = malloc(l);\n \
+    \     strcpy(set->object_id, oid_name);\n      set->type = type;\n      set->value_len\
+    \ = len;\n      set->value = malloc(len);\n      bcopy(value, set->value, len);\n\
+    \      return (set);\n  }\nSAMPLE SOURCES FOR ANONYMOUS FTP\n   The complete source\
+    \ to two SNMP DPI-related programs is available for\n   anonymous ftp from the\
+    \ University of Toronto.  The host name to use\n   is \"vm.utcs.utoronto.ca\"\
+    \ (128.100.100.2).  The files are in the\n   \"anonymou.204\" minidisk, so one\
+    \ must issue a \"cd anonymou.204\" after\n   having logged in.  Don't forget to\
+    \ use the binary transmission mode.\nThe Ping Engine\n   This program is an SNMP\
+    \ DPI sub-agent which allows network management\n   stations to perform remote\
+    \ PINGs.  The source to this applications is\n   in the file \"ping_eng.tarbin\"\
+    .  The source to the SNMP DPI API is\n   also contained within the archive.\n\
+    The DPI->SMUX daemon\n   This program illustrates what is required to include\
+    \ the SNMP DPI in\n   an SNMP agent.  This is actually a SMUX-based agent that\
+    \ works with\n   the ISODE SNMP agent and provides an interface for SNMP DPI sub-\n\
+    \   agents.  The source to this program is in the file \"dpid.tarbin\".\n   ISODE\
+    \ 6.7, or later, is a prerequisite.\nReferences\n   [1] Case, J., Fedor, M., Schoffstall,\
+    \ M., and J. Davin, \"Simple\n       Network Management Protocol\", RFC 1157,\
+    \ SNMP Research,\n       Performance Systems International, Performance Systems\n\
+    \       International, MIT Laboratory for Computer Science, May 1990.\n   [2]\
+    \ Information processing systems - Open Systems Interconnection,\n       \"Specification\
+    \ of Abstract Syntax Notation One (ASN.1)\",\n       International Organization\
+    \ for Standardization, International\n       Standard 8824, December 1987.\n \
+    \  [3] Information processing systems - Open Systems Interconnection,\n      \
+    \ \"Specification of Basic Encoding Rules for Abstract Syntax\n       Notation\
+    \ One (ASN.1)\", International Organization for\n       Standardization, International\
+    \ Standard 8825, December 1987.\n   [4] McCloghrie K., and M. Rose, \"Management\
+    \ Information Base for\n       Network Management of TCP/IP-based internets\"\
+    , RFC 1156,\n       Performance Systems International and Hughes LAN Systems,\
+    \ May\n       1990.\n   [5] Rose, M., and K. McCloghrie, \"Structure and Identification\
+    \ of\n       Management Information for TCP/IP-based internets\", RFC 1155,\n\
+    \       Performance Systems International and Hughes LAN Systems, May\n      \
+    \ 1990.\n   [6] International Business Machines, Inc., \"TCP/IP for VM:\n    \
+    \   Programmer's Reference\", SC31-6084-0, 1990.\n   [7] International Business\
+    \ Machines, Inc., \"Virtual Machine System\n       Facilities for Programming,\
+    \ Release 6\", SC24-5288-01, 1988.\n   [8] International Business Machines, Inc.,\
+    \ \"TCP/IP Version 1.1 for\n       OS/2 EE:  Programmer's Reference\", SC31-6077-1,\
+    \ 1990.\nSecurity Considerations\n   Security issues are not discussed in this\
+    \ memo.\nAuthors' Addresses\n   Geoffrey C. Carpenter\n   IBM T. J. Watson Research\
+    \ Center\n   P. O. Box 218\n   Yorktown Heights, NY  10598\n   Phone:  (914) 945-1970\n\
+    \   Email:  gcc@watson.ibm.com\n   Bert Wijnen\n   IBM International Operations\n\
+    \   Watsonweg 2\n   1423 ND Uithoorn\n   The Netherlands\n   Phone:  +31-2975-53316\n\
+    \   Email:  wijnen@uitvm2.iinus1.ibm.com\n"

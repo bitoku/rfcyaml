@@ -1,0 +1,659 @@
+- title: __initial_text__
+  contents:
+  - '                    Computing the Internet Checksum
+
+    '
+- title: Status of This Memo
+  contents:
+  - "Status of This Memo\n   This memo summarizes techniques and algorithms for efficiently\n\
+    \   computing the Internet checksum.  It is not a standard, but a set of\n   useful\
+    \ implementation techniques.  Distribution of this memo is\n   unlimited.\n"
+- title: 1.  Introduction
+  contents:
+  - "1.  Introduction\n   This memo discusses methods for efficiently computing the\
+    \ Internet\n   checksum that is used by the standard Internet protocols IP, UDP,\
+    \ and\n   TCP.\n   An efficient checksum implementation is critical to good performance.\n\
+    \   As advances in implementation techniques streamline the rest of the\n   protocol\
+    \ processing, the checksum computation becomes one of the\n   limiting factors\
+    \ on TCP performance, for example.  It is usually\n   appropriate to carefully\
+    \ hand-craft the checksum routine, exploiting\n   every machine-dependent trick\
+    \ possible; a fraction of a microsecond\n   per TCP data byte can add up to a\
+    \ significant CPU time savings\n   overall.\n   In outline, the Internet checksum\
+    \ algorithm is very simple:\n   (1)  Adjacent octets to be checksummed are paired\
+    \ to form 16-bit\n        integers, and the 1's complement sum of these 16-bit\
+    \ integers is\n        formed.\n   (2)  To generate a checksum, the checksum field\
+    \ itself is cleared,\n        the 16-bit 1's complement sum is computed over the\
+    \ octets\n        concerned, and the 1's complement of this sum is placed in the\n\
+    \        checksum field.\n   (3)  To check a checksum, the 1's complement sum\
+    \ is computed over the\n        same set of octets, including the checksum field.\
+    \  If the result\n        is all 1 bits (-0 in 1's complement arithmetic), the\
+    \ check\n        succeeds.\n        Suppose a checksum is to be computed over\
+    \ the sequence of octets\n        A, B, C, D, ... , Y, Z.  Using the notation\
+    \ [a,b] for the 16-bit\n        integer a*256+b, where a and b are bytes, then\
+    \ the 16-bit 1's\n        complement sum of these bytes is given by one of the\
+    \ following:\n            [A,B] +' [C,D] +' ... +' [Y,Z]              [1]\n  \
+    \          [A,B] +' [C,D] +' ... +' [Z,0]              [2]\n        where +' indicates\
+    \ 1's complement addition. These cases\n        correspond to an even or odd count\
+    \ of bytes, respectively.\n        On a 2's complement machine, the 1's complement\
+    \ sum must be\n        computed by means of an \"end around carry\", i.e., any\
+    \ overflows\n        from the most significant bits are added into the least\n\
+    \        significant bits. See the examples below.\n        Section 2 explores\
+    \ the properties of this checksum that may be\n        exploited to speed its\
+    \ calculation.  Section 3 contains some\n        numerical examples of the most\
+    \ important implementation\n        techniques.  Finally, Section 4 includes examples\
+    \ of specific\n        algorithms for a variety of common CPU types.  We are grateful\n\
+    \        to Van Jacobson and Charley Kline for their contribution of\n       \
+    \ algorithms to this section.\n        The properties of the Internet checksum\
+    \ were originally\n        discussed by Bill Plummer in IEN-45, entitled \"Checksum\
+    \ Function\n        Design\".  Since IEN-45 has not been widely available, we\
+    \ include\n        it as an extended appendix to this RFC.\n     2.  Calculating\
+    \ the Checksum\n        This simple checksum has a number of wonderful mathematical\n\
+    \        properties that may be exploited to speed its calculation, as we\n  \
+    \      will now discuss.\n   (A)  Commutative and Associative\n        As long\
+    \ as the even/odd assignment of bytes is respected, the\n        sum can be done\
+    \ in any order, and it can be arbitrarily split\n        into groups.\n      \
+    \  For example, the sum [1] could be split into:\n           ( [A,B] +' [C,D]\
+    \ +' ... +' [J,0] )\n                  +' ( [0,K] +' ... +' [Y,Z] )          \
+    \     [3]\n   (B)  Byte Order Independence\n        The sum of 16-bit integers\
+    \ can be computed in either byte order.\n        Thus, if we calculate the swapped\
+    \ sum:\n           [B,A] +' [D,C] +' ... +' [Z,Y]                   [4]\n    \
+    \    the result is the same as [1], except the bytes are swapped in\n        the\
+    \ sum! To see why this is so, observe that in both orders the\n        carries\
+    \ are the same: from bit 15 to bit 0 and from bit 7 to bit\n        8.  In other\
+    \ words, consistently swapping bytes simply rotates\n        the bits within the\
+    \ sum, but does not affect their internal\n        ordering.\n        Therefore,\
+    \ the sum may be calculated in exactly the same way\n        regardless of the\
+    \ byte order (\"big-endian\" or \"little-endian\")\n        of the underlaying\
+    \ hardware.  For example, assume a \"little-\n        endian\" machine summing\
+    \ data that is stored in memory in network\n        (\"big-endian\") order.  Fetching\
+    \ each 16-bit word will swap\n        bytes, resulting in the sum [4]; however,\
+    \ storing the result\n        back into memory will swap the sum back into network\
+    \ byte order.\n        Byte swapping may also be used explicitly to handle boundary\n\
+    \        alignment problems.  For example, the second group in [3] can be\n  \
+    \      calculated without concern to its odd/even origin, as:\n              [K,L]\
+    \ +' ... +' [Z,0]\n        if this sum is byte-swapped before it is added to the\
+    \ first\n        group.  See the example below.\n   (C)  Parallel Summation\n\
+    \        On machines that have word-sizes that are multiples of 16 bits,\n   \
+    \     it is possible to develop even more efficient implementations.\n       \
+    \ Because addition is associative, we do not have to sum the\n        integers\
+    \ in the order they appear in the message.  Instead we\n        can add them in\
+    \ \"parallel\" by exploiting the larger word size.\n        To compute the checksum\
+    \ in parallel, simply do a 1's complement\n        addition of the message using\
+    \ the native word size of the\n        machine.  For example, on a 32-bit machine\
+    \ we can add 4 bytes at\n        a time: [A,B,C,D]+'... When the sum has been\
+    \ computed, we \"fold\"\n        the long sum into 16 bits by adding the 16-bit\
+    \ segments.  Each\n        16-bit addition may produce new end-around carries\
+    \ that must be\n        added.\n        Furthermore, again the byte order does\
+    \ not matter; we could\n        instead sum 32-bit words: [D,C,B,A]+'... or [B,A,D,C]+'...\
+    \ and\n        then swap the bytes of the final 16-bit sum as necessary.  See\n\
+    \        the examples below.  Any permutation is allowed that collects\n     \
+    \   all the even-numbered data bytes into one sum byte and the odd-\n        numbered\
+    \ data bytes into the other sum byte.\n   There are further coding techniques\
+    \ that can be exploited to speed up\n   the checksum calculation.\n   (1)  Deferred\
+    \ Carries\n        Depending upon the machine, it may be more efficient to defer\n\
+    \        adding end-around carries until the main summation loop is\n        finished.\n\
+    \        One approach is to sum 16-bit words in a 32-bit accumulator, so\n   \
+    \     the overflows build up in the high-order 16 bits.  This approach\n     \
+    \   typically avoids a carry-sensing instruction but requires twice\n        as\
+    \ many additions as would adding 32-bit segments; which is\n        faster depends\
+    \ upon the detailed hardware architecture.\n   (2)  Unwinding Loops\n        To\
+    \ reduce the loop overhead, it is often useful to \"unwind\" the\n        inner\
+    \ sum loop, replicating a series of addition commands within\n        one loop\
+    \ traversal.  This technique often provides significant\n        savings, although\
+    \ it may complicate the logic of the program\n        considerably.\n   (3)  Combine\
+    \ with Data Copying\n        Like checksumming, copying data from one memory location\
+    \ to\n        another involves per-byte overhead.  In both cases, the\n      \
+    \  bottleneck is essentially the memory bus, i.e., how fast the\n        data\
+    \ can be fetched. On some machines (especially relatively\n        slow and simple\
+    \ micro-computers), overhead can be significantly\n        reduced by combining\
+    \ memory-to-memory copy and the checksumming,\n        fetching the data only\
+    \ once for both.\n   (4)  Incremental Update\n        Finally, one can sometimes\
+    \ avoid recomputing the entire checksum\n        when one header field is updated.\
+    \  The best-known example is a\n        gateway changing the TTL field in the\
+    \ IP header, but there are\n        other examples (for example, when updating\
+    \ a source route).  In\n        these cases it is possible to update the checksum\
+    \ without\n        scanning the message or datagram.\n        To update the checksum,\
+    \ simply add the differences of the\n        sixteen bit integers that have been\
+    \ changed.  To see why this\n        works, observe that every 16-bit integer\
+    \ has an additive inverse\n        and that addition is associative.  From this\
+    \ it follows that\n        given the original value m, the new value m', and the\
+    \ old\n        checksum C, the new checksum C' is:\n                C' = C + (-m)\
+    \ + m' = C + (m' - m)\n"
+- title: 3. Numerical Examples
+  contents:
+  - "3. Numerical Examples\n   We now present explicit examples of calculating a simple\
+    \ 1's\n   complement sum on a 2's complement machine.  The examples show the\n\
+    \   same sum calculated byte by bye, by 16-bits words in normal and\n   swapped\
+    \ order, and 32 bits at a time in 3 different orders.  All\n   numbers are in\
+    \ hex.\n                  Byte-by-byte    \"Normal\"  Swapped\n              \
+    \                      Order    Order\n        Byte 0/1:    00   01        0001\
+    \      0100\n        Byte 2/3:    f2   03        f203      03f2\n        Byte\
+    \ 4/5:    f4   f5        f4f5      f5f4\n        Byte 6/7:    f6   f7        f6f7\
+    \      f7f6\n                    ---  ---       -----     -----\n        Sum1:\
+    \       2dc  1f0       2ddf0     1f2dc\n                     dc   f0        ddf0\
+    \      f2dc\n        Carrys:       1    2           2         1\n            \
+    \         --   --        ----      ----\n        Sum2:        dd   f2        ddf2\
+    \      f2dd\n        Final Swap:  dd   f2        ddf2      ddf2\n        Byte\
+    \ 0/1/2/3:  0001f203     010003f2       03f20100\n        Byte 4/5/6/7:  f4f5f6f7\
+    \     f5f4f7f6       f7f6f5f4\n                       --------     --------  \
+    \     --------\n        Sum1:         0f4f7e8fa    0f6f4fbe8      0fbe8f6f4\n\
+    \        Carries:              0            0              0\n        Top half:\
+    \          f4f7         f6f4           fbe8\n        Bottom half:       e8fa \
+    \        fbe8           f6f4\n                          -----        -----   \
+    \       -----\n        Sum2:             1ddf1        1f2dc          1f2dc\n \
+    \                          ddf1         f2dc           f2dc\n        Carrys: \
+    \              1            1              1\n                           ----\
+    \         ----           ----\n        Sum3:              ddf2         f2dd  \
+    \         f2dd\n        Final Swap:        ddf2         ddf2           ddf2\n\
+    \   Finally, here an example of breaking the sum into two groups, with\n   the\
+    \ second group starting on a odd boundary:\n                   Byte-by-byte  \
+    \  Normal\n                                    Order\n        Byte 0/1:    00\
+    \   01        0001\n        Byte 2/ :    f2  (00)       f200\n               \
+    \     ---  ---       -----\n        Sum1:        f2   01        f201\n       \
+    \ Byte 4/5:    03   f4        03f4\n        Byte 6/7:    f5   f6        f5f6\n\
+    \        Byte 8/:     f7  (00)       f700\n                    ---  ---      \
+    \ -----\n        Sum2:                      1f0ea\n        Sum2:             \
+    \          f0ea\n        Carry:                         1\n                  \
+    \                 -----\n        Sum3:                       f0eb\n        Sum1:\
+    \                       f201\n        Sum3 byte swapped:          ebf0\n     \
+    \                              -----\n        Sum4:                      1ddf1\n\
+    \        Sum4:                       ddf1\n        Carry:                    \
+    \     1\n                                   -----\n        Sum5:             \
+    \          ddf2\n"
+- title: 4.  Implementation Examples
+  contents:
+  - "4.  Implementation Examples\n   In this section we show examples of Internet\
+    \ checksum implementation\n   algorithms that have been found to be efficient\
+    \ on a variety of\n   CPU's.  In each case, we show the core of the algorithm,\
+    \ without\n   including environmental code (e.g., subroutine linkages) or special-\n\
+    \   case code.\n"
+- title: 4.1  "C"
+  contents:
+  - "4.1  \"C\"\n   The following \"C\" code algorithm computes the checksum with\
+    \ an inner\n   loop that sums 16-bits at a time in a 32-bit accumulator.\n   in\
+    \ 6\n       {\n           /* Compute Internet Checksum for \"count\" bytes\n \
+    \           *         beginning at location \"addr\".\n            */\n      \
+    \ register long sum = 0;\n        while( count > 1 )  {\n           /*  This is\
+    \ the inner loop */\n               sum += * (unsigned short) addr++;\n      \
+    \         count -= 2;\n       }\n           /*  Add left-over byte, if any */\n\
+    \       if( count > 0 )\n               sum += * (unsigned char *) addr;\n   \
+    \        /*  Fold 32-bit sum to 16 bits */\n       while (sum>>16)\n         \
+    \  sum = (sum & 0xffff) + (sum >> 16);\n       checksum = ~sum;\n   }\n"
+- title: 4.2  Motorola 68020
+  contents:
+  - "4.2  Motorola 68020\n   The following algorithm is given in assembler language\
+    \ for a Motorola\n   68020 chip.  This algorithm performs the sum 32 bits at a\
+    \ time, and\n   unrolls the loop with 16 replications.  For clarity, we have omitted\n\
+    \   the logic to add the last fullword when the length is not a multiple\n   of\
+    \ 4.  The result is left in register d0.\n   With a 20MHz clock, this routine\
+    \ was measured at 134 usec/kB summing\n   random data.  This algorithm was developed\
+    \ by Van Jacobson.\n       movl    d1,d2\n       lsrl    #6,d1       | count/64\
+    \ = # loop traversals\n       andl    #0x3c,d2    | Then find fractions of a chunk\n\
+    \       negl    d2\n       andb    #0xf,cc     | Clear X (extended carry flag)\n\
+    \       jmp     pc@(2$-.-2:b,d2)  | Jump into loop\n   1$:     | Begin inner loop...\n\
+    \       movl    a0@+,d2     |  Fetch 32-bit word\n       addxl   d2,d0       |\
+    \    Add word + previous carry\n       movl    a0@+,d2     |  Fetch 32-bit word\n\
+    \       addxl   d2,d0       |    Add word + previous carry\n           | ... 14\
+    \ more replications\n   2$:\n       dbra    d1,1$   | (NB- dbra doesn't affect\
+    \ X)\n       movl    d0,d1   | Fold 32 bit sum to 16 bits\n       swap    d1 \
+    \     | (NB- swap doesn't affect X)\n       addxw   d1,d0\n       jcc     3$\n\
+    \       addw    #1,d0\n   3$:\n       andl    #0xffff,d0\n"
+- title: 4.3  Cray
+  contents:
+  - "4.3  Cray\n   The following example, in assembler language for a Cray CPU, was\n\
+    \   contributed by Charley Kline.  It implements the checksum calculation\n  \
+    \ as a vector operation, summing up to 512 bytes at a time with a basic\n   summation\
+    \ unit of 32 bits.  This example omits many details having to\n   do with short\
+    \ blocks, for clarity.\n   Register A1 holds the address of a 512-byte block of\
+    \ memory to\n   checksum.  First two copies of the data are loaded into two vector\n\
+    \   registers.  One is vector-shifted right 32 bits, while the other is\n   vector-ANDed\
+    \ with a 32 bit mask. Then the two vectors are added\n   together.  Since all\
+    \ these operations chain, it produces one result\n   per clock cycle.  Then it\
+    \ collapses the result vector in a loop that\n   adds each element to a scalar\
+    \ register.  Finally, the end-around\n   carry is performed and the result is\
+    \ folded to 16-bits.\n         EBM\n         A0      A1\n         VL      64 \
+    \           use full vectors\n         S1      <32           form 32-bit mask\
+    \ from the right.\n         A2      32\n         V1      ,A0,1            load\
+    \ packet into V1\n         V2      S1&V1            Form right-hand 32-bits in\
+    \ V2.\n         V3      V1>A2            Form left-hand 32-bits in V3.\n     \
+    \    V1      V2+V3            Add the two together.\n         A2      63     \
+    \       Prepare to collapse into a scalar.\n         S1      0\n         S4  \
+    \    <16           Form 16-bit mask from the right.\n         A4      16\n   CK$LOOP\
+    \ S2    V1,A2\n         A2      A2-1\n         A0      A2\n         S1      S1+S2\n\
+    \         JAN     CK$LOOP\n         S2      S1&S4           Form right-hand 16-bits\
+    \ in S2\n         S1      S1>A4           Form left-hand 16-bits in S1\n     \
+    \    S1      S1+S2\n         S2      S1&S4           Form right-hand 16-bits in\
+    \ S2\n         S1      S1>A4           Form left-hand 16-bits in S1\n        \
+    \ S1      S1+S2\n         S1      #S1            Take one's complement\n     \
+    \    CMR            At this point, S1 contains the checksum.\n"
+- title: 4.4  IBM 370
+  contents:
+  - "4.4  IBM 370\n   The following example, in assembler language for an IBM 370\
+    \ CPU, sums\n   the data 4 bytes at a time.  For clarity, we have omitted the\
+    \ logic\n   to add the last fullword when the length is not a multiple of 4, and\n\
+    \   to reverse the bytes when necessary.  The result is left in register\n   RCARRY.\n\
+    \   This code has been timed on an IBM 3090 CPU at 27 usec/KB when\n   summing\
+    \ all one bits.  This time is reduced to 24.3 usec/KB if the\n   trouble is taken\
+    \ to word-align the addends (requiring special cases\n   at both the beginning\
+    \ and the end, and byte-swapping when necessary\n   to compensate for starting\
+    \ on an odd byte).\n   *      Registers RADDR and RCOUNT contain the address and\
+    \ length of\n   *              the block to be checksummed.\n   *\n   *      (RCARRY,\
+    \ RSUM) must be an even/odd register pair.\n   *      (RCOUNT, RMOD) must be an\
+    \ even/odd register pair.\n   *\n   CHECKSUM  SR    RSUM,RSUM       Clear working\
+    \ registers.\n             SR    RCARRY,RCARRY\n             LA    RONE,1    \
+    \      Set up constant 1.\n   *\n             SRDA  RCOUNT,6        Count/64 to\
+    \ RCOUNT.\n             AR    RCOUNT,RONE       +1 = # times in loop.\n      \
+    \       SRL   RMOD,26         Size of partial chunk to RMOD.\n             AR\
+    \    RADDR,R3        Adjust addr to compensate for\n             S     RADDR,=F(64)\
+    \      jumping into the loop.\n             SRL   RMOD,1          (RMOD/4)*2 is\
+    \ halfword index.\n             LH    RMOD,DOPEVEC9(RMOD) Use magic dope-vector\
+    \ for offset,\n             B     LOOP(RMOD)          and jump into the loop...\n\
+    \   *\n   *             Inner loop:\n   *\n   LOOP      AL    RSUM,0(,RADDR) \
+    \  Add Logical fullword\n             BC    12,*+6             Branch if no carry\n\
+    \             AR    RCARRY,RONE        Add 1 end-around\n             AL    RSUM,4(,RADDR)\
+    \   Add Logical fullword\n             BC    12,*+6             Branch if no carry\n\
+    \             AR    RCARRY,RONE        Add 1 end-around\n   *\n   *          \
+    \          ... 14 more replications ...\n   *\n             A     RADDR,=F'64'\
+    \    Increment address ptr\n             BCT   RCOUNT,LOOP     Branch on Count\n\
+    \    *\n    *            Add Carries into sum, and fold to 16 bits\n    *\n  \
+    \           ALR   RCARRY,RSUM      Add SUM and CARRY words\n             BC  \
+    \  12,*+6              and take care of carry\n             AR    RCARRY,RONE\n\
+    \             SRDL  RCARRY,16        Fold 32-bit sum into\n             SRL  \
+    \ RSUM,16            16-bits\n             ALR   RCARRY,RSUM\n             C \
+    \    RCARRY,=X'0000FFFF' and take care of any\n             BNH   DONE       \
+    \              last carry\n             S     RCARRY,=X'0000FFFF'\n   DONE   \
+    \   X     RCARRY,=X'0000FFFF' 1's complement\n     IEN 45\n     Section 2.4.4.5\n\
+    \                       TCP Checksum Function Design\n                       \
+    \     William W. Plummer\n                       Bolt Beranek and Newman, Inc.\n\
+    \                             50 Moulton Street\n                           Cambridge\
+    \ MA   02138\n                                5 June 1978\n     Internet Experiment\
+    \ Note  45                          5 June 1978\n     TCP Checksum Function Design\
+    \                   William W. Plummer\n     1.      Introduction\n     Checksums\
+    \  are  included  in  packets  in   order   that   errors\n     encountered  during\
+    \  transmission  may be detected.  For Internet\n     protocols such as TCP [1,9]\
+    \ this is especially important  because\n     packets  may  have  to cross wireless\
+    \ networks such as the Packet\n     Radio Network  [2]  and  Atlantic  Satellite\
+    \  Network  [3]  where\n     packets  may  be  corrupted.  Internet protocols\
+    \ (e.g., those for\n     real time speech transmission) can tolerate a  certain\
+    \  level  of\n     transmission  errors  and  forward error correction techniques\
+    \ or\n     possibly no checksum at all might be better.  The focus  in  this\n\
+    \     paper  is  on  checksum functions for protocols such as TCP where\n    \
+    \ the required reliable delivery is achieved by retransmission.\n     Even if\
+    \ the checksum appears good on a  message  which  has  been\n     received, the\
+    \ message may still contain an undetected error.  The\n     probability of this\
+    \ is bounded by 2**(-C) where  C  is the number\n     of  checksum bits.  Errors\
+    \ can arise from hardware (and software)\n     malfunctions as well as transmission\
+    \  errors.   Hardware  induced\n     errors  are  usually manifested in certain\
+    \ well known ways and it\n     is desirable to account for this in the design\
+    \  of  the  checksum\n     function.  Ideally no error of the \"common hardware\
+    \ failure\" type\n     would go undetected.\n     An  example  of  a  failure\
+    \  that  the  current checksum function\n     handles successfully is picking\
+    \ up a bit in the network interface\n     (or I/O buss, memory channel, etc.).\
+    \  This will always render the\n     checksum bad.  For an example of  how  the\
+    \  current  function  is\n     inadequate, assume that a control signal stops\
+    \ functioning in the\n     network  interface and the interface stores zeros in\
+    \ place of the\n     real data.  These  \"all  zero\"  messages  appear  to  have\
+    \  valid\n     checksums.   Noise  on the \"There's Your Bit\" line of the ARPANET\n\
+    \     Interface [4] may go undetected because the extra bits input  may\n    \
+    \ cause  the  checksum  to be perturbed (i.e., shifted) in the same\n     way\
+    \ as the data was.\n     Although messages containing undetected errors will \
+    \ occasionally\n     be  passed  to  higher levels of protocol, it is likely that\
+    \ they\n     will not make sense at that level.  In the case of TCP most  such\n\
+    \     messages will be ignored, but some could cause a connection to be\n    \
+    \ aborted.   Garbled  data could be viewed as a problem for a layer\n     of protocol\
+    \ above TCP which itself may have a checksuming scheme.\n     This paper is the\
+    \ first step in design of a new checksum function\n     for TCP  and  some  other\
+    \  Internet  protocols.   Several  useful\n     properties  of  the current function\
+    \ are identified.  If possible\n                                   - 1 -\n   \
+    \  Internet Experiment Note  45                          5 June 1978\n     TCP\
+    \ Checksum Function Design                   William W. Plummer\n     these should\
+    \ be retained  in  any  new  function.   A  number  of\n     plausible  checksum\
+    \  schemes are investigated.  Of these only the\n     \"product code\" seems to\
+    \ be simple enough for consideration.\n     2.      The Current TCP Checksum Function\n\
+    \     The current function is  oriented  towards  sixteen-bit  machines\n    \
+    \ such  as  the PDP-11 but can be computed easily on other machines\n     (e.g.,\
+    \ PDP-10).  A packet is thought of as  a  string  of  16-bit\n     bytes  and\
+    \ the checksum function is the one's complement sum (add\n     with  end-around\
+    \  carry)  of  those  bytes.   It  is  the   one's\n     complement  of  this\
+    \ sum which is stored in the checksum field of\n     the TCP header.  Before computing\
+    \ the checksum value, the  sender\n     places  a  zero  in  the  checksum  field\
+    \  of the packet.  If the\n     checksum value computed by a receiver of the packet\
+    \ is zero,  the\n     packet  is  assumed  to  be  valid.  This is a consequence\
+    \ of the\n     \"negative\" number in the checksum field  exactly  cancelling\
+    \  the\n     contribution of the rest of the packet.\n     Ignoring  the  difficulty\
+    \  of  actually  evaluating  the checksum\n     function for a given  packet,\
+    \  the  way  of  using  the  checksum\n     described  above  is quite simple,\
+    \ but it assumes some properties\n     of the checksum operator (one's complement\
+    \ addition, \"+\" in  what\n     follows):\n       (P1)    +  is commutative.\
+    \  Thus, the  order  in  which\n             the   16-bit   bytes   are  \"added\"\
+    \  together  is\n             unimportant.\n       (P2)    +  has  at  least \
+    \ one  identity  element  (The\n             current  function  has  two:  +0\
+    \  and  -0).  This\n             allows  the  sender  to  compute   the   checksum\n\
+    \             function by placing a zero in the packet checksum\n            \
+    \ field before computing the value.\n       (P3)    +  has an  inverse.   Thus,\
+    \  the  receiver  may\n             evaluate the checksum function and expect\
+    \ a zero.\n       (P4)    +  is associative, allowing the checksum  field\n  \
+    \           to be anywhere in the packet and the 16-bit bytes\n             to\
+    \ be scanned sequentially.\n     Mathematically, these properties of the binary\
+    \ operation \"+\" over\n     the set of 16-bit numbers forms an Abelian group\
+    \ [5].  Of course,\n     there  are  many Abelian groups but not all would be\
+    \ satisfactory\n     for  use  as  checksum  operators.   (Another  operator \
+    \  readily\n                                   - 2 -\n     Internet Experiment\
+    \ Note  45                          5 June 1978\n     TCP Checksum Function Design\
+    \                   William W. Plummer\n     available  in  the  PDP-11  instruction\
+    \ set that has all of these\n     properties is exclusive-OR, but XOR is unsatisfactory\
+    \  for  other\n     reasons.)\n     Albeit imprecise, another property which must\
+    \ be preserved in any\n     future checksum scheme is:\n       (P5)    +  is fast\
+    \ to compute on a variety of  machines\n             with limited storage requirements.\n\
+    \     The  current  function  is  quite  good  in this respect.  On the\n    \
+    \ PDP-11 the inner loop looks like:\n             LOOP:   ADD (R1)+,R0    ; Add\
+    \ the next 16-bit byte\n                     ADC R0          ; Make carry be end-around\n\
+    \                     SOB R2,LOOP     ; Loop over entire packet.\n           \
+    \   ( 4 memory cycles per 16-bit byte )\n     On the PDP-10 properties  P1-4 \
+    \ are  exploited  further  and  two\n     16-bit bytes per loop are processed:\n\
+    \     LOOP: ILDB THIS,PTR   ; Get 2 16-bit bytes\n           ADD SUM,THIS    ;\
+    \ Add into current sum\n           JUMPGE SUM,CHKSU2  ; Jump if fewer than 8 carries\n\
+    \           LDB THIS,[POINT 20,SUM,19] ; Get left 16 and carries\n           ANDI\
+    \ SUM,177777 ; Save just low 16 here\n           ADD SUM,THIS    ; Fold in carries\n\
+    \     CHKSU2: SOJG COUNT,LOOP ; Loop over entire packet\n     ( 3.1 memory cycles\
+    \ per 16-bit byte )\n     The  \"extra\"  instruction  in  the  loops  above \
+    \ are required to\n     convert the two's complement  ADD  instruction(s)  into\
+    \  a  one's\n     complement  add  by  making  the  carries  be  end-around. \
+    \ One's\n     complement arithmetic is better than two's complement because  it\n\
+    \     is  equally  sensitive  to errors in all bit positions.  If two's\n    \
+    \ complement addition were used, an even number  of  1's  could  be\n     dropped\
+    \  (or  picked  up)  in  the  most  significant bit channel\n     without affecting\
+    \ the value of the checksum.   It  is  just  this\n     property  that makes some\
+    \ sort of addition preferable to a simple\n     exclusive-OR which is frequently\
+    \ used but permits an even  number\n     of drops (pick ups) in any bit channel.\
+    \  RIM10B paper tape format\n     used  on PDP-10s [10] uses two's complement\
+    \ add because space for\n     the loader program is extremely limited.\n     \
+    \                              - 3 -\n     Internet Experiment Note  45      \
+    \                    5 June 1978\n     TCP Checksum Function Design          \
+    \         William W. Plummer\n     Another property of the current checksum scheme\
+    \ is:\n       (P6)    Adding the checksum to a packet does not change\n      \
+    \       the information bytes.  Peterson [6] calls this a\n             \"systematic\"\
+    \ code.\n     This property  allows  intermediate  computers  such  as  gateway\n\
+    \     machines  to  act  on  fields  (i.e.,  the  Internet  Destination\n    \
+    \ Address) without having to first  decode  the  packet.   Cyclical\n     Redundancy\
+    \  Checks  used  for error correction are not systematic\n     either.  However,\
+    \ most applications of  CRCs  tend  to  emphasize\n     error  detection rather\
+    \ than correction and consequently can send\n     the message unchanged, with\
+    \ the CRC check bits being appended  to\n     the  end.   The  24-bit CRC used\
+    \ by ARPANET IMPs and Very Distant\n     Host Interfaces [4] and the ANSI standards\
+    \ for 800 and 6250  bits\n     per inch magnetic tapes (described in [11]) use\
+    \ this mode.\n     Note  that  the  operation  of higher level protocols are not\
+    \ (by\n     design) affected by anything that may be done by a gateway acting\n\
+    \     on possibly invalid packets.  It is permissible for  gateways  to\n    \
+    \ validate  the  checksum  on  incoming  packets,  but  in  general\n     gateways\
+    \ will not know how to  do  this  if  the  checksum  is  a\n     protocol-specific\
+    \ feature.\n     A final property of the current checksum scheme which is actually\n\
+    \     a consequence of P1 and P4 is:\n       (P7)    The checksum may be incrementally\
+    \ modified.\n     This  property permits an intermediate gateway to add information\n\
+    \     to a packet, for instance a timestamp, and \"add\"  an  appropriate\n  \
+    \   change  to  the  checksum  field  of  the  packet.  Note that the\n     checksum\
+    \  will  still  be  end-to-end  since  it  was  not  fully\n     recomputed.\n\
+    \     3.      Product Codes\n     Certain  \"product  codes\"  are potentially\
+    \ useful for checksuming\n     purposes.  The following is a brief description\
+    \ of product  codes\n     in  the  context  of TCP.  More general treatment can\
+    \ be found in\n     Avizienis [7] and probably other more recent works.\n    \
+    \ The basic concept of this coding is that the message (packet)  to\n     be sent\
+    \ is formed by transforming the original source message and\n     adding  some\
+    \  \"check\"  bits.   By  reading  this  and  applying a\n     (possibly different)\
+    \ transformation, a receiver  can  reconstruct\n                             \
+    \      - 4 -\n     Internet Experiment Note  45                          5 June\
+    \ 1978\n     TCP Checksum Function Design                   William W. Plummer\n\
+    \     the  original  message  and  determine  if  it has been corrupted\n    \
+    \ during transmission.\n              Mo              Ms              Mr\n   \
+    \          -----           -----           -----\n             | A |  code   \
+    \  | 7 |   decode  | A |\n             | B |    ==>    | 1 |     ==>   | B |\n\
+    \             | C |           | 4 |           | C |\n             -----      \
+    \     |...|           -----\n                             | 2 | check     plus\
+    \ \"valid\" flag\n                             ----- info\n             Original\
+    \        Sent            Reconstructed\n     With product codes the transformation\
+    \ is  Ms = K * Mo .  That is,\n     the message sent is simply the product of\
+    \  the  original  message\n     Mo   and  some  well known constant  K .  To decode,\
+    \ the received\n     Ms  is divided by  K  which will yield  Mr  as the  quotient\
+    \  and\n     0   as the remainder if  Mr is to be considered the same as  Mo .\n\
+    \     The first problem is selecting a \"good\" value for  K, the  \"check\n \
+    \    factor\".   K  must  be  relatively  prime  to  the base chosen to\n    \
+    \ express  the  message.   (Example:  Binary   messages   with    K\n     incorrectly\
+    \  chosen  to be 8.  This means that  Ms  looks exactly\n     like  Mo  except\
+    \ that three zeros have been appended.   The  only\n     way  the message could\
+    \ look bad to a receiver dividing by 8 is if\n     the error occurred in one of\
+    \ those three bits.)\n     For TCP the base  R  will be chosen to be 2**16.  That\
+    \ is,  every\n     16-bit byte (word on the PDP-11) will be considered as a digit\
+    \ of\n     a big number and that number is the message.  Thus,\n             \
+    \        Mo =  SIGMA [ Bi * (R**i)]   ,   Bi is i-th byte\n                  \
+    \        i=0 to N\n                     Ms = K * Mo\n     Corrupting a single\
+    \ digit  of   Ms   will  yield   Ms' =  Ms +or-\n     C*(R**j)  for some radix\
+    \ position  j .  The receiver will compute\n     Ms'/K = Mo +or- C(R**j)/K. Since\
+    \ R  and  K  are relatively prime,\n     C*(R**j) cannot be any exact  multiple\
+    \  of   K.   Therefore,  the\n     division will result in a non-zero remainder\
+    \ which indicates that\n     Ms'   is  a  corrupted  version  of  Ms.  As will\
+    \ be seen, a good\n     choice for  K  is (R**b - 1), for some  b  which  is \
+    \ the  \"check\n     length\"  which  controls  the  degree  of detection to be\
+    \ had for\n                                   - 5 -\n     Internet Experiment\
+    \ Note  45                          5 June 1978\n     TCP Checksum Function Design\
+    \                   William W. Plummer\n     burst errors which affect a string\
+    \ of digits (i.e., 16-bit bytes)\n     in the message.  In fact  b  will be chosen\
+    \ to be  1, so  K  will\n     be  2**16 - 1 so that arithmetic operations will\
+    \ be simple.  This\n     means  that  all  bursts  of  15  or fewer bits will\
+    \ be detected.\n     According to [7] this choice for  b   results  in  the  following\n\
+    \     expression for the fraction of undetected weight 2 errors:\n      f =  16(k-1)/[32(16k-3)\
+    \ + (6/k)]  where k is the message length.\n     For  large messages  f  approaches\
+    \  3.125 per cent as  k  goes to\n     infinity.\n     Multiple precision multiplication\
+    \ and division are normally quite\n     complex operations, especially on small\
+    \ machines which  typically\n     lack  even  single precision multiply and divide\
+    \ operations.  The\n     exception to this is exactly the case being dealt  with\
+    \  here  --\n     the  factor  is  2**16  - 1  on machines with a word length\
+    \ of 16\n     bits.  The reason for this is due to the following identity:\n \
+    \            Q*(R**j)  =  Q, mod (R-1)     0 <= Q < R\n     That is, any digit\
+    \  Q  in the selected  radix  (0,  1,  ...  R-1)\n     multiplied  by any power\
+    \ of the radix will have a remainder of  Q\n     when divided by the radix minus\
+    \ 1.\n     Example:  In decimal R = 10.  Pick  Q = 6.\n                     6\
+    \  =   0 * 9  +  6  =  6, mod 9\n                    60  =   6 * 9  +  6  =  6,\
+    \ mod 9\n                   600  =  66 * 9  +  6  =  6, mod 9   etc.\n       \
+    \ More to the point, rem(31415/9) = rem((30000+1000+400+10+5)/9)\n           =\
+    \ (3 mod 9) + (1 mod 9) + (4 mod 9) + (1 mod 9) + (5 mod 9)\n           = (3+1+4+1+5)\
+    \ mod 9\n           = 14 mod 9\n           = 5\n     So, the remainder of a number\
+    \ divided by the radix minus one  can\n     be  found  by simply summing the digits\
+    \ of the number.  Since the\n     radix in the TCP case has been chosen to be\
+    \  2**16 and the  check\n     factor is  2**16 - 1, a message can quickly be checked\
+    \ by summing\n     all  of  the  16-bit  words  (on  a  PDP-11),  with carries\
+    \ being\n     end-around.  If zero is the result, the message can be considered\n\
+    \     valid.  Thus, checking a product coded  message  is  exactly  the\n    \
+    \ same complexity as with the current TCP checksum!\n                        \
+    \           - 6 -\n     Internet Experiment Note  45                         \
+    \ 5 June 1978\n     TCP Checksum Function Design                   William W.\
+    \ Plummer\n     In  order  to  form   Ms,  the  sender must multiply the multiple\n\
+    \     precision \"number\"  Mo  by  2**16 - 1.  Or,  Ms = (2**16)Mo - Mo.\n  \
+    \   This is performed by shifting  Mo   one  whole  word's  worth  of\n     precision\
+    \  and  subtracting   Mo.   Since  carries must propagate\n     between digits,\
+    \ but it is only the  current  digit  which  is  of\n     interest, one's complement\
+    \ arithmetic is used.\n             (2**16)Mo =  Mo0 + Mo1 + Mo2 + ... + MoX +\
+    \  0\n                 -  Mo =    - ( Mo0 + Mo1 + ......... + MoX)\n         \
+    \    ---------    ----------------------------------\n                Ms     =\
+    \  Ms0 + Ms1 + ...             - MoX\n     A  loop  which  implements  this  function\
+    \ on a PDP-11 might look\n     like:\n             LOOP:   MOV -2(R2),R0   ; Next\
+    \ byte of (2**16)Mo\n                     SBC R0          ; Propagate carries\
+    \ from last SUB\n                     SUB (R2)+,R0    ; Subtract byte of  Mo\n\
+    \                     MOV R0,(R3)+    ; Store in Ms\n                     SOB\
+    \ R1,LOOP     ; Loop over entire message\n                                   \
+    \  ; 8 memory cycles per 16-bit byte\n     Note that the coding procedure is not\
+    \ done in-place since  it  is\n     not  systematic.   In general the original\
+    \ copy, Mo, will have to\n     be  retained  by  the  sender  for  retransmission\
+    \  purposes  and\n     therefore  must  remain  readable.   Thus  the  MOV  R0,(R3)+\
+    \  is\n     required which accounts for 2 of the  8  memory cycles per  loop.\n\
+    \     The  coding  procedure  will  add  exactly one 16-bit word to the\n    \
+    \ message since  Ms <  (2**16)Mo .  This additional 16 bits will be\n     at the\
+    \ tail of the message, but may be  moved  into  the  defined\n     location  in\
+    \ the TCP header immediately before transmission.  The\n     receiver will have\
+    \ to undo this to put  Ms   back  into  standard\n     format before decoding\
+    \ the message.\n     The  code  in  the receiver for fully decoding the message\
+    \ may be\n     inferred  by  observing  that  any  word  in   Ms   contains  the\n\
+    \     difference between two successive words of  Mo  minus the carries\n    \
+    \ from the previous word, and the low order word contains minus the\n     low\
+    \ word of Mo.  So the low order (i.e., rightmost) word of Mr is\n     just  the\
+    \ negative of the low order byte of Ms.  The next word of\n     Mr is the next\
+    \ word of  Ms  plus the just computed  word  of   Mr\n     plus the carry from\
+    \ that previous computation.\n     A  slight  refinement  of  the  procedure is\
+    \ required in order to\n     protect against an all-zero message passing to  the\
+    \  destination.\n     This  will  appear to have a valid checksum because Ms'/K\
+    \  =  0/K\n                                   - 7 -\n     Internet Experiment\
+    \ Note  45                          5 June 1978\n     TCP Checksum Function Design\
+    \                   William W. Plummer\n     = 0 with 0 remainder.  The refinement\
+    \ is to make  the  coding  be\n     Ms  =  K*Mo + C where  C  is some arbitrary,\
+    \ well-known constant.\n     Adding this constant requires a second pass over\
+    \ the message, but\n     this will typically be very short since it can stop \
+    \ as  soon  as\n     carries  stop propagating.  Chosing  C = 1  is sufficient\
+    \ in most\n     cases.\n     The product code checksum must  be  evaluated  in\
+    \  terms  of  the\n     desired  properties  P1 - P7.  It has been shown that\
+    \ a factor of\n     two more machine cycles are consumed in computing or verifying\
+    \  a\n     product code checksum (P5 satisfied?).\n     Although the code is not\
+    \ systematic, the checksum can be verified\n     quickly   without   decoding\
+    \   the   message.   If  the  Internet\n     Destination Address is located at\
+    \ the least  significant  end  of\n     the packet (where the product code computation\
+    \ begins) then it is\n     possible  for  a  gateway to decode only enough of\
+    \ the message to\n     see this field without  having  to  decode  the  entire\
+    \  message.\n     Thus,   P6  is  at  least  partially  satisfied.   The  algebraic\n\
+    \     properties P1 through P4 are not  satisfied,  but  only  a  small\n    \
+    \ amount  of  computation  is  needed  to  account  for this -- the\n     message\
+    \ needs to be reformatted as previously mentioned.\n     P7  is  satisfied  since\
+    \  the  product  code  checksum   can   be\n     incrementally  updated to account\
+    \ for an added word, although the\n     procedure is  somewhat  involved.    Imagine\
+    \  that  the  original\n     message  has two halves, H1 and  H2.  Thus,  Mo =\
+    \ H1*(R**j) + H2.\n     The timestamp word is to be inserted between these halves\
+    \ to form\n     a modified  Mo' = H1*(R**(j+1)) + T*(R**j) + H2.  Since   K  \
+    \ has\n     been  chosen to be  R-1, the transmitted message  Ms' = Mo'(R-1).\n\
+    \     Then,\n      Ms' =  Ms*R + T(R-1)(R**j) + P2((R-1)**2)\n          =  Ms*R\
+    \ + T*(R**(j+1))  + T*(R**j) + P2*(R**2) - 2*P2*R - P2\n     Recalling that  R\
+    \   is  2**16,  the  word  size  on  the  PDP-11,\n     multiplying  by   R  \
+    \ means copying down one word in memory.  So,\n     the first term of  Ms' is\
+    \ simply the  unmodified  message  copied\n     down  one word.  The next term\
+    \ is the new data  T  added into the\n     Ms' being formed beginning at the (j+1)th\
+    \ word.  The addition  is\n     fairly  easy  here  since  after adding in T \
+    \ all that is left is\n     propagating the carry, and that can stop as soon as\
+    \ no  carry  is\n     produced.  The other terms can be handle similarly.\n  \
+    \                                 - 8 -\n     Internet Experiment Note  45   \
+    \                       5 June 1978\n     TCP Checksum Function Design       \
+    \            William W. Plummer\n     4.      More Complicated Codes\n     There\
+    \ exists a wealth of theory on error detecting and correcting\n     codes.   Peterson\
+    \  [6]  is an excellent reference.  Most of these\n     \"CRC\" schemes are  designed\
+    \  to  be  implemented  using  a  shift\n     register  with  a  feedback  network\
+    \  composed  of exclusive-ORs.\n     Simulating such a logic circuit with a program\
+    \ would be too  slow\n     to be useful unless some programming trick is discovered.\n\
+    \     One  such  trick has been proposed by Kirstein [8].  Basically, a\n    \
+    \ few bits (four or eight) of the current shift register state  are\n     combined\
+    \ with bits from the input stream (from Mo) and the result\n     is  used  as\
+    \  an  index  to  a  table  which yields the new shift\n     register state and,\
+    \ if the code is not systematic, bits  for  the\n     output  stream  (Ms).  A\
+    \ trial coding of an especially \"good\" CRC\n     function using four-bit bytes\
+    \ showed showed this technique to  be\n     about  four times as slow as the current\
+    \ checksum function.  This\n     was true for  both  the  PDP-10  and  PDP-11\
+    \  machines.   Of  the\n     desirable  properties  listed  above, CRC schemes\
+    \ satisfy only P3\n     (It has an inverse.), and P6 (It is systematic.).   Placement\
+    \  of\n     the  checksum  field in the packet is critical and the CRC cannot\n\
+    \     be incrementally modified.\n     Although the bulk of coding theory deals\
+    \ with binary codes,  most\n     of  the theory works if the alphabet contains\
+    \   q  symbols, where\n     q is a power of a prime number.  For instance  q \
+    \ taken as  2**16\n     should  make  a great deal of the theory useful on a word-by-word\n\
+    \     basis.\n     5.      Outboard Processing\n     When a function such as computing\
+    \ an involved  checksum  requires\n     extensive processing, one solution is\
+    \ to put that processing into\n     an  outboard processor.  In this way \"encode\
+    \ message\" and \"decode\n     message\" become single instructions which do \
+    \ not  tax  the  main\n     host   processor.   The  Digital  Equipment  Corporation\
+    \  VAX/780\n     computer is equipped with special  hardware  for  generating\
+    \  and\n     checking  CRCs [13].  In general this is not a very good solution\n\
+    \     since such a processor must be constructed  for  every  different\n    \
+    \ host machine which uses TCP messages.\n     It is conceivable that the gateway\
+    \ functions for a large host may\n     be  performed  entirely  in an \"Internet\
+    \ Frontend Machine\".  This\n     machine would be  responsible  for  forwarding\
+    \  packets  received\n                                   - 9 -\n     Internet\
+    \ Experiment Note  45                          5 June 1978\n     TCP Checksum\
+    \ Function Design                   William W. Plummer\n     either  from the\
+    \ network(s) or from the Internet protocol modules\n     in the connected host,\
+    \ and for  reassembling  Internet  fragments\n     into  segments and passing\
+    \ these to the host.  Another capability\n     of this machine would be  to  check\
+    \  the  checksum  so  that  the\n     segments given to the host are known to\
+    \ be valid at the time they\n     leave the frontend.  Since computer cycles are\
+    \ assumed to be both\n     inexpensive and available in the frontend, this seems\
+    \ reasonable.\n     The problem with attempting to validate checksums in the frontend\n\
+    \     is that it destroys the end-to-end character of the checksum.  If\n    \
+    \ anything,  this is the most powerful feature of the TCP checksum!\n     There\
+    \ is a way to make the host-to-frontend link  be  covered  by\n     the  end-to-end\
+    \  checksum.   A  separate,  small protocol must be\n     developed to cover this\
+    \ link.  After having validated an incoming\n     packet from the network, the\
+    \ frontend would pass it to  the  host\n     saying \"here is an Internet segment\
+    \ for you.  Call it #123\".  The\n     host  would  save  this  segment,  and\
+    \  send  a  copy back to the\n     frontend saying, \"Here is what you gave me\
+    \ as #123.  Is it  OK?\".\n     The  frontend  would  then  do a word-by-word\
+    \ comparison with the\n     first transmission, and  tell  the  host  either \
+    \ \"Here  is  #123\n     again\",  or \"You did indeed receive #123 properly.\
+    \  Release it to\n     the appropriate module for further processing.\"\n    \
+    \ The headers on the messages crossing the host-frontend link would\n     most\
+    \ likely be covered  by  a  fairly  strong  checksum  so  that\n     information\
+    \  like  which  function  is  being  performed  and the\n     message reference\
+    \ numbers are reliable.  These headers  would  be\n     quite  short,  maybe \
+    \ only sixteen bits, so the checksum could be\n     quite strong.  The bulk of\
+    \ the message would not be checksumed of\n     course.\n     The reason this scheme\
+    \ reduces the computing burden on  the  host\n     is  that  all  that  is required\
+    \ in order to validate the message\n     using the end-to-end checksum is to send\
+    \ it back to the  frontend\n     machine.   In  the  case  of  the PDP-10, this\
+    \ requires only  0.5\n     memory cycles per 16-bit byte of Internet message,\
+    \ and only a few\n     processor cycles to setup the required transfers.\n   \
+    \  6.      Conclusions\n     There is an ordering of checksum functions: first\
+    \ and simplest is\n     none at all which provides  no  error  detection  or \
+    \ correction.\n     Second,  is  sending a constant which is checked by the receiver.\n\
+    \     This also is extremely weak.  Third, the exclusive-OR of the data\n    \
+    \ may be sent.  XOR takes the minimal amount of  computer  time  to\n     generate\
+    \  and  check,  but  is  not  a  good  checksum.   A two's\n     complement sum\
+    \ of the data is somewhat better and takes  no  more\n                       \
+    \           - 10 -\n     Internet Experiment Note  45                        \
+    \  5 June 1978\n     TCP Checksum Function Design                   William W.\
+    \ Plummer\n     computer  time  to  compute.   Fifth, is the one's complement\
+    \ sum\n     which is what is currently used by  TCP.   It  is  slightly  more\n\
+    \     expensive  in terms of computer time.  The next step is a product\n    \
+    \ code.  The product code is strongly related to  one's  complement\n     sum,\
+    \  takes  still more computer time to use, provides a bit more\n     protection\
+    \  against  common  hardware  failures,  but  has   some\n     objectionable properties.\
+    \  Next is a genuine CRC polynomial code,\n     used  for  checking  purposes\
+    \ only.  This is very expensive for a\n     program to implement.  Finally, a\
+    \ full CRC error  correcting  and\n     detecting scheme may be used.\n     For\
+    \  TCP  and  Internet  applications  the product code scheme is\n     viable.\
+    \  It suffers mainly in that messages  must  be  (at  least\n     partially) \
+    \ decoded  by  intermediate gateways in order that they\n     can be forwarded.\
+    \  Should product  codes  not  be  chosen  as  an\n     improved  checksum,  some\
+    \  slight  modification  to  the existing\n     scheme might be possible.  For\
+    \  instance  the  \"add  and  rotate\"\n     function  used  for  paper  tape\
+    \  by  the  PDP-6/10  group at the\n     Artificial Intelligence Laboratory at\
+    \  M.I.T.  Project  MAC  [12]\n     could  be  useful  if it can be proved that\
+    \ it is better than the\n     current scheme and that it  can  be  computed  efficiently\
+    \  on  a\n     variety of machines.\n                                  - 11 -\n\
+    \     Internet Experiment Note  45                          5 June 1978\n    \
+    \ TCP Checksum Function Design                   William W. Plummer\n     References\n\
+    \     [1]  Cerf, V.G. and Kahn, Robert E., \"A Protocol for Packet Network\n \
+    \         Communications,\" IEEE Transactions on Communications, vol.\n      \
+    \    COM-22, No.  5, May 1974.\n     [2]  Kahn, Robert E., \"The Organization\
+    \ of Computer Resources into\n          a Packet Radio Network\", IEEE Transactions\
+    \ on Communications,\n          vol. COM-25, no. 1, pp. 169-178, January 1977.\n\
+    \     [3]  Jacobs, Irwin, et al., \"CPODA - A Demand Assignment Protocol\n   \
+    \       for SatNet\", Fifth Data Communications Symposium, September\n       \
+    \   27-9, 1977, Snowbird, Utah\n     [4]  Bolt Beranek and Newman, Inc.  \"Specifications\
+    \ for the\n          Interconnection of a Host and an IMP\", Report 1822, January\n\
+    \          1976 edition.\n     [5]  Dean, Richard A., \"Elements of Abstract Algebra\"\
+    , John Wyley\n          and Sons, Inc., 1966\n     [6]  Peterson, W. Wesley, \"\
+    Error Correcting Codes\", M.I.T. Press\n          Cambridge MA, 4th edition, 1968.\n\
+    \     [7]  Avizienis, Algirdas, \"A Study of the Effectiveness of Fault-\n   \
+    \       Detecting Codes for Binary Arithmetic\", Jet Propulsion\n          Laboratory\
+    \ Technical Report No. 32-711, September 1, 1965.\n     [8]  Kirstein, Peter,\
+    \ private communication\n     [9]  Cerf, V. G. and Postel, Jonathan B., \"Specification\
+    \ of\n          Internetwork Transmission Control Program Version 3\",\n     \
+    \     University of Southern California Information Sciences\n          Institute,\
+    \ January 1978.\n     [10] Digital Equipment Corporation, \"PDP-10 Reference Handbook\"\
+    ,\n          1970, pp. 114-5.\n     [11] Swanson, Robert, \"Understanding Cyclic\
+    \ Redundancy Codes\",\n          Computer Design, November, 1975, pp. 93-99.\n\
+    \     [12] Clements, Robert C., private communication.\n     [13] Conklin, Peter\
+    \ F., and Rodgers, David P., \"Advanced\n          Minicomputer Designed by Team\
+    \ Evaluation of Hardware/Software\n          Tradeoffs\", Computer Design, April\
+    \ 1978, pp. 136-7.\n                                       - 12 -\n"

@@ -1,0 +1,684 @@
+- title: __initial_text__
+  contents:
+  - '          IMAP4 Extensions for Quick Mailbox Resynchronization
+
+    '
+- title: Status of This Memo
+  contents:
+  - "Status of This Memo\n   This document specifies an Internet standards track protocol\
+    \ for the\n   Internet community, and requests discussion and suggestions for\n\
+    \   improvements.  Please refer to the current edition of the \"Internet\n   Official\
+    \ Protocol Standards\" (STD 1) for the standardization state\n   and status of\
+    \ this protocol.  Distribution of this memo is unlimited.\n"
+- title: Abstract
+  contents:
+  - "Abstract\n   This document defines an IMAP4 extension, which gives an IMAP client\n\
+    \   the ability to quickly resynchronize any previously opened mailbox as\n  \
+    \ part of the SELECT command, without the need for server-side state or\n   additional\
+    \ client round-trips.  This extension also introduces a new\n   response that\
+    \ allows for a more compact representation of a list of\n   expunged messages\
+    \ (and always includes the Unique Identifiers (UIDs)\n   expunged).\n"
+- title: Table of Contents
+  contents:
+  - "Table of Contents\n   1.  Introduction and Overview  . . . . . . . . . . . .\
+    \ . . . . . .  2\n   2.  Requirements Notation  . . . . . . . . . . . . . . .\
+    \ . . . . .  4\n   3.  IMAP Protocol Changes  . . . . . . . . . . . . . . . .\
+    \ . . . .  4\n     3.1.  QRESYNC Parameter to SELECT/EXAMINE  . . . . . . . .\
+    \ . . .  4\n     3.2.  VANISHED UID FETCH Modifier  . . . . . . . . . . . . .\
+    \ . .  8\n     3.3.  EXPUNGE Command  . . . . . . . . . . . . . . . . . . . .\
+    \ . 10\n     3.4.  CLOSE Command  . . . . . . . . . . . . . . . . . . . . . .\
+    \ 11\n     3.5.  UID EXPUNGE Command  . . . . . . . . . . . . . . . . . . . 11\n\
+    \     3.6.  VANISHED Response  . . . . . . . . . . . . . . . . . . . . 12\n  \
+    \   3.7.  CLOSED Response Code . . . . . . . . . . . . . . . . . . . 15\n   4.\
+    \  Server Implementation Considerations . . . . . . . . . . . . . 15\n     4.1.\
+    \  Server Implementations That Don't Store Extra State  . . . 15\n     4.2.  Server\
+    \ Implementations Storing Minimal State . . . . . . . 16\n     4.3.  Additional\
+    \ State Required on the Server  . . . . . . . . . 16\n   5.  Updated Synchronization\
+    \ Sequence . . . . . . . . . . . . . . . 17\n   6.  Formal Syntax  . . . . . .\
+    \ . . . . . . . . . . . . . . . . . . 19\n   7.  Security Considerations  . .\
+    \ . . . . . . . . . . . . . . . . . 20\n   8.  IANA Considerations  . . . . .\
+    \ . . . . . . . . . . . . . . . . 21\n   9.  Acknowledgments  . . . . . . . .\
+    \ . . . . . . . . . . . . . . . 21\n   10. References . . . . . . . . . . . .\
+    \ . . . . . . . . . . . . . . 21\n     10.1. Normative References . . . . . .\
+    \ . . . . . . . . . . . . . 21\n     10.2. Informative References . . . . . .\
+    \ . . . . . . . . . . . . 22\n"
+- title: 1.  Introduction and Overview
+  contents:
+  - "1.  Introduction and Overview\n   The [CONDSTORE] extension gives a disconnected\
+    \ client the ability to\n   quickly resynchronize IMAP flag changes for previously\
+    \ seen messages.\n   This can be done using the CHANGEDSINCE FETCH modifier once\
+    \ a mailbox\n   is opened.  In order for the client to discover which messages\
+    \ have\n   been expunged, the client still has to issue a UID FETCH or a UID\n\
+    \   SEARCH command.  This document defines an extension to [CONDSTORE]\n   that\
+    \ allows a reconnecting client to perform full resynchronization,\n   including\
+    \ discovery of expunged messages, in a single round-trip.\n   This extension also\
+    \ introduces a new response, VANISHED, that allows\n   for a more compact representation\
+    \ of a list of expunged messages.\n   This extension can be useful for mobile\
+    \ clients that can experience\n   frequent disconnects caused by environmental\
+    \ factors (battery life,\n   signal strength, etc.).  Such clients need a way\
+    \ to quickly reconnect\n   to the IMAP server, while minimizing delay experienced\
+    \ by the user as\n   well as the amount of traffic (and hence the expense) generated\
+    \ by\n   resynchronization.\n   By extending the SELECT command to perform the\
+    \ additional\n   resynchronization, this also allows clients to reduce concurrent\n\
+    \   connections to the IMAP server held purely for the sake of avoiding\n   the\
+    \ resynchronization.\n   The quick resync IMAP extension is present if an IMAP4\
+    \ server returns\n   \"QRESYNC\" as one of the supported capabilities to the CAPABILITY\n\
+    \   command.\n   Servers supporting this extension MUST implement and advertise\n\
+    \   support for the [ENABLE] IMAP extension.  Also, the presence of the\n   \"\
+    QRESYNC\" capability implies support for the [CONDSTORE] IMAP\n   extension even\
+    \ if the CONDSTORE capability isn't advertised.  A\n   server compliant with this\
+    \ specification is REQUIREd to support\n   \"ENABLE QRESYNC\" and \"ENABLE QRESYNC\
+    \ CONDSTORE\" (which are \"CONDSTORE\n   enabling commands\", as defined in [CONDSTORE],\
+    \ and have identical\n   results), but there is no requirement for a compliant\
+    \ server to\n   support \"ENABLE CONDSTORE\" by itself.  The \"ENABLE QRESYNC\"\
+    /\"ENABLE\n   QRESYNC CONDSTORE\" command also tells the server that it SHOULD\
+    \ start\n   sending VANISHED responses (see Section 3.6) instead of EXPUNGE\n\
+    \   responses.  This change remains in effect until the connection is\n   closed.\n\
+    \   For compatibility with clients that only support the [CONDSTORE] IMAP\n  \
+    \ extension, servers SHOULD advertise CONDSTORE in the CAPABILITY\n   response\
+    \ as well.\n   A client making use of this extension MUST issue \"ENABLE QRESYNC\"\
+    \n   once it is authenticated.  A server MUST respond with a tagged BAD\n   response\
+    \ if the QRESYNC parameter to the SELECT/EXAMINE command or\n   the VANISHED UID\
+    \ FETCH modifier is specified and the client hasn't\n   issued \"ENABLE QRESYNC\"\
+    \ in the current connection.\n   This document puts additional requirements on\
+    \ a server implementing\n   the [CONDSTORE] extension.  Each mailbox that supports\
+    \ persistent\n   storage of mod-sequences, i.e., for which the server has sent\
+    \ a\n   HIGHESTMODSEQ untagged OK response code on a successful SELECT/\n   EXAMINE,\
+    \ MUST increment the per-mailbox mod-sequence when one or more\n   messages are\
+    \ expunged due to EXPUNGE, UID EXPUNGE or CLOSE; the\n   server MUST associate\
+    \ the incremented mod-sequence with the UIDs of\n   the expunged messages.\n \
+    \  A client that supports CONDSTORE but not this extension might\n   resynchronize\
+    \ a mailbox and discover that its HIGHESTMODSEQ has\n   increased from the value\
+    \ cached by the client.  If the increase is\n   only due to messages having been\
+    \ expunged since the client last\n   synchronized, the client is likely to send\
+    \ a FETCH ...  CHANGEDSINCE\n   command that returns no data.  Thus, a client\
+    \ that supports CONDSTORE\n   but not this extension might incur a penalty of\
+    \ an unneeded round-\n   trip when resynchronizing some mailboxes (those that\
+    \ have had\n   messages expunged but no flag changes since the last\n   synchronization).\n\
+    \   This extra round-trip is only incurred by clients that support\n   CONDSTORE\
+    \ but not this extension, and only when a mailbox has had\n   messages expunged\
+    \ but no flag changes to non-expunged messages.\n   Since CONDSTORE is a relatively\
+    \ new extension, it is thought likely\n   that clients that support it will also\
+    \ support this extension.\n"
+- title: 2.  Requirements Notation
+  contents:
+  - "2.  Requirements Notation\n   The key words \"MUST\", \"MUST NOT\", \"REQUIRED\"\
+    , \"SHALL\", \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\", \"\
+    MAY\", and \"OPTIONAL\" in this\n   document are to be interpreted as described\
+    \ in [RFC2119].\n   In examples, \"C:\" and \"S:\" indicate lines sent by the\
+    \ client and\n   server respectively.  If a single \"C:\" or \"S:\" label applies\
+    \ to\n   multiple lines, then the line breaks between those lines are for\n  \
+    \ editorial clarity only and are not part of the actual protocol\n   exchange.\
+    \  The five characters [...] means that something has been\n   elided.\n   Understanding\
+    \ of the IMAP message sequence numbers and UIDs and the\n   EXPUNGE response [RFC3501]\
+    \ is essential when reading this document.\n"
+- title: 3.  IMAP Protocol Changes
+  contents:
+  - '3.  IMAP Protocol Changes
+
+    '
+- title: 3.1.  QRESYNC Parameter to SELECT/EXAMINE
+  contents:
+  - "3.1.  QRESYNC Parameter to SELECT/EXAMINE\n   The Quick Resynchronization parameter\
+    \ to SELECT/EXAMINE commands has\n   four arguments:\n   o  the last known UIDVALIDITY,\n\
+    \   o  the last known modification sequence,\n   o  the optional set of known\
+    \ UIDs, and\n   o  an optional parenthesized list of known sequence ranges and\
+    \ their\n      corresponding UIDs.\n   A server MUST respond with a tagged BAD\
+    \ response if the Quick\n   Resynchronization parameter to SELECT/EXAMINE command\
+    \ is specified\n   and the client hasn't issued \"ENABLE QRESYNC\" in the current\n\
+    \   connection.\n   Before opening the specified mailbox, the server verifies\
+    \ all\n   arguments for syntactic validity.  If any parameter is not\n   syntactically\
+    \ valid, the server returns the tagged BAD response, and\n   the mailbox remains\
+    \ unselected.  Once the check is done, the server\n   opens the mailbox as if\
+    \ no SELECT/EXAMINE parameters are specified\n   (this is subject to processing\
+    \ of other parameters as defined in\n   other extensions).  In particular this\
+    \ means that the server MUST\n   send all untagged responses as specified in Sections\
+    \ 6.3.1 and 6.3.2\n   of [RFC3501].\n   After that, the server checks the UIDVALIDITY\
+    \ value provided by the\n   client.  If the provided UIDVALIDITY doesn't match\
+    \ the UIDVALIDITY\n   for the mailbox being opened, then the server MUST ignore\
+    \ the\n   remaining parameters and behave as if no dynamic message data\n   changed.\
+    \  The client can discover this situation by comparing the\n   UIDVALIDITY value\
+    \ returned by the server.  This behavior allows the\n   client not to synchronize\
+    \ the mailbox or decide on the best\n   synchronization strategy.\n   Example:\
+    \ Attempting to resynchronize INBOX, but the provided\n            UIDVALIDITY\
+    \ parameter doesn't match the current UIDVALIDITY\n            value.\n   C: A02\
+    \ SELECT INBOX (QRESYNC (67890007 20050715194045000\n            41,43:211,214:541))\n\
+    \            S: * 464 EXISTS\n            S: * 3 RECENT\n            S: * OK [UIDVALIDITY\
+    \ 3857529045] UIDVALIDITY\n            S: * OK [UIDNEXT 550] Predicted next UID\n\
+    \            S: * OK [HIGHESTMODSEQ 90060128194045007]\n            S: * OK [UNSEEN\
+    \ 12] Message 12 is first unseen\n            S: * FLAGS (\\Answered \\Flagged\
+    \ \\Draft \\Deleted \\Seen)\n            S: * OK [PERMANENTFLAGS (\\Answered \\\
+    Flagged \\Draft\n            \\Deleted \\Seen \\*)] Permanent flags\n        \
+    \    S: A02 OK [READ-WRITE] Sorry, UIDVALIDITY mismatch\n   Modification Sequence\
+    \ and UID Parameters:\n   A server that doesn't support the persistent storage\
+    \ of mod-sequences\n   for the mailbox MUST send the OK untagged response including\
+    \ the\n   NOMODSEQ response code with every successful SELECT or EXAMINE\n   command,\
+    \ as described in [CONDSTORE].  Such a server doesn't need to\n   remember mod-sequences\
+    \ for expunged messages in the mailbox.  It MUST\n   ignore the remaining parameters\
+    \ and behave as if no dynamic message\n   data changed.\n   If the provided UIDVALIDITY\
+    \ matches that of the selected mailbox, the\n   server then checks the last known\
+    \ modification sequence.\n   The server sends the client any pending flag changes\
+    \ (using FETCH\n   responses that MUST contain UIDs) and expunges those that have\n\
+    \   occurred in this mailbox since the provided modification sequence.\n   If\
+    \ the list of known UIDs was also provided, the server should only\n   report\
+    \ flag changes and expunges for the specified messages.  If the\n   client did\
+    \ not provide the list of UIDs, the server acts as if the\n   client has specified\
+    \ \"1:<maxuid>\", where <maxuid> is the mailbox's\n   UIDNEXT value minus 1. \
+    \ If the mailbox is empty and never had any\n   messages in it, then lack of the\
+    \ list of UIDs is interpreted as an\n   empty set of UIDs.\n   Thus, the client\
+    \ can process just these pending events and need not\n   perform a full resynchronization.\
+    \  Without the message sequence\n   number matching information, the result of\
+    \ this step is semantically\n   equivalent to the client issuing:\n   tag1 UID\
+    \ FETCH \"known-uids\" (FLAGS) (CHANGEDSINCE\n   \"mod-sequence-value\" VANISHED)\n\
+    \   Example:\n      C: A03 SELECT INBOX (QRESYNC (67890007\n         90060115194045000\
+    \ 41,43:211,214:541))\n      S: * OK [CLOSED]\n      S: * 314 EXISTS\n      S:\
+    \ * 15 RECENT\n      S: * OK [UIDVALIDITY 67890007] UIDVALIDITY\n      S: * OK\
+    \ [UIDNEXT 567] Predicted next UID\n      S: * OK [HIGHESTMODSEQ 90060115205545359]\n\
+    \      S: * OK [UNSEEN 7] There are some unseen messages in the mailbox\n    \
+    \  S: * FLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)\n      S: * OK [PERMANENTFLAGS\
+    \ (\\Answered \\Flagged \\Draft\n         \\Deleted \\Seen \\*)] Permanent flags\n\
+    \      S: * VANISHED (EARLIER) 41,43:116,118,120:211,214:540\n      S: * 49 FETCH\
+    \ (UID 117 FLAGS (\\Seen \\Answered) MODSEQ\n         (90060115194045001))\n \
+    \     S: * 50 FETCH (UID 119 FLAGS (\\Draft $MDNSent) MODSEQ\n         (90060115194045308))\n\
+    \      S: ...\n      S: * 100 FETCH (UID 541 FLAGS (\\Seen $Forwarded) MODSEQ\n\
+    \         (90060115194045001))\n      S: A03 OK [READ-WRITE] mailbox selected\n\
+    \   Message sequence match data:\n   A client MAY provide a parenthesized list\
+    \ of a message sequence set\n   and the corresponding UID sets.  Both MUST be\
+    \ provided in ascending\n   order.  The server uses this data to restrict the\
+    \ range for which it\n   provides expunged message information.\n   Conceptually,\
+    \ the client provides a small sample of sequence numbers\n   for which it knows\
+    \ the corresponding UIDs.  The server then compares\n   each sequence number and\
+    \ UID pair the client provides with the\n   current state of the mailbox.  If\
+    \ a pair matches, then the client\n   knows of any expunges up to, and including,\
+    \ the message, and thus\n   will not include that range in the VANISHED response,\
+    \ even if the\n   \"mod-sequence-value\" provided by the client is too old for\
+    \ the server\n   to have data of when those messages were expunged.\n   Thus,\
+    \ if the Nth message number in the first set in the list is 4,\n   and the Nth\
+    \ UID in the second set in the list is 8, and the mailbox's\n   fourth message\
+    \ has UID 8, then no UIDs equal to or less than 8 are\n   present in the VANISHED\
+    \ response.  If the (N+1)th message number is\n   12, and the (N+1)th UID is 24,\
+    \ and the (N+1)th message in the mailbox\n   has UID 25, then the lowest UID included\
+    \ in the VANISHED response\n   would be 9.\n   In the following two examples,\
+    \ the server is unable to remember\n   expunges at all, and only UIDs with messages\
+    \ divisible by three are\n   present in the mailbox.  In the first example, the\
+    \ client does not\n   use the fourth parameter; in the second, it provides it.\
+    \  This\n   example is somewhat extreme, but shows that judicious usage of the\n\
+    \   sequence match data can save a substantial amount of bandwidth.\n   Example:\n\
+    \      C: A04 SELECT INBOX (QRESYNC (67890007\n         90060115194045000 1:29997))\n\
+    \      S: * 10003 EXISTS\n      S: * 5 RECENT\n      S: * OK [UIDVALIDITY 67890007]\
+    \ UIDVALIDITY\n      S: * OK [UIDNEXT 30013] Predicted next UID\n      S: * OK\
+    \ [HIGHESTMODSEQ 90060115205545359]\n      S: * OK [UNSEEN 7] There are some unseen\
+    \ messages in the mailbox\n      S: * FLAGS (\\Answered \\Flagged \\Draft \\Deleted\
+    \ \\Seen)\n      S: * OK [PERMANENTFLAGS (\\Answered \\Flagged \\Draft\n     \
+    \    \\Deleted \\Seen \\*)] Permanent flags\n      S: * VANISHED (EARLIER) 1:2,4:5,7:8,10:11,13:14\
+    \ [...]\n         29998:29999,30001:30002,30004:30005,30007:30008\n      S: *\
+    \ 9889 FETCH (UID 29667 FLAGS (\\Seen \\Answered) MODSEQ\n         (90060115194045027))\n\
+    \      S: * 9890 FETCH (UID 29670 FLAGS (\\Draft $MDNSent) MODSEQ\n         (90060115194045028))\n\
+    \      S: ...\n      S: * 9999 FETCH (UID 29997 FLAGS (\\Seen $Forwarded) MODSEQ\n\
+    \         (90060115194045031))\n      S: A04 OK [READ-WRITE] mailbox selected\n\
+    \   Example:\n      C: B04 SELECT INBOX (QRESYNC (67890007\n         90060115194045000\
+    \ 1:29997 (5000,7500,9000,9990:9999 15000,\n         22500,27000,29970,29973,29976,29979,29982,29985,29988,29991,\n\
+    \         29994,29997)))\n      S: * 10003 EXISTS\n      S: * 5 RECENT\n     \
+    \ S: * OK [UIDVALIDITY 67890007] UIDVALIDITY\n      S: * OK [UIDNEXT 30013] Predicted\
+    \ next UID\n      S: * OK [HIGHESTMODSEQ 90060115205545359]\n      S: * OK [UNSEEN\
+    \ 7] There are some unseen messages in the mailbox\n      S: * FLAGS (\\Answered\
+    \ \\Flagged \\Draft \\Deleted \\Seen)\n      S: * OK [PERMANENTFLAGS (\\Answered\
+    \ \\Flagged \\Draft\n         \\Deleted \\Seen \\*)] Permanent flags\n      S:\
+    \ * VANISHED (EARLIER) 29998:29999,30001:30002,30004:30005,30007:\n         30008\n\
+    \      S: * 9889 FETCH (UID 29667 FLAGS (\\Seen \\Answered) MODSEQ\n         (90060115194045027))\n\
+    \      S: * 9890 FETCH (UID 29670 FLAGS (\\Draft $MDNSent) MODSEQ\n         (90060115194045028))\n\
+    \      S: ...\n      S: * 9999 FETCH (UID 29997 FLAGS (\\Seen $Forwarded) MODSEQ\n\
+    \         (90060115194045031))\n      S: B04 OK [READ-WRITE] mailbox selected\n"
+- title: 3.2.  VANISHED UID FETCH Modifier
+  contents:
+  - "3.2.  VANISHED UID FETCH Modifier\n   [IMAPABNF] has extended the syntax of the\
+    \ FETCH and UID FETCH\n   commands to include an optional FETCH modifier.  This\
+    \ document\n   defines a new UID FETCH modifier: VANISHED.\n   Note, that the\
+    \ VANISHED UID FETCH modifier is NOT allowed with a\n   FETCH command.  The server\
+    \ MUST return a tagged BAD response if this\n   response is specified as a modifier\
+    \ to the FETCH command.\n   A server MUST respond with a tagged BAD response if\
+    \ the VANISHED UID\n   FETCH modifier is specified and the client hasn't issued\
+    \ \"ENABLE\n   QRESYNC\" in the current connection.\n   The VANISHED UID FETCH\
+    \ modifier MUST only be specified together with\n   the CHANGEDSINCE UID FETCH\
+    \ modifier.\n   The VANISHED UID FETCH modifier instructs the server to report\
+    \ those\n   messages from the UID set parameter that have been expunged and whose\n\
+    \   associated mod-sequence is larger than the specified mod-sequence.\n   That\
+    \ is, the client requests to be informed of messages from the\n   specified set\
+    \ that were expunged since the specified mod-sequence.\n   Note that the mod-sequence(s)\
+    \ associated with these messages were\n   updated when the messages were expunged\
+    \ (as described above).  The\n   expunged messages are reported using the VANISHED\
+    \ response as\n   described in Section 3.6, which MUST contain the EARLIER tag.\
+    \  Any\n   VANISHED (EARLIER) responses MUST be returned before any FETCH\n  \
+    \ responses, as otherwise the client might get confused about how\n   message\
+    \ numbers map to UIDs.\n   Note: A server that receives a mod-sequence smaller\
+    \ than <minmodseq>,\n   where <minmodseq> is the value of the smallest expunged\
+    \ mod-sequence\n   it remembers minus one, MUST behave as if it was requested\
+    \ to report\n   all expunged messages from the provided UID set parameter.\n \
+    \  Example 1: Without the VANISHED UID FETCH modifier, a CONDSTORE-aware\n   client\
+    \ [CONDSTORE] needs to issue separate commands to learn of flag\n   changes and\
+    \ expunged messages since the last synchronization:\n   C: s100 UID FETCH 300:500\
+    \ (FLAGS) (CHANGEDSINCE 12345)\n   S: * 1 FETCH (UID 404 MODSEQ (65402) FLAGS\
+    \ (\\Seen))\n   S: * 2 FETCH (UID 406 MODSEQ (75403) FLAGS (\\Deleted))\n   S:\
+    \ * 4 FETCH (UID 408 MODSEQ (29738) FLAGS ($NoJunk\n       $AutoJunk $MDNSent))\n\
+    \   S: s100 OK FETCH completed\n   C: s101 UID SEARCH 300:500\n   S: * SEARCH\
+    \ 404 406 407 408 410 412\n   S: s101 OK search completed\n   Where 300 and 500\
+    \ are the lowest and highest UIDs from client's\n   cache.  The second SEARCH\
+    \ response tells the client that the messages\n   with UIDs 407, 410, and 412\
+    \ are still present, but their flags\n   haven't changed since the specified modification\
+    \ sequence.\n   Using the VANISHED UID FETCH modifier, it is sufficient to issue\
+    \ only\n   a single command:\n   C: s100 UID FETCH 300:500 (FLAGS) (CHANGEDSINCE\
+    \ 12345\n       VANISHED)\n   S: * VANISHED (EARLIER) 300:310,405,411\n   S: *\
+    \ 1 FETCH (UID 404 MODSEQ (65402) FLAGS (\\Seen))\n   S: * 2 FETCH (UID 406 MODSEQ\
+    \ (75403) FLAGS (\\Deleted))\n   S: * 4 FETCH (UID 408 MODSEQ (29738) FLAGS ($NoJunk\n\
+    \       $AutoJunk $MDNSent))\n   S: s100 OK FETCH completed\n"
+- title: 3.3.  EXPUNGE Command
+  contents:
+  - "3.3.  EXPUNGE Command\n   Arguments: none\n   Responses: untagged responses:\
+    \ EXPUNGE or VANISHED\n   Result: OK - expunge completed\n           NO - expunge\
+    \ failure: can't expunge (e.g., permission denied)\n           BAD - command unknown\
+    \ or arguments invalid\n   This section updates the definition of the EXPUNGE\
+    \ command described\n   in Section 6.4.3 of [RFC3501].\n   The EXPUNGE command\
+    \ permanently removes all messages that have the\n   \\Deleted flag set from the\
+    \ currently selected mailbox.  Before\n   returning an OK to the client, those\
+    \ messages that are removed are\n   reported using a VANISHED response or EXPUNGE\
+    \ responses.\n   If the server is capable of storing modification sequences for\
+    \ the\n   selected mailbox, it MUST increment the per-mailbox mod-sequence if\n\
+    \   at least one message was permanently removed due to the execution of\n   the\
+    \ EXPUNGE command.  For each permanently removed message, the\n   server MUST\
+    \ remember the incremented mod-sequence and corresponding\n   UID.  If at least\
+    \ one message got expunged, the server MUST send the\n   updated per-mailbox modification\
+    \ sequence using the HIGHESTMODSEQ\n   response code (defined in [CONDSTORE])\
+    \ in the tagged OK response.\n      Example:    C: A202 EXPUNGE\n            \
+    \      S: * 3 EXPUNGE\n                  S: * 3 EXPUNGE\n                  S:\
+    \ * 5 EXPUNGE\n                  S: * 8 EXPUNGE\n                  S: A202 OK\
+    \ [HIGHESTMODSEQ 20010715194045319] expunged\n   Note: In this example, messages\
+    \ 3, 4, 7, and 11 had the \\Deleted flag\n   set.  The first \"* 3 EXPUNGE\" reports\
+    \ message # 3 as expunged.  The\n   second \"* 3 EXPUNGE\" reports message # 4\
+    \ as expunged (the message\n   number got decremented due to the previous EXPUNGE\
+    \ response).  See\n   the description of the EXPUNGE response in [RFC3501] for\
+    \ further\n   explanation.\n   Note that if the server chooses to always send\
+    \ VANISHED responses\n   instead of EXPUNGE responses, the previous example might\
+    \ look like\n   this:\n      Example:    C: B202 EXPUNGE\n                  S:\
+    \ * VANISHED 405,407,410,425\n                  S: B202 OK [HIGHESTMODSEQ 20010715194045319]\
+    \ expunged\n   Here messages with message numbers 3, 4, 7, and 11 have respective\n\
+    \   UIDs 405, 407, 410, and 425.\n"
+- title: 3.4.  CLOSE Command
+  contents:
+  - "3.4.  CLOSE Command\n   Arguments: none\n   Responses: no specific responses\
+    \ for this command\n   Result: OK - close completed, now in authenticated state\n\
+    \           BAD - command unknown or arguments invalid\n   This section updates\
+    \ the definition of the CLOSE command described in\n   Section 6.4.2 of [RFC3501].\n\
+    \   The CLOSE command permanently removes all messages that have the\n   \\Deleted\
+    \ flag set from the currently selected mailbox, and returns to\n   the authenticated\
+    \ state from the selected state.  No untagged EXPUNGE\n   (or VANISHED) responses\
+    \ are sent.\n   If the server is capable of storing modification sequences for\
+    \ the\n   selected mailbox, it MUST increment the per-mailbox mod-sequence if\n\
+    \   at least one message was permanently removed due to the execution of\n   the\
+    \ CLOSE command.  For each permanently removed message, the server\n   MUST remember\
+    \ the incremented mod-sequence and corresponding UID.  If\n   at least one message\
+    \ got expunged, the server MUST send the updated\n   per-mailbox modification\
+    \ sequence using the HIGHESTMODSEQ response\n   code (defined in [CONDSTORE])\
+    \ in the tagged OK response.\n      Example:    C: A202 CLOSE\n              \
+    \    S: A202 OK [HIGHESTMODSEQ 20010715194045319] done\n"
+- title: 3.5.  UID EXPUNGE Command
+  contents:
+  - "3.5.  UID EXPUNGE Command\n   Arguments: message set\n   Responses: untagged\
+    \ responses: EXPUNGE or VANISHED\n   Result: OK - expunge completed\n        \
+    \   NO - expunge failure: can't expunge (e.g., permission denied)\n          \
+    \ BAD - command unknown or arguments invalid\n   This section updates the definition\
+    \ of the UID EXPUNGE command\n   described in Section 2.1 of [UIDPLUS].  Servers\
+    \ that implement both\n   [UIDPLUS] and QRESYNC extensions must implement UID\
+    \ EXPUNGE as\n   described in this section.\n   The UID EXPUNGE command permanently\
+    \ removes from the currently\n   selected mailbox all messages that both have\
+    \ the \\Deleted flag set\n   and have a UID that is included in the specified\
+    \ message set.  If a\n   message either does not have the \\Deleted flag set or\
+    \ has a UID that\n   is not included in the specified message set, it is not affected.\n\
+    \   This command is particularly useful for disconnected mode clients.\n   By\
+    \ using UID EXPUNGE instead of EXPUNGE when resynchronizing with the\n   server,\
+    \ the client can avoid inadvertently removing any messages that\n   have been\
+    \ marked as \\Deleted by other clients between the time that\n   the client was\
+    \ last connected and the time the client resynchronizes.\n   Before returning\
+    \ an OK to the client, those messages that are removed\n   are reported using\
+    \ a VANISHED response or EXPUNGE responses.\n   If the server is capable of storing\
+    \ modification sequences for the\n   selected mailbox, it MUST increment the per-mailbox\
+    \ mod-sequence if\n   at least one message was permanently removed due to the\
+    \ execution of\n   the UID EXPUNGE command.  For each permanently removed message,\
+    \ the\n   server MUST remember the incremented mod-sequence and corresponding\n\
+    \   UID.  If at least one message got expunged, the server MUST send the\n   updated\
+    \ per-mailbox modification sequence using the HIGHESTMODSEQ\n   response code\
+    \ (defined in [CONDSTORE]) in the tagged OK response.\n   Example:    C: . UID\
+    \ EXPUNGE 3000:3002\n               S: * 3 EXPUNGE\n               S: * 3 EXPUNGE\n\
+    \               S: * 3 EXPUNGE\n               S: . OK [HIGHESTMODSEQ 20010715194045319]\
+    \ Ok\n   Note: In this example, at least messages with message numbers 3, 4,\n\
+    \   and 5 (UIDs 3000 to 3002) had the \\Deleted flag set.  The first \"* 3\n \
+    \  EXPUNGE\" reports message # 3 as expunged.  The second \"* 3 EXPUNGE\"\n  \
+    \ reports message # 4 as expunged (the message number got decremented\n   due\
+    \ to the previous EXPUNGE response).  See the description of the\n   EXPUNGE response\
+    \ in [RFC3501] for further explanation.\n"
+- title: 3.6.  VANISHED Response
+  contents:
+  - "3.6.  VANISHED Response\n   Contents:  an optional EARLIER tag\n   list of UIDs\n\
+    \   The VANISHED response reports that the specified UIDs have been\n   permanently\
+    \ removed from the mailbox.  This response is similar to\n   the EXPUNGE response\
+    \ [RFC3501]; however, it can return information\n   about multiple messages, and\
+    \ it returns UIDs instead of message\n   numbers.  The first benefit saves bandwidth,\
+    \ while the second is more\n   convenient for clients that only use UIDs to access\
+    \ the IMAP server.\n   The VANISHED response has the same restrictions on when\
+    \ it can be\n   sent as does the EXPUNGE response (see below).\n   The VANISHED\
+    \ response has two forms.  The first form contains the\n   EARLIER tag, which\
+    \ signifies that the response was caused by a UID\n   FETCH (VANISHED) or a SELECT/EXAMINE\
+    \ (QRESYNC) command.  This\n   response is sent if the UID set parameter to the\
+    \ UID FETCH (VANISHED)\n   command includes UIDs of messages that are no longer\
+    \ in the mailbox.\n   When the client sees a VANISHED EARLIER response, it MUST\
+    \ NOT\n   decrement message sequence numbers for each successive message in the\n\
+    \   mailbox.\n   The second form doesn't contain the EARLIER tag and is described\n\
+    \   below.  Once a client has issued \"ENABLE QRESYNC\", the server SHOULD\n \
+    \  use the VANISHED response without the EARLIER tag instead of the\n   EXPUNGE\
+    \ response.  The server SHOULD continue using VANISHED in lieu\n   of EXPUNGE\
+    \ for the duration of the connection.  In particular, this\n   affects the EXPUNGE\
+    \ [RFC3501] and UID EXPUNGE [UIDPLUS] commands, as\n   well as messages expunged\
+    \ in other connections.  Such a VANISHED\n   response MUST NOT contain the EARLIER\
+    \ tag.\n   A VANISHED response sent because of an EXPUNGE or UID EXPUNGE command\n\
+    \   or because messages were expunged in other connections (i.e., the\n   VANISHED\
+    \ response without the EARLIER tag) also decrements the number\n   of messages\
+    \ in the mailbox; it is not necessary for the server to\n   send an EXISTS response\
+    \ with the new value.  It also decrements\n   message sequence numbers for each\
+    \ successive message in the mailbox\n   (see the example at the end of this section).\
+    \  Note that a VANISHED\n   response caused by EXPUNGE, UID EXPUNGE, or messages\
+    \ expunged in\n   other connections SHOULD only contain UIDs for messages expunged\n\
+    \   since the last VANISHED/EXPUNGE response sent for the currently\n   opened\
+    \ mailbox or since the mailbox was opened.  That is, servers\n   SHOULD NOT send\
+    \ UIDs for previously expunged messages, unless\n   explicitly requested to do\
+    \ so by the UID FETCH (VANISHED) command.\n   Note that client implementors must\
+    \ take care to properly decrement\n   the number of messages in the mailbox even\
+    \ if a server violates this\n   last SHOULD or repeats the same UID multiple times\
+    \ in the returned\n   UID set.  In general, this means that a client using this\
+    \ extension\n   should either avoid using message numbers entirely, or have a\n\
+    \   complete mapping of UIDs to message sequence numbers for the selected\n  \
+    \ mailbox.\n   Because clients handle the two different forms of the VANISHED\n\
+    \   response differently, servers MUST NOT report UIDs resulting from a\n   UID\
+    \ FETCH (VANISHED) or a SELECT/EXAMINE (QRESYNC) in the same\n   VANISHED response\
+    \ as UIDs of messages expunged now (i.e., messages\n   expunged in other connections).\
+    \  Instead, the server MUST send\n   separate VANISHED responses: one with the\
+    \ EARLIER tag and one\n   without.\n   A VANISHED response MUST NOT be sent when\
+    \ no command is in progress,\n   nor while responding to a FETCH, STORE, or SEARCH\
+    \ command.  This rule\n   is necessary to prevent a loss of synchronization of\
+    \ message sequence\n   numbers between client and server.  A command is not \"\
+    in progress\"\n   until the complete command has been received; in particular,\
+    \ a\n   command is not \"in progress\" during the negotiation of command\n   continuation.\n\
+    \   Note: UID FETCH, UID STORE, and UID SEARCH are different commands\n   from\
+    \ FETCH, STORE, and SEARCH.  A VANISHED response MAY be sent\n   during a UID\
+    \ command.  However, the VANISHED response MUST NOT be\n   sent during a UID SEARCH\
+    \ command that contains message numbers in the\n   search criteria.\n   The update\
+    \ from the VANISHED response MUST be recorded by the client.\n   Example: Let's\
+    \ assume that there is the following mapping between\n   message numbers and UIDs\
+    \ in the currently selected mailbox (here \"X\"\n   marks messages with the \\\
+    Deleted flag set, and \"x\" represents UIDs\n   which are not relevant for the\
+    \ example):\n   Message numbers:   1    2    3    4    5  6   7  8  9 10  11\n\
+    \   UIDs:              x  504  505  507  508  x 510  x  x  x 625\n   \\Deleted\
+    \ messages:           X    X           X            X\n   In the presence of the\
+    \ extension defined in this document:\n   C: A202 EXPUNGE\n   S: * VANISHED 505,507,510,625\n\
+    \   S: A202 OK EXPUNGE completed\n   Without the QRESYNC extension, the same example\
+    \ might look like:\n   C: A202 EXPUNGE\n   S: * 3 EXPUNGE\n   S: * 3 EXPUNGE\n\
+    \   S: * 5 EXPUNGE\n   S: * 8 EXPUNGE\n   S: A202 OK EXPUNGE completed\n   (Continuing\
+    \ previous example) If subsequently messages with UIDs 504\n   and 508 got marked\
+    \ as \\Deleted:\n   C: A210 EXPUNGE\n   S: * VANISHED 504,508\n   S: A210 OK EXPUNGE\
+    \ completed\n   i.e., the last VANISHED response only contains UIDs of messages\n\
+    \   expunged since the previous VANISHED response.\n"
+- title: 3.7.  CLOSED Response Code
+  contents:
+  - "3.7.  CLOSED Response Code\n   The CLOSED response code has no parameters.  A\
+    \ server implementing\n   the extension defined in this document MUST return the\
+    \ CLOSED\n   response code when the currently selected mailbox is closed\n   implicitly\
+    \ using the SELECT/EXAMINE command on another mailbox.  The\n   CLOSED response\
+    \ code serves as a boundary between responses for the\n   previously opened mailbox\
+    \ (which was closed) and the newly selected\n   mailbox: all responses before\
+    \ the CLOSED response code relate to the\n   mailbox that was closed, and all\
+    \ subsequent responses relate to the\n   newly opened mailbox.\n   There is no\
+    \ need to return the CLOSED response code on completion of\n   the CLOSE or the\
+    \ UNSELECT [UNSELECT] command (or similar) whose\n   purpose is to close the currently\
+    \ selected mailbox without opening a\n   new one.\n"
+- title: 4.  Server Implementation Considerations
+  contents:
+  - "4.  Server Implementation Considerations\n   This section describes a minimalist\
+    \ implementation, a moderate\n   implementation, and an example of a full implementation.\n"
+- title: 4.1.  Server Implementations That Don't Store Extra State
+  contents:
+  - "4.1.  Server Implementations That Don't Store Extra State\n   Strictly speaking,\
+    \ a server implementation that doesn't remember mod-\n   sequences associated\
+    \ with expunged messages can be considered\n   compliant with this specification.\
+    \  Such implementations return all\n   expunged messages specified in the UID\
+    \ set of the UID FETCH\n   (VANISHED) command every time, without paying attention\
+    \ to the\n   specified CHANGEDSINCE mod-sequence.  Such implementations are\n\
+    \   discouraged, as they can end up returning VANISHED responses that are\n  \
+    \ bigger than the result of a UID SEARCH command for the same UID set.\n   Clients\
+    \ that use the message sequence match data can reduce the scope\n   of this VANISHED\
+    \ response substantially in the typical case where\n   expunges have not happened,\
+    \ or happen only toward the end of the\n   mailbox.\n"
+- title: 4.2.  Server Implementations Storing Minimal State
+  contents:
+  - "4.2.  Server Implementations Storing Minimal State\n   A server that stores the\
+    \ HIGHESTMODSEQ value at the time of the last\n   EXPUNGE can omit the VANISHED\
+    \ response when a client provides a\n   MODSEQ value that is equal to, or higher\
+    \ than, the current value of\n   this datum, that is, when there have been no\
+    \ EXPUNGEs.\n   A client providing message sequence match data can reduce the\
+    \ scope\n   as above.  In the case where there have been no expunges, the server\n\
+    \   can ignore this data.\n"
+- title: 4.3.  Additional State Required on the Server
+  contents:
+  - "4.3.  Additional State Required on the Server\n   When compared to the [CONDSTORE]\
+    \ extension, this extension requires\n   servers to store additional state associated\
+    \ with expunged messages.\n   Note that implementations are not required to store\
+    \ this state in\n   persistent storage; however, use of persistent storage is\
+    \ advisable.\n   One possible way to correctly implement the extension described\
+    \ in\n   this document is to store a queue of <UID set, mod-sequence> pairs.\n\
+    \   <UID set> can be represented as a sequence of <min UID, max UID>\n   pairs.\n\
+    \   When messages are expunged, one or more entries are added to the\n   queue\
+    \ tail.\n   When the server receives a request to return messages expunged since\n\
+    \   a given mod-sequence, it will search the queue from the tail (i.e.,\n   going\
+    \ from the highest expunged mod-sequence to the lowest) until it\n   sees the\
+    \ first record with a mod-sequence less than or equal to the\n   given mod-sequence\
+    \ or it reaches the head of the queue.\n   Note that indefinitely storing information\
+    \ about expunged messages\n   can cause storage and related problems for an implementation.\
+    \  In the\n   worst case, this could result in almost 64Gb of storage for each\
+    \ IMAP\n   mailbox.  For example, consider an implementation that stores <min\n\
+    \   UID, max UID, mod-sequence> triples for each range of messages\n   expunged\
+    \ at the same time.  Each triple requires 16 octets: 4 octets\n   for each of\
+    \ the two UIDs, and 8 octets for the mod-sequence.  Assume\n   that there is a\
+    \ mailbox containing a single message with a UID of\n   2**32-1 (the maximum possible\
+    \ UID value), where messages had\n   previously existed with UIDs starting at\
+    \ 1, and have been expunged\n   one at a time.  For this mailbox alone, storage\
+    \ is required for the\n   triples <1, 1, modseq1>, <2, 2, modseq2>, ..., <2**32-2,\
+    \ 2**32-2,\n   modseq4294967294>.\n   Hence, implementations are encouraged to\
+    \ adopt strategies to protect\n   against such storage problems, such as limiting\
+    \ the size of the queue\n   used to store mod-sequences for expunged messages\
+    \ and \"expiring\"\n   older records when this limit is reached.  When the selected\n\
+    \   implementation-specific queue limit is reached, the oldest record(s)\n   are\
+    \ deleted from the queue (note that such records are located at the\n   queue\
+    \ head).  For all such \"expired\" records, the server needs to\n   store a single\
+    \ mod-sequence, which is the highest mod-sequence for\n   all \"expired\" expunged\
+    \ messages.\n   Note that if the client provides the message sequence match data,\n\
+    \   this can heavily reduce the data cost of sending a complete set of\n   missing\
+    \ UIDs; thus, reducing the problems for clients if a server is\n   unable to persist\
+    \ much of this queue.  If the queue contains data\n   back to the requested mod-sequence,\
+    \ this data can be ignored.\n   Also, note that if the UIDVALIDITY of the mailbox\
+    \ changes or if the\n   mailbox is deleted, then any state associated with expunged\
+    \ messages\n   doesn't need to be preserved and SHOULD be deleted.\n"
+- title: 5.  Updated Synchronization Sequence
+  contents:
+  - "5.  Updated Synchronization Sequence\n   This section updates the description\
+    \ of optimized synchronization in\n   Section 6.1 of the [IMAP-DISC].\n   An advanced\
+    \ disconnected mail client should use the QRESYNC and\n   [CONDSTORE] extensions\
+    \ when they are supported by the server.  The\n   client uses the value from the\
+    \ HIGHESTMODSEQ OK response code\n   received on mailbox opening to determine\
+    \ if it needs to\n   resynchronize.  Once the synchronization is complete, it\
+    \ MUST cache\n   the received value (unless the mailbox UIDVALIDITY value has\
+    \ changed;\n   see below).  The client MUST update its copy of the HIGHESTMODSEQ\n\
+    \   value whenever the server sends a subsequent HIGHESTMODSEQ OK\n   response\
+    \ code.\n   After completing a full synchronization, the client MUST also take\n\
+    \   note of any unsolicited MODSEQ FETCH data items received from the\n   server.\
+    \  Whenever the client receives a tagged response to a command,\n   it calculates\
+    \ the highest value among all MODSEQ FETCH data items\n   received since the last\
+    \ tagged response.  If this value is bigger\n   than the client's copy of the\
+    \ HIGHESTMODSEQ value, then the client\n   MUST use this value as its new HIGHESTMODSEQ\
+    \ value.\n   Note: It is not safe to update the client's copy of the HIGHESTMODSEQ\n\
+    \   value with a MODSEQ FETCH data item value as soon as it is received\n   because\
+    \ servers are not required to send MODSEQ FETCH data items in\n   increasing modseqence\
+    \ order.  This can lead to the client missing\n   some changes in case of connectivity\
+    \ loss.\n   When opening the mailbox for synchronization, the client uses the\n\
+    \   QRESYNC parameter to the SELECT/EXAMINE command.  The QRESYNC\n   parameter\
+    \ is followed by the UIDVALIDITY and mailbox HIGHESTMODSEQ\n   values, as known\
+    \ to the client.  It can be optionally followed by the\n   set of UIDs, for example,\
+    \ if the client is only interested in partial\n   synchronization of the mailbox.\
+    \  The client may also transmit a list\n   containing its knowledge of message\
+    \ numbers.\n   If the SELECT/EXAMINE command is successful, the client compares\n\
+    \   UIDVALIDITY as described in step d)1) in Section 3 of the\n   [IMAP-DISC].\
+    \  If the cached UIDVALIDITY value matches the one\n   returned by the server\
+    \ and the server also returns the HIGHESTMODSEQ\n   response code, then the server\
+    \ reports expunged messages and returns\n   flag changes for all messages specified\
+    \ by the client in the UID set\n   parameter (or for all messages in the mailbox,\
+    \ if the client omitted\n   the UID set parameter).  At this point, the client\
+    \ is synchronized,\n   except for maybe the new messages.\n   If upon a successful\
+    \ SELECT/EXAMINE (QRESYNC) command the client\n   receives a NOMODSEQ OK untagged\
+    \ response (instead of the\n   HIGHESTMODSEQ response code), it MUST remove the\
+    \ last known\n   HIGHESTMODSEQ value from its cache and follow the more general\n\
+    \   instructions in Section 3 of the [IMAP-DISC].\n   At this point, the client\
+    \ is in sync with the server regarding old\n   messages.  This client can now\
+    \ fetch information about new messages\n   (if requested by the user).\n   Step\
+    \ d) (\"Server-to-client synchronization\") in Section 4 of the\n   [IMAP-DISC]\
+    \ in the presence of the QRESYNC & CONDSTORE extensions is\n   amended as follows:\n\
+    \   d) \"Server-to-client synchronization\" -- for each mailbox that\n      requires\
+    \ synchronization, do the following:\n   1a) Check the mailbox UIDVALIDITY (see\
+    \ Section 4.1 of the [IMAP-DISC]\n       for more details) after issuing SELECT/EXAMINE\
+    \ (QRESYNC) command.\n       If the UIDVALIDITY value returned by the server differs,\
+    \ the\n       client MUST\n       *   empty the local cache of that mailbox;\n\
+    \       *   \"forget\" the cached HIGHESTMODSEQ value for the mailbox;\n     \
+    \  *   remove any pending \"actions\" which refer to UIDs in that\n          \
+    \ mailbox.  Note, this doesn't affect actions performed on\n           client\
+    \ generated fake UIDs (see Section 5 of the\n           [IMAP-DISC]);\n   2) \
+    \ Fetch the current \"descriptors\";\n       I) Discover new messages.\n   3)\
+    \  Fetch the bodies of any \"interesting\" messages that the client\n       doesn't\
+    \ already have.\n   Example: The UIDVALIDITY value is the same, but the HIGHESTMODSEQ\n\
+    \            value has changed on the server while the client was\n          \
+    \  offline:\n    C: A142 SELECT INBOX (QRESYNC (3857529045 20010715194032001 1:198))\n\
+    \    S: * 172 EXISTS\n    S: * 1 RECENT\n    S: * OK [UNSEEN 12] Message 12 is\
+    \ first unseen\n    S: * OK [UIDVALIDITY 3857529045] UIDs valid\n    S: * OK [UIDNEXT\
+    \ 201] Predicted next UID\n    S: * FLAGS (\\Answered \\Flagged \\Deleted \\Seen\
+    \ \\Draft)\n    S: * OK [PERMANENTFLAGS (\\Deleted \\Seen \\*)] Limited\n    S:\
+    \ * OK [HIGHESTMODSEQ 20010715194045007]\n    S: * VANISHED (EARLIER) 1:5,7:8,10:15\n\
+    \    S: * 2 FETCH (UID 6 MODSEQ (20010715205008000)\n        FLAGS (\\Deleted))\n\
+    \    S: * 5 FETCH (UID 9 MODSEQ (20010715195517000)\n        FLAGS ($NoJunk $AutoJunk\
+    \ $MDNSent))\n       ...\n    S: A142 OK [READ-WRITE] SELECT completed\n"
+- title: 6.  Formal Syntax
+  contents:
+  - "6.  Formal Syntax\n   The following syntax specification uses the Augmented Backus-Naur\n\
+    \   Form (ABNF) notation as specified in [ABNF].\n   Non-terminals referenced\
+    \ but not defined below are as defined by\n   [RFC3501], [CONDSTORE], or [IMAPABNF].\n\
+    \   Except as noted otherwise, all alphabetic characters are case-\n   insensitive.\
+    \  The use of upper or lower case characters to define\n   token strings is for\
+    \ editorial clarity only.  Implementations MUST\n   accept these strings in a\
+    \ case-insensitive fashion.\n   capability          =/ \"QRESYNC\"\n   select-param\
+    \        =  \"QRESYNC\" SP \"(\" uidvalidity SP\n                       mod-sequence-value\
+    \ [SP known-uids]\n                       [SP seq-match-data] \")\"\n        \
+    \               ;; conforms to the generic select-param\n                    \
+    \   ;; syntax defined in [IMAPABNF]\n   seq-match-data      =  \"(\" known-sequence-set\
+    \ SP known-uid-set \")\"\n   uidvalidity         =  nz-number\n   known-uids \
+    \         =  sequence-set\n                       ;; sequence of UIDs, \"*\" is\
+    \ not allowed\n   known-sequence-set  =  sequence-set\n                      \
+    \ ;; set of message numbers corresponding to\n                       ;; the UIDs\
+    \ in known-uid-set, in ascending order.\n                       ;; * is not allowed.\n\
+    \   known-uid-set       =  sequence-set\n                       ;; set of UIDs\
+    \ corresponding to the messages in\n                       ;; known-sequence-set,\
+    \ in ascending order.\n                       ;; * is not allowed.\n   message-data\
+    \        =/ expunged-resp\n   expunged-resp       =  \"VANISHED\" [SP \"(EARLIER)\"\
+    ] SP known-uids\n   rexpunges-fetch-mod =  \"VANISHED\"\n                    \
+    \   ;; VANISHED UID FETCH modifier conforms\n                       ;; to the\
+    \ fetch-modifier syntax\n                       ;; defined in [IMAPABNF].  It\
+    \ is only\n                       ;; allowed in the UID FETCH command.\n   resp-text-code\
+    \      =/ \"CLOSED\"\n"
+- title: 7.  Security Considerations
+  contents:
+  - "7.  Security Considerations\n   As always, it is important to thoroughly test\
+    \ clients and servers\n   implementing this extension, as it changes how the server\
+    \ reports\n   expunged messages to the client.\n   Security considerations relevant\
+    \ to [CONDSTORE] are relevant to this\n   extension.\n   This document doesn't\
+    \ raise any new security concerns not already\n   raised by [CONDSTORE] or [RFC3501].\n"
+- title: 8.  IANA Considerations
+  contents:
+  - "8.  IANA Considerations\n   IMAP4 capabilities are registered by publishing a\
+    \ standards track or\n   IESG approved experimental RFC.  The registry is currently\
+    \ located\n   at:\n      http://www.iana.org/assignments/imap4-capabilities\n\
+    \   This document defines the QRESYNC IMAP capability.  IANA has added\n   this\
+    \ capability to the registry.\n"
+- title: 9.  Acknowledgments
+  contents:
+  - "9.  Acknowledgments\n   Thanks to Steve Hole, Cyrus Daboo, and Michael Wener\
+    \ for encouraging\n   creation of this document.\n   Valuable comments, both in\
+    \ agreement and in dissent, were received\n   from Timo Sirainen, Michael Wener,\
+    \ Randall Gellens, Arnt Gulbrandsen,\n   Chris Newman, Peter Coates, Mark Crispin,\
+    \ Elwyn Davies, Dan Karp,\n   Eric Rescorla, and Mike Zraly.\n   This document\
+    \ takes substantial text from [RFC3501] by Mark Crispin.\n"
+- title: 10.  References
+  contents:
+  - '10.  References
+
+    '
+- title: 10.1.  Normative References
+  contents:
+  - "10.1.  Normative References\n   [ABNF]       Crocker, D. and P. Overell, \"Augmented\
+    \ BNF for Syntax\n                Specifications: ABNF\", STD 68, RFC 5234, January\
+    \ 2008.\n   [CONDSTORE]  Melnikov, A. and S. Hole, \"IMAP Extension for\n    \
+    \            Conditional STORE Operation or Quick Flag Changes\n             \
+    \   Resynchronization\", RFC 4551, June 2006.\n   [ENABLE]     Gulbrandsen, A.,\
+    \ Ed. and A. Melnikov, Ed., \"The IMAP\n                ENABLE Extension\", RFC\
+    \ 5161, March 2008.\n   [IMAPABNF]   Melnikov, A. and C. Daboo, \"Collected Extensions\
+    \ to\n                IMAP4 ABNF\", RFC 4466, April 2006.\n   [RFC2119]    Bradner,\
+    \ S., \"Key words for use in RFCs to Indicate\n                Requirement Levels\"\
+    , BCP 14, RFC 2119, March 1997.\n   [RFC3501]    Crispin, M., \"INTERNET MESSAGE\
+    \ ACCESS PROTOCOL - VERSION\n                4rev1\", RFC 3501, March 2003.\n\
+    \   [UIDPLUS]    Crispin, M., \"Internet Message Access Protocol (IMAP) -\n  \
+    \              UIDPLUS extension\", RFC 4315, December 2005.\n"
+- title: 10.2.  Informative References
+  contents:
+  - "10.2.  Informative References\n   [IMAP-DISC]  Melnikov, A., Ed., \"Synchronization\
+    \ Operations For\n                Disconnected Imap4 Clients\", RFC 4549, June\
+    \ 2006.\n   [UNSELECT]   Melnikov, A., \"Internet Message Access Protocol (IMAP)\n\
+    \                UNSELECT command\", RFC 3691, February 2004.\n"
+- title: Authors' Addresses
+  contents:
+  - "Authors' Addresses\n   Alexey Melnikov\n   Isode Ltd\n   5 Castle Business Village\n\
+    \   36 Station Road\n   Hampton, Middlesex  TW12 2BX\n   UK\n   EMail: Alexey.Melnikov@isode.com\n\
+    \   Dave Cridland\n   Isode Ltd\n   5 Castle Business Village\n   36 Station Road\n\
+    \   Hampton, Middlesex  TW12 2BX\n   UK\n   EMail: dave.cridland@isode.com\n \
+    \  Corby Wilson\n   Nokia\n   5 Wayside Rd.\n   Burlington, MA  01803\n   USA\n\
+    \   EMail: corby@computer.org\n"
+- title: Full Copyright Statement
+  contents:
+  - "Full Copyright Statement\n   Copyright (C) The IETF Trust (2008).\n   This document\
+    \ is subject to the rights, licenses and restrictions\n   contained in BCP 78,\
+    \ and except as set forth therein, the authors\n   retain all their rights.\n\
+    \   This document and the information contained herein are provided on an\n  \
+    \ \"AS IS\" basis and THE CONTRIBUTOR, THE ORGANIZATION HE/SHE REPRESENTS\n  \
+    \ OR IS SPONSORED BY (IF ANY), THE INTERNET SOCIETY, THE IETF TRUST AND\n   THE\
+    \ INTERNET ENGINEERING TASK FORCE DISCLAIM ALL WARRANTIES, EXPRESS\n   OR IMPLIED,\
+    \ INCLUDING BUT NOT LIMITED TO ANY WARRANTY THAT THE USE OF\n   THE INFORMATION\
+    \ HEREIN WILL NOT INFRINGE ANY RIGHTS OR ANY IMPLIED\n   WARRANTIES OF MERCHANTABILITY\
+    \ OR FITNESS FOR A PARTICULAR PURPOSE.\n"
+- title: Intellectual Property
+  contents:
+  - "Intellectual Property\n   The IETF takes no position regarding the validity or\
+    \ scope of any\n   Intellectual Property Rights or other rights that might be\
+    \ claimed to\n   pertain to the implementation or use of the technology described\
+    \ in\n   this document or the extent to which any license under such rights\n\
+    \   might or might not be available; nor does it represent that it has\n   made\
+    \ any independent effort to identify any such rights.  Information\n   on the\
+    \ procedures with respect to rights in RFC documents can be\n   found in BCP 78\
+    \ and BCP 79.\n   Copies of IPR disclosures made to the IETF Secretariat and any\n\
+    \   assurances of licenses to be made available, or the result of an\n   attempt\
+    \ made to obtain a general license or permission for the use of\n   such proprietary\
+    \ rights by implementers or users of this\n   specification can be obtained from\
+    \ the IETF on-line IPR repository at\n   http://www.ietf.org/ipr.\n   The IETF\
+    \ invites any interested party to bring to its attention any\n   copyrights, patents\
+    \ or patent applications, or other proprietary\n   rights that may cover technology\
+    \ that may be required to implement\n   this standard.  Please address the information\
+    \ to the IETF at\n   ietf-ipr@ietf.org.\n"

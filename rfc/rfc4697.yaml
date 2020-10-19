@@ -1,0 +1,630 @@
+- title: __initial_text__
+  contents:
+  - '                  Observed DNS Resolution Misbehavior
+
+    '
+- title: Status of This Memo
+  contents:
+  - "Status of This Memo\n   This document specifies an Internet Best Current Practices\
+    \ for the\n   Internet Community, and requests discussion and suggestions for\n\
+    \   improvements.  Distribution of this memo is unlimited.\n"
+- title: Copyright Notice
+  contents:
+  - "Copyright Notice\n   Copyright (C) The Internet Society (2006).\n"
+- title: Abstract
+  contents:
+  - "Abstract\n   This memo describes DNS iterative resolver behavior that results\
+    \ in a\n   significant query volume sent to the root and top-level domain (TLD)\n\
+    \   name servers.  We offer implementation advice to iterative resolver\n   developers\
+    \ to alleviate these unnecessary queries.  The\n   recommendations made in this\
+    \ document are a direct byproduct of\n   observation and analysis of abnormal\
+    \ query traffic patterns seen at\n   two of the thirteen root name servers and\
+    \ all thirteen com/net TLD\n   name servers.\n"
+- title: Table of Contents
+  contents:
+  - "Table of Contents\n      2.7. Name Server Records with Zero TTL .........................11\n\
+    \           2.7.1. Recommendation .....................................12\n  \
+    \    2.8. Unnecessary Dynamic Update Messages .......................12\n    \
+    \       2.8.1. Recommendation .....................................13\n      2.9.\
+    \ Queries for Domain Names Resembling IPv4 Addresses ........13\n           2.9.1.\
+    \ Recommendation .....................................14\n      2.10. Misdirected\
+    \ Recursive Queries ............................14\n           2.10.1. Recommendation\
+    \ ....................................14\n      2.11. Suboptimal Name Server Selection\
+    \ Algorithm ...............15\n           2.11.1. Recommendation ....................................15\n\
+    \   3. Security Considerations ........................................16\n  \
+    \ 4. Acknowledgements ...............................................16\n   5.\
+    \ Internationalization Considerations ............................16\n   6. References\
+    \ .....................................................16\n      6.1. Normative\
+    \ References ......................................16\n      6.2. Informative\
+    \ References ....................................16\n"
+- title: 1.  Introduction
+  contents:
+  - "1.  Introduction\n   Observation of query traffic received by two root name servers\
+    \ and\n   the thirteen com/net Top-Level Domain (TLD) name servers has revealed\n\
+    \   that a large proportion of the total traffic often consists of\n   \"requeries\"\
+    .  A requery is the same question (<QNAME, QTYPE, QCLASS>)\n   asked repeatedly\
+    \ at an unexpectedly high rate.  We have observed\n   requeries from both a single\
+    \ IP address and multiple IP addresses\n   (i.e., the same query received simultaneously\
+    \ from multiple IP\n   addresses).\n   By analyzing requery events, we have found\
+    \ that the cause of the\n   duplicate traffic is almost always a deficient iterative\
+    \ resolver,\n   stub resolver, or application implementation combined with an\n\
+    \   operational anomaly.  The implementation deficiencies we have\n   identified\
+    \ to date include well-intentioned recovery attempts gone\n   awry, insufficient\
+    \ caching of failures, early abort when multiple\n   levels of indirection must\
+    \ be followed, and aggressive retry by stub\n   resolvers or applications.  Anomalies\
+    \ that we have seen trigger\n   requery events include lame delegations, unusual\
+    \ glue records, and\n   anything that makes all authoritative name servers for\
+    \ a zone\n   unreachable (Denial of Service (DoS) attacks, crashes, maintenance,\n\
+    \   routing failures, congestion, etc.).\n   In the following sections, we provide\
+    \ a detailed explanation of the\n   observed behavior and recommend changes that\
+    \ will reduce the requery\n   rate.  None of the changes recommended affects the\
+    \ core DNS protocol\n   specification; instead, this document consists of guidelines\
+    \ to\n   implementors of iterative resolvers.\n"
+- title: 1.1.  A Note about Terminology in This Memo
+  contents:
+  - "1.1.  A Note about Terminology in This Memo\n   To recast an old saying about\
+    \ standards, the nice thing about DNS\n   terms is that there are so many of them\
+    \ to choose from.  Writing or\n   talking about DNS can be difficult and can cause\
+    \ confusion resulting\n   from a lack of agreed-upon terms for its various components.\
+    \  Further\n   complicating matters are implementations that combine multiple\
+    \ roles\n   into one piece of software, which makes naming the result\n   problematic.\
+    \  An example is the entity that accepts recursive\n   queries, issues iterative\
+    \ queries as necessary to resolve the initial\n   recursive query, caches responses\
+    \ it receives, and which is also able\n   to answer questions about certain zones\
+    \ authoritatively.  This entity\n   is an iterative resolver combined with an\
+    \ authoritative name server\n   and is often called a \"recursive name server\"\
+    \ or a \"caching name\n   server\".\n   This memo is concerned principally with\
+    \ the behavior of iterative\n   resolvers, which are typically found as part of\
+    \ a recursive name\n   server.  This memo uses the more precise term \"iterative\
+    \ resolver\",\n   because the focus is usually on that component.  In instances\
+    \ where\n   the name server role of this entity requires mentioning, this memo\n\
+    \   uses the term \"recursive name server\".  As an example of the\n   difference,\
+    \ the name server component of a recursive name server\n   receives DNS queries\
+    \ and the iterative resolver component sends\n   queries.\n   The advent of IPv6\
+    \ requires mentioning AAAA records as well as A\n   records when discussing glue.\
+    \  To avoid continuous repetition and\n   qualification, this memo uses the general\
+    \ term \"address record\" to\n   encompass both A and AAAA records when a particular\
+    \ situation is\n   relevant to both types.\n"
+- title: 1.2.  Key Words
+  contents:
+  - "1.2.  Key Words\n   The key words \"MUST\", \"MUST NOT\", \"REQUIRED\", \"SHALL\"\
+    , \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\", \"MAY\", and\
+    \ \"OPTIONAL\" in this\n   document are to be interpreted as described in RFC\
+    \ 2119 [1].\n"
+- title: 2.  Observed Iterative Resolver Misbehavior
+  contents:
+  - '2.  Observed Iterative Resolver Misbehavior
+
+    '
+- title: 2.1.  Aggressive Requerying for Delegation Information
+  contents:
+  - "2.1.  Aggressive Requerying for Delegation Information\n   There can be times\
+    \ when every name server in a zone's NS RRSet is\n   unreachable (e.g., during\
+    \ a network outage), unavailable (e.g., the\n   name server process is not running\
+    \ on the server host), or\n   misconfigured (e.g., the name server is not authoritative\
+    \ for the\n   given zone, also known as \"lame\").  Consider an iterative resolver\n\
+    \   that attempts to resolve a query for a domain name in such a zone and\n  \
+    \ discovers that none of the zone's name servers can provide an answer.\n   We\
+    \ have observed a recursive name server implementation whose\n   iterative resolver\
+    \ then verifies the zone's NS RRSet in its cache by\n   querying for the zone's\
+    \ delegation information: it sends a query for\n   the zone's NS RRSet to one\
+    \ of the parent zone's name servers.  (Note\n   that queries with QTYPE=NS are\
+    \ not required by the standard\n   resolution algorithm described in Section 4.3.2\
+    \ of RFC 1034 [2].\n   These NS queries represent this implementation's addition\
+    \ to that\n   algorithm.)\n   For example, suppose that \"example.com\" has the\
+    \ following NS RRSet:\n     example.com.   IN   NS   ns1.example.com.\n     example.com.\
+    \   IN   NS   ns2.example.com.\n   Upon receipt of a query for \"www.example.com\"\
+    \ and assuming that\n   neither \"ns1.example.com\" nor \"ns2.example.com\" can\
+    \ provide an\n   answer, this iterative resolver implementation immediately queries\
+    \ a\n   \"com\" zone name server for the \"example.com\" NS RRSet to verify that\n\
+    \   it has the proper delegation information.  This implementation\n   performs\
+    \ this query to a zone's parent zone for each recursive query\n   it receives\
+    \ that fails because of a completely unresponsive set of\n   name servers for\
+    \ the target zone.  Consider the effect when a popular\n   zone experiences a\
+    \ catastrophic failure of all its name servers: now\n   every recursive query\
+    \ for domain names in that zone sent to this\n   recursive name server implementation\
+    \ results in a query to the failed\n   zone's parent name servers.  On one occasion\
+    \ when several dozen\n   popular zones became unreachable, the query load on the\
+    \ com/net name\n   servers increased by 50%.\n   We believe this verification\
+    \ query is not reasonable.  Consider the\n   circumstances: when an iterative\
+    \ resolver is resolving a query for a\n   domain name in a zone it has not previously\
+    \ searched, it uses the\n   list of name servers in the referral from the target\
+    \ zone's parent.\n   If on its first attempt to search the target zone, none of\
+    \ the name\n   servers in the referral is reachable, a verification query to the\n\
+    \   parent would be pointless: this query to the parent would come so\n   quickly\
+    \ on the heels of the referral that it would be almost certain\n   to contain\
+    \ the same list of name servers.  The chance of discovering\n   any new information\
+    \ is slim.\n   The other possibility is that the iterative resolver successfully\n\
+    \   contacts one of the target zone's name servers and then caches the NS\n  \
+    \ RRSet from the authority section of a response, the proper behavior\n   according\
+    \ to Section 5.4.1 of RFC 2181 [3], because the NS RRSet from\n   the target zone\
+    \ is more trustworthy than delegation information from\n   the parent zone.  If,\
+    \ while processing a subsequent recursive query,\n   the iterative resolver discovers\
+    \ that none of the name servers\n   specified in the cached NS RRSet is available\
+    \ or authoritative,\n   querying the parent would be wrong.  An NS RRSet from\
+    \ the parent zone\n   would now be less trustworthy than data already in the cache.\n\
+    \   For this query of the parent zone to be useful, the target zone's\n   entire\
+    \ set of name servers would have to change AND the former set of\n   name servers\
+    \ would have to be deconfigured or decommissioned AND the\n   delegation information\
+    \ in the parent zone would have to be updated\n   with the new set of name servers,\
+    \ all within the Time to Live (TTL)\n   of the target zone's NS RRSet.  We believe\
+    \ this scenario is uncommon:\n   administrative best practices dictate that changes\
+    \ to a zone's set of\n   name servers happen gradually when at all possible, with\
+    \ servers\n   removed from the NS RRSet left authoritative for the zone as long\
+    \ as\n   possible.  The scenarios that we can envision that would benefit from\n\
+    \   the parent requery behavior do not outweigh its damaging effects.\n   This\
+    \ section should not be understood to claim that all queries to a\n   zone's parent\
+    \ are bad.  In some cases, such queries are not only\n   reasonable but required.\
+    \  Consider the situation when required\n   information, such as the address of\
+    \ a name server (i.e., the address\n   record corresponding to the RDATA of an\
+    \ NS record), has timed out of\n   an iterative resolver's cache before the corresponding\
+    \ NS record.  If\n   the name of the name server is below the apex of the zone,\
+    \ then the\n   name server's address record is only available as glue in the parent\n\
+    \   zone.  For example, consider this NS record:\n     example.com.        IN\
+    \   NS   ns.example.com.\n   If a cache has this NS record but not the address\
+    \ record for\n   \"ns.example.com\", it is unable to contact the \"example.com\"\
+    \ zone\n   directly and must query the \"com\" zone to obtain the address record.\n\
+    \   Note, however, that such a query would not have QTYPE=NS according to\n  \
+    \ the standard resolution algorithm.\n"
+- title: 2.1.1.  Recommendation
+  contents:
+  - "2.1.1.  Recommendation\n   An iterative resolver MUST NOT send a query for the\
+    \ NS RRSet of a\n   non-responsive zone to any of the name servers for that zone's\
+    \ parent\n   zone.  For the purposes of this injunction, a non-responsive zone\
+    \ is\n   defined as a zone for which every name server listed in the zone's NS\n\
+    \   RRSet:\n   1.  is not authoritative for the zone (i.e., lame), or\n   2. \
+    \ returns a server failure response (RCODE=2), or\n   3.  is dead or unreachable\
+    \ according to Section 7.2 of RFC 2308 [4].\n"
+- title: 2.2.  Repeated Queries to Lame Servers
+  contents:
+  - "2.2.  Repeated Queries to Lame Servers\n   Section 2.1 describes a catastrophic\
+    \ failure: when every name server\n   for a zone is unable to provide an answer\
+    \ for one reason or another.\n   A more common occurrence is when a subset of\
+    \ a zone's name servers is\n   unavailable or misconfigured.  Different failure\
+    \ modes have different\n   expected durations.  Some symptoms indicate problems\
+    \ that are\n   potentially transient, for example, various types of ICMP unreachable\n\
+    \   messages because a name server process is not running or a host or\n   network\
+    \ is unreachable, or a complete lack of a response to a query.\n   Such responses\
+    \ could be the result of a host rebooting or temporary\n   outages; these events\
+    \ do not necessarily require any human\n   intervention and can be reasonably\
+    \ expected to be temporary.\n   Other symptoms clearly indicate a condition requiring\
+    \ human\n   intervention, such as lame server: if a name server is misconfigured\n\
+    \   and not authoritative for a zone delegated to it, it is reasonable to\n  \
+    \ assume that this condition has potential to last longer than\n   unreachability\
+    \ or unresponsiveness.  Consequently, repeated queries\n   to known lame servers\
+    \ are not useful.  In this case of a condition\n   with potential to persist for\
+    \ a long time, a better practice would be\n   to maintain a list of known lame\
+    \ servers and avoid querying them\n   repeatedly in a short interval.\n   It should\
+    \ also be noted, however, that some authoritative name server\n   implementations\
+    \ appear to be lame only for queries of certain types\n   as described in RFC\
+    \ 4074 [5].  In this case, it makes sense to retry\n   the \"lame\" servers for\
+    \ other types of queries, particularly when all\n   known authoritative name servers\
+    \ appear to be \"lame\".\n"
+- title: 2.2.1.  Recommendation
+  contents:
+  - "2.2.1.  Recommendation\n   Iterative resolvers SHOULD cache name servers that\
+    \ they discover are\n   not authoritative for zones delegated to them (i.e., lame\
+    \ servers).\n   If this caching is performed, lame servers MUST be cached against\
+    \ the\n   specific query tuple <zone name, class, server IP address>.  Zone\n\
+    \   name can be derived from the owner name of the NS record that was\n   referenced\
+    \ to query the name server that was discovered to be lame.\n   Implementations\
+    \ that perform lame server caching MUST refrain from\n   sending queries to known\
+    \ lame servers for a configurable time\n   interval after the server is discovered\
+    \ to be lame.  A minimum\n   interval of thirty minutes is RECOMMENDED.\n   An\
+    \ exception to this recommendation occurs if all name servers for a\n   zone are\
+    \ marked lame.  In that case, the iterative resolver SHOULD\n   temporarily ignore\
+    \ the servers' lameness status and query one or more\n   servers.  This behavior\
+    \ is a workaround for the type-specific\n   lameness issue described in the previous\
+    \ section.\n   Implementors should take care not to make lame server avoidance\
+    \ logic\n   overly broad: note that a name server could be lame for a parent zone\n\
+    \   but not a child zone, e.g., lame for \"example.com\" but properly\n   authoritative\
+    \ for \"sub.example.com\".  Therefore, a name server should\n   not be automatically\
+    \ considered lame for subzones.  In the case\n   above, even if a name server\
+    \ is known to be lame for \"example.com\",\n   it should be queried for QNAMEs\
+    \ at or below \"sub.example.com\" if an\n   NS record indicates that it should\
+    \ be authoritative for that zone.\n"
+- title: 2.3.  Inability to Follow Multiple Levels of Indirection
+  contents:
+  - "2.3.  Inability to Follow Multiple Levels of Indirection\n   Some iterative resolver\
+    \ implementations are unable to follow\n   sufficient levels of indirection. \
+    \ For example, consider the\n   following delegations:\n     foo.example.    \
+    \    IN   NS   ns1.example.com.\n     foo.example.        IN   NS   ns2.example.com.\n\
+    \     example.com.        IN   NS   ns1.test.example.net.\n     example.com. \
+    \       IN   NS   ns2.test.example.net.\n     test.example.net.   IN   NS   ns1.test.example.net.\n\
+    \     test.example.net.   IN   NS   ns2.test.example.net.\n   An iterative resolver\
+    \ resolving the name \"www.foo.example\" must\n   follow two levels of indirection,\
+    \ first obtaining address records for\n   \"ns1.test.example.net\" or \"ns2.test.example.net\"\
+    \ in order to obtain\n   address records for \"ns1.example.com\" or \"ns2.example.com\"\
+    \ in order\n   to query those name servers for the address records of\n   \"www.foo.example\"\
+    .  Although this situation may appear contrived, we\n   have seen multiple similar\
+    \ occurrences and expect more as new generic\n   top-level domains (gTLDs) become\
+    \ active.  We anticipate many zones in\n   new gTLDs will use name servers in\
+    \ existing gTLDs, increasing the\n   number of delegations using out-of-zone name\
+    \ servers.\n"
+- title: 2.3.1.  Recommendation
+  contents:
+  - "2.3.1.  Recommendation\n   Clearly constructing a delegation that relies on multiple\
+    \ levels of\n   indirection is not a good administrative practice.  However, the\n\
+    \   practice is widespread enough to require that iterative resolvers be\n   able\
+    \ to cope with it.  Iterative resolvers SHOULD be able to handle\n   arbitrary\
+    \ levels of indirection resulting from out-of-zone name\n   servers.  Iterative\
+    \ resolvers SHOULD implement a level-of-effort\n   counter to avoid loops or otherwise\
+    \ performing too much work in\n   resolving pathological cases.\n   A best practice\
+    \ that avoids this entire issue of indirection is to\n   name one or more of a\
+    \ zone's name servers in the zone itself.  For\n   example, if the zone is named\
+    \ \"example.com\", consider naming some of\n   the name servers \"ns{1,2,...}.example.com\"\
+    \ (or similar).\n"
+- title: 2.4.  Aggressive Retransmission when Fetching Glue
+  contents:
+  - "2.4.  Aggressive Retransmission when Fetching Glue\n   When an authoritative\
+    \ name server responds with a referral, it\n   includes NS records in the authority\
+    \ section of the response.\n   According to the algorithm in Section 4.3.2 of\
+    \ RFC 1034 [2], the name\n   server should also \"put whatever addresses are available\
+    \ into the\n   additional section, using glue RRs if the addresses are not available\n\
+    \   from authoritative data or the cache.\"  Some name server\n   implementations\
+    \ take this address inclusion a step further with a\n   feature called \"glue\
+    \ fetching\".  A name server that implements glue\n   fetching attempts to include\
+    \ address records for every NS record in\n   the authority section.  If necessary,\
+    \ the name server issues multiple\n   queries of its own to obtain any missing\
+    \ address records.\n   Problems with glue fetching can arise in the context of\n\
+    \   \"authoritative-only\" name servers, which only serve authoritative\n   data\
+    \ and ignore requests for recursion.  Such an entity will not\n   normally generate\
+    \ any queries of its own.  Instead it answers non-\n   recursive queries from\
+    \ iterative resolvers looking for information in\n   zones it serves.  With glue\
+    \ fetching enabled, however, an\n   authoritative server invokes an iterative\
+    \ resolver to look up an\n   unknown address record to complete the additional\
+    \ section of a\n   response.\n   We have observed situations where the iterative\
+    \ resolver of a glue-\n   fetching name server can send queries that reach other\
+    \ name servers,\n   but is apparently prevented from receiving the responses.\
+    \  For\n   example, perhaps the name server is authoritative-only and therefore\n\
+    \   its administrators expect it to receive only queries and not\n   responses.\
+    \  Perhaps unaware of glue fetching and presuming that the\n   name server's iterative\
+    \ resolver will generate no queries, its\n   administrators place the name server\
+    \ behind a network device that\n   prevents it from receiving responses.  If this\
+    \ is the case, all\n   glue-fetching queries will go unanswered.\n   We have observed\
+    \ name server implementations whose iterative\n   resolvers retry excessively\
+    \ when glue-fetching queries are\n   unanswered.  A single com/net name server\
+    \ has received hundreds of\n   queries per second from a single such source. \
+    \ Judging from the\n   specific queries received and based on additional analysis,\
+    \ we\n   believe these queries result from overly aggressive glue fetching.\n"
+- title: 2.4.1.  Recommendation
+  contents:
+  - "2.4.1.  Recommendation\n   Implementers whose name servers support glue fetching\
+    \ SHOULD take\n   care to avoid sending queries at excessive rates.  Implementations\n\
+    \   SHOULD support throttling logic to detect when queries are sent but\n   no\
+    \ responses are received.\n"
+- title: 2.5.  Aggressive Retransmission behind Firewalls
+  contents:
+  - "2.5.  Aggressive Retransmission behind Firewalls\n   A common occurrence and\
+    \ one of the largest sources of repeated\n   queries at the com/net and root name\
+    \ servers appears to result from\n   resolvers behind misconfigured firewalls.\
+    \  In this situation, an\n   iterative resolver is apparently allowed to send\
+    \ queries through a\n   firewall to other name servers, but not receive the responses.\
+    \  The\n   result is more queries than necessary because of retransmission, all\n\
+    \   of which are useless because the responses are never received.  Just\n   as\
+    \ with the glue-fetching scenario described in Section 2.4, the\n   queries are\
+    \ sometimes sent at excessive rates.  To make matters\n   worse, sometimes the\
+    \ responses, sent in reply to legitimate queries,\n   trigger an alarm on the\
+    \ originator's intrusion detection system.  We\n   are frequently contacted by\
+    \ administrators responding to such alarms\n   who believe our name servers are\
+    \ attacking their systems.\n   Not only do some resolvers in this situation retransmit\
+    \ queries at an\n   excessive rate, but they continue to do so for days or even\
+    \ weeks.\n   This scenario could result from an organization with multiple\n \
+    \  recursive name servers, only a subset of whose iterative resolvers'\n   traffic\
+    \ is improperly filtered in this manner.  Stub resolvers in the\n   organization\
+    \ could be configured to query multiple recursive name\n   servers.  Consider\
+    \ the case where a stub resolver queries a filtered\n   recursive name server\
+    \ first.  The iterative resolver of this\n   recursive name server sends one or\
+    \ more queries whose replies are\n   filtered, so it cannot respond to the stub\
+    \ resolver, which times out.\n   Then the stub resolver retransmits to a recursive\
+    \ name server that is\n   able to provide an answer.  Since resolution ultimately\
+    \ succeeds the\n   underlying problem might not be recognized or corrected.  A\
+    \ popular\n   stub resolver implementation has a very aggressive retransmission\n\
+    \   schedule, including simultaneous queries to multiple recursive name\n   servers,\
+    \ which could explain how such a situation could persist\n   without being detected.\n"
+- title: 2.5.1.  Recommendation
+  contents:
+  - "2.5.1.  Recommendation\n   The most obvious recommendation is that administrators\
+    \ SHOULD take\n   care not to place iterative resolvers behind a firewall that\
+    \ allows\n   queries, but not the resulting replies, to pass through.\n   Iterative\
+    \ resolvers SHOULD take care to avoid sending queries at\n   excessive rates.\
+    \  Implementations SHOULD support throttling logic to\n   detect when queries\
+    \ are sent but no responses are received.\n"
+- title: 2.6.  Misconfigured NS Records
+  contents:
+  - "2.6.  Misconfigured NS Records\n   Sometimes a zone administrator forgets to\
+    \ add the trailing dot on the\n   domain names in the RDATA of a zone's NS records.\
+    \  Consider this\n   fragment of the zone file for \"example.com\":\n     $ORIGIN\
+    \ example.com.\n     example.com.      3600   IN   NS   ns1.example.com  ; Note\
+    \ missing\n     example.com.      3600   IN   NS   ns2.example.com  ; trailing\
+    \ dots\n   The zone's authoritative servers will parse the NS RDATA as\n   \"\
+    ns1.example.com.example.com\" and \"ns2.example.com.example.com\" and\n   return\
+    \ NS records with this incorrect RDATA in responses, including\n   typically the\
+    \ authority section of every response containing records\n   from the \"example.com\"\
+    \ zone.\n   Now consider a typical sequence of queries.  An iterative resolver\n\
+    \   attempting to resolve address records for \"www.example.com\" with no\n  \
+    \ cached information for this zone will query a \"com\" authoritative\n   server.\
+    \  The \"com\" server responds with a referral to the\n   \"example.com\" zone,\
+    \ consisting of NS records with valid RDATA and\n   associated glue records. \
+    \ (This example assumes that the\n   \"example.com\" zone delegation information\
+    \ is correct in the \"com\"\n   zone.)  The iterative resolver caches the NS RRSet\
+    \ from the \"com\"\n   server and follows the referral by querying one of the\
+    \ \"example.com\"\n   authoritative servers.  This server responds with the\n\
+    \   \"www.example.com\" address record in the answer section and,\n   typically,\
+    \ the \"example.com\" NS records in the authority section and,\n   if space in\
+    \ the message remains, glue address records in the\n   additional section.  According\
+    \ to Section 5.4.1 of RFC 2181 [3], NS\n   records in the authority section of\
+    \ an authoritative answer are more\n   trustworthy than NS records from the authority\
+    \ section of a non-\n   authoritative answer.  Thus, the \"example.com\" NS RRSet\
+    \ just received\n   from the \"example.com\" authoritative server overrides the\n\
+    \   \"example.com\" NS RRSet received moments ago from the \"com\"\n   authoritative\
+    \ server.\n   But the \"example.com\" zone contains the erroneous NS RRSet as\
+    \ shown\n   in the example above.  Subsequent queries for names in \"example.com\"\
+    \n   will cause the iterative resolver to attempt to use the incorrect NS\n  \
+    \ records and so it will try to resolve the nonexistent names\n   \"ns1.example.com.example.com\"\
+    \ and \"ns2.example.com.example.com\".  In\n   this example, since all of the\
+    \ zone's name servers are named in the\n   zone itself (i.e., \"ns1.example.com.example.com\"\
+    \ and\n   \"ns2.example.com.example.com\" both end in \"example.com\") and all\
+    \ are\n   bogus, the iterative resolver cannot reach any \"example.com\" name\n\
+    \   servers.  Therefore, attempts to resolve these names result in\n   address\
+    \ record queries to the \"com\" authoritative servers.  Queries\n   for such obviously\
+    \ bogus glue address records occur frequently at the\n   com/net name servers.\n"
+- title: 2.6.1.  Recommendation
+  contents:
+  - "2.6.1.  Recommendation\n   An authoritative server can detect this situation.\
+    \  A trailing dot\n   missing from an NS record's RDATA always results by definition\
+    \ in a\n   name server name that exists somewhere under the apex of the zone\n\
+    \   that the NS record appears in.  Note that further levels of\n   delegation\
+    \ are possible, so a missing trailing dot could\n   inadvertently create a name\
+    \ server name that actually exists in a\n   subzone.\n   An authoritative name\
+    \ server SHOULD issue a warning when one of a\n   zone's NS records references\
+    \ a name server below the zone's apex when\n   a corresponding address record\
+    \ does not exist in the zone AND there\n   are no delegated subzones where the\
+    \ address record could exist.\n"
+- title: 2.7.  Name Server Records with Zero TTL
+  contents:
+  - "2.7.  Name Server Records with Zero TTL\n   Sometimes a popular com/net subdomain's\
+    \ zone is configured with a TTL\n   of zero on the zone's NS records, which prohibits\
+    \ these records from\n   being cached and will result in a higher query volume\
+    \ to the zone's\n   authoritative servers.  The zone's administrator should understand\n\
+    \   the consequences of such a configuration and provision resources\n   accordingly.\
+    \  A zero TTL on the zone's NS RRSet, however, carries\n   additional consequences\
+    \ beyond the zone itself: if an iterative\n   resolver cannot cache a zone's NS\
+    \ records because of a zero TTL, it\n   will be forced to query that zone's parent's\
+    \ name servers each time\n   it resolves a name in the zone.  The com/net authoritative\
+    \ servers do\n   see an increased query load when a popular com/net subdomain's\
+    \ zone\n   is configured with a TTL of zero on the zone's NS records.\n   A zero\
+    \ TTL on an RRSet expected to change frequently is extreme but\n   permissible.\
+    \  A zone's NS RRSet is a special case, however, because\n   changes to it must\
+    \ be coordinated with the zone's parent.  In most\n   zone parent/child relationships\
+    \ that we are aware of, there is\n   typically some delay involved in effecting\
+    \ changes.  Furthermore,\n   changes to the set of a zone's authoritative name\
+    \ servers (and\n   therefore to the zone's NS RRSet) are typically relatively\
+    \ rare:\n   providing reliable authoritative service requires a reasonably stable\n\
+    \   set of servers.  Therefore, an extremely low or zero TTL on a zone's\n   NS\
+    \ RRSet rarely makes sense, except in anticipation of an upcoming\n   change.\
+    \  In this case, when the zone's administrator has planned a\n   change and does\
+    \ not want iterative resolvers throughout the Internet\n   to cache the NS RRSet\
+    \ for a long period of time, a low TTL is\n   reasonable.\n"
+- title: 2.7.1.  Recommendation
+  contents:
+  - "2.7.1.  Recommendation\n   Because of the additional load placed on a zone's\
+    \ parent's\n   authoritative servers resulting from a zero TTL on a zone's NS\
+    \ RRSet,\n   under such circumstances authoritative name servers SHOULD issue\
+    \ a\n   warning when loading a zone.\n"
+- title: 2.8.  Unnecessary Dynamic Update Messages
+  contents:
+  - "2.8.  Unnecessary Dynamic Update Messages\n   The UPDATE message specified in\
+    \ RFC 2136 [6] allows an authorized\n   agent to update a zone's data on an authoritative\
+    \ name server using a\n   DNS message sent over the network.  Consider the case\
+    \ of an agent\n   desiring to add a particular resource record.  Because of zone\
+    \ cuts,\n   the agent does not necessarily know the proper zone to which the\n\
+    \   record should be added.  The dynamic update process requires that the\n  \
+    \ agent determine the appropriate zone so the UPDATE message can be\n   sent to\
+    \ one of the zone's authoritative servers (typically the\n   primary master as\
+    \ specified in the zone's Start of Authority (SOA)\n   record's MNAME field).\n\
+    \   The appropriate zone to update is the closest enclosing zone, which\n   cannot\
+    \ be determined only by inspecting the domain name of the record\n   to be updated,\
+    \ since zone cuts can occur anywhere.  One way to\n   determine the closest enclosing\
+    \ zone entails walking up the name\n   space tree by sending repeated UPDATE messages\
+    \ until successful.  For\n   example, consider an agent attempting to add an address\
+    \ record with\n   the name \"foo.bar.example.com\".  The agent could first attempt\
+    \ to\n   update the \"foo.bar.example.com\" zone.  If the attempt failed, the\n\
+    \   update could be directed to the \"bar.example.com\" zone, then the\n   \"\
+    example.com\" zone, then the \"com\" zone, and finally the root zone.\n   A popular\
+    \ dynamic agent follows this algorithm.  The result is many\n   UPDATE messages\
+    \ received by the root name servers, the com/net\n   authoritative servers, and\
+    \ presumably other TLD authoritative\n   servers.  A valid question is why the\
+    \ algorithm proceeds to send\n   updates all the way to TLD and root name servers.\
+    \  This behavior is\n   not entirely unreasonable: in enterprise DNS architectures\
+    \ with an\n   \"internal root\" design, there could conceivably be private, non-\n\
+    \   public TLD or root zones that would be the appropriate targets for a\n   dynamic\
+    \ update.\n   A significant deficiency with this algorithm is that knowledge of\
+    \ a\n   given UPDATE message's failure is not helpful in directing future\n  \
+    \ UPDATE messages to the appropriate servers.  A better algorithm would\n   be\
+    \ to find the closest enclosing zone by walking up the name space\n   with queries\
+    \ for SOA or NS rather than \"probing\" with UPDATE\n   messages.  Once the appropriate\
+    \ zone is found, an UPDATE message can\n   be sent.  In addition, the results\
+    \ of these queries can be cached to\n   aid in determining the closest enclosing\
+    \ zones for future updates.\n   Once the closest enclosing zone is determined\
+    \ with this method, the\n   update will either succeed or fail and there is no\
+    \ need to send\n   further updates to higher-level zones.  The important point\
+    \ is that\n   walking up the tree with queries yields cacheable information,\n\
+    \   whereas walking up the tree by sending UPDATE messages does not.\n"
+- title: 2.8.1.  Recommendation
+  contents:
+  - "2.8.1.  Recommendation\n   Dynamic update agents SHOULD send SOA or NS queries\
+    \ to progressively\n   higher-level names to find the closest enclosing zone for\
+    \ a given\n   name to update.  Only after the appropriate zone is found should\
+    \ the\n   client send an UPDATE message to one of the zone's authoritative\n \
+    \  servers.  Update clients SHOULD NOT \"probe\" using UPDATE messages by\n  \
+    \ walking up the tree to progressively higher-level zones.\n"
+- title: 2.9.  Queries for Domain Names Resembling IPv4 Addresses
+  contents:
+  - "2.9.  Queries for Domain Names Resembling IPv4 Addresses\n   The root name servers\
+    \ receive a significant number of A record\n   queries where the QNAME looks like\
+    \ an IPv4 address.  The source of\n   these queries is unknown.  It could be attributed\
+    \ to situations where\n   a user believes that an application will accept either\
+    \ a domain name\n   or an IP address in a given configuration option.  The user\
+    \ enters an\n   IP address, but the application assumes that any input is a domain\n\
+    \   name and attempts to resolve it, resulting in an A record lookup.\n   There\
+    \ could also be applications that produce such queries in a\n   misguided attempt\
+    \ to reverse map IP addresses.\n   These queries result in Name Error (RCODE=3)\
+    \ responses.  An iterative\n   resolver can negatively cache such responses, but\
+    \ each response\n   requires a separate cache entry; i.e., a negative cache entry\
+    \ for the\n   domain name \"192.0.2.1\" does not prevent a subsequent query for\
+    \ the\n   domain name \"192.0.2.2\".\n"
+- title: 2.9.1.  Recommendation
+  contents:
+  - "2.9.1.  Recommendation\n   It would be desirable for the root name servers not\
+    \ to have to answer\n   these queries: they unnecessarily consume CPU resources\
+    \ and network\n   bandwidth.  A possible solution is to delegate these numeric\
+    \ TLDs\n   from the root zone to a separate set of servers to absorb the\n   traffic.\
+    \  The \"black hole servers\" used by the AS 112 Project\n   (http://www.as112.net),\
+    \ which are currently delegated the\n   in-addr.arpa zones corresponding to RFC\
+    \ 1918 [7] private use address\n   space, would be a possible choice to receive\
+    \ these delegations.  Of\n   course, the proper and usual root zone change procedures\
+    \ would have\n   to be followed to make such a change to the root zone.\n"
+- title: 2.10.  Misdirected Recursive Queries
+  contents:
+  - "2.10.  Misdirected Recursive Queries\n   The root name servers receive a significant\
+    \ number of recursive\n   queries (i.e., queries with the Recursion Desired (RD)\
+    \ bit set in the\n   header).  Since none of the root servers offers recursion,\
+    \ the\n   servers' response in such a situation ignores the request for\n   recursion\
+    \ and the response probably does not contain the data the\n   querier anticipated.\
+    \  Some of these queries result from users\n   configuring stub resolvers to query\
+    \ a root server.  (This situation\n   is not hypothetical: we have received complaints\
+    \ from users when this\n   configuration does not work as hoped.)  Of course,\
+    \ users should not\n   direct stub resolvers to use name servers that do not offer\n\
+    \   recursion, but we are not aware of any stub resolver implementation\n   that\
+    \ offers any feedback to the user when so configured, aside from\n   simply \"\
+    not working\".\n"
+- title: 2.10.1.  Recommendation
+  contents:
+  - "2.10.1.  Recommendation\n   When the IP address of a name server that supposedly\
+    \ offers recursion\n   is configured in a stub resolver using an interactive user\
+    \ interface,\n   the resolver could send a test query to verify that the server\
+    \ indeed\n   supports recursion (i.e., verify that the response has the RA bit\
+    \ set\n   in the header).  The user could be notified immediately if the server\n\
+    \   is non-recursive.\n   The stub resolver could also report an error, either\
+    \ through a user\n   interface or in a log file, if the queried server does not\
+    \ support\n   recursion.  Error reporting SHOULD be throttled to avoid a\n   notification\
+    \ or log message for every response from a non-recursive\n   server.\n"
+- title: 2.11.  Suboptimal Name Server Selection Algorithm
+  contents:
+  - "2.11.  Suboptimal Name Server Selection Algorithm\n   An entire document could\
+    \ be devoted to the topic of problems with\n   different implementations of the\
+    \ recursive resolution algorithm.  The\n   entire process of recursion is woefully\
+    \ under-specified, requiring\n   each implementor to design an algorithm.  Sometimes\
+    \ implementors make\n   poor design choices that could be avoided if a suggested\
+    \ algorithm\n   and best practices were documented, but that is a topic for another\n\
+    \   document.\n   Some deficiencies cause significant operational impact and are\n\
+    \   therefore worth mentioning here.  One of these is name server\n   selection\
+    \ by an iterative resolver.  When an iterative resolver wants\n   to contact one\
+    \ of a zone's authoritative name servers, how does it\n   choose from the NS records\
+    \ listed in the zone's NS RRSet?  If the\n   selection mechanism is suboptimal,\
+    \ queries are not spread evenly\n   among a zone's authoritative servers.  The\
+    \ details of the selection\n   mechanism are up to the implementor, but we offer\
+    \ some suggestions.\n"
+- title: 2.11.1.  Recommendation
+  contents:
+  - "2.11.1.  Recommendation\n   This list is not conclusive, but reflects the changes\
+    \ that would\n   produce the most impact in terms of reducing disproportionate\
+    \ query\n   load among a zone's authoritative servers.  That is, these changes\n\
+    \   would help spread the query load evenly.\n   o  Do not make assumptions based\
+    \ on NS RRSet order: all NS RRs SHOULD\n      be treated equally.  (In the case\
+    \ of the \"com\" zone, for example,\n      most of the root servers return the\
+    \ NS record for\n      \"a.gtld-servers.net\" first in the authority section of\
+    \ referrals.\n      Apparently as a result, this server receives disproportionately\n\
+    \      more traffic than the other twelve authoritative servers for\n      \"\
+    com\".)\n   o  Use all NS records in an RRSet.  (For example, we are aware of\n\
+    \      implementations that hard-coded information for a subset of the\n     \
+    \ root servers.)\n   o  Maintain state and favor the best-performing of a zone's\n\
+    \      authoritative servers.  A good definition of performance is\n      response\
+    \ time.  Non-responsive servers can be penalized with an\n      extremely high\
+    \ response time.\n   o  Do not lock onto the best-performing of a zone's name\
+    \ servers.  An\n      iterative resolver SHOULD periodically check the performance\
+    \ of\n      all of a zone's name servers to adjust its determination of the\n\
+    \      best-performing one.\n"
+- title: 3.  Security Considerations
+  contents:
+  - "3.  Security Considerations\n   The iterative resolver misbehavior discussed\
+    \ in this document exposes\n   the root and TLD name servers to increased risk\
+    \ of both intentional\n   and unintentional Denial of Service attacks.\n   We\
+    \ believe that implementation of the recommendations offered in this\n   document\
+    \ will reduce the amount of unnecessary traffic seen at root\n   and TLD name\
+    \ servers, thus reducing the opportunity for an attacker\n   to use such queries\
+    \ to his or her advantage.\n"
+- title: 4.  Acknowledgements
+  contents:
+  - "4.  Acknowledgements\n   The authors would like to thank the following people\
+    \ for their\n   comments that improved this document: Andras Salamon, Dave Meyer,\n\
+    \   Doug Barton, Jaap Akkerhuis, Jinmei Tatuya, John Brady, Kevin Darcy,\n   Olafur\
+    \ Gudmundsson, Pekka Savola, Peter Koch, and Rob Austein.  We\n   apologize if\
+    \ we have omitted anyone; any oversight was unintentional.\n"
+- title: 5.  Internationalization Considerations
+  contents:
+  - "5.  Internationalization Considerations\n   There are no new internationalization\
+    \ considerations introduced by\n   this memo.\n"
+- title: 6.  References
+  contents:
+  - '6.  References
+
+    '
+- title: 6.1.  Normative References
+  contents:
+  - "6.1.  Normative References\n   [1]  Bradner, S., \"Key words for use in RFCs\
+    \ to Indicate Requirement\n        Levels\", BCP 14, RFC 2119, March 1997.\n \
+    \  [2]  Mockapetris, P., \"Domain names - concepts and facilities\", STD\n   \
+    \     13, RFC 1034, November 1987.\n"
+- title: 6.2.  Informative References
+  contents:
+  - "6.2.  Informative References\n   [3]  Elz, R. and R. Bush, \"Clarifications to\
+    \ the DNS Specification\",\n        RFC 2181, July 1997.\n   [4]  Andrews, M.,\
+    \ \"Negative Caching of DNS Queries (DNS NCACHE)\", RFC\n        2308, March 1998.\n\
+    \   [5]  Morishita, Y. and T. Jinmei, \"Common Misbehavior Against DNS\n     \
+    \   Queries for IPv6 Addresses\", RFC 4074, May 2005.\n   [6]  Vixie, P., Thomson,\
+    \ S., Rekhter, Y., and J. Bound, \"Dynamic\n        Updates in the Domain Name\
+    \ System (DNS UPDATE)\", RFC 2136, April\n        1997.\n   [7]  Rekhter, Y.,\
+    \ Moskowitz, B., Karrenberg, D., de Groot, G., and E.\n        Lear, \"Address\
+    \ Allocation for Private Internets\", BCP 5, RFC\n        1918, February 1996.\n"
+- title: Authors' Addresses
+  contents:
+  - "Authors' Addresses\n   Matt Larson\n   VeriSign, Inc.\n   21345 Ridgetop Circle\n\
+    \   Dulles, VA  20166-6503\n   USA\n   EMail: mlarson@verisign.com\n   Piet Barber\n\
+    \   VeriSign, Inc.\n   21345 Ridgetop Circle\n   Dulles, VA  20166-6503\n   USA\n\
+    \   EMail: pbarber@verisign.com\n"
+- title: Full Copyright Statement
+  contents:
+  - "Full Copyright Statement\n   Copyright (C) The Internet Society (2006).\n   This\
+    \ document is subject to the rights, licenses and restrictions\n   contained in\
+    \ BCP 78, and except as set forth therein, the authors\n   retain all their rights.\n\
+    \   This document and the information contained herein are provided on an\n  \
+    \ \"AS IS\" basis and THE CONTRIBUTOR, THE ORGANIZATION HE/SHE REPRESENTS\n  \
+    \ OR IS SPONSORED BY (IF ANY), THE INTERNET SOCIETY AND THE INTERNET\n   ENGINEERING\
+    \ TASK FORCE DISCLAIM ALL WARRANTIES, EXPRESS OR IMPLIED,\n   INCLUDING BUT NOT\
+    \ LIMITED TO ANY WARRANTY THAT THE USE OF THE\n   INFORMATION HEREIN WILL NOT\
+    \ INFRINGE ANY RIGHTS OR ANY IMPLIED\n   WARRANTIES OF MERCHANTABILITY OR FITNESS\
+    \ FOR A PARTICULAR PURPOSE.\n"
+- title: Intellectual Property
+  contents:
+  - "Intellectual Property\n   The IETF takes no position regarding the validity or\
+    \ scope of any\n   Intellectual Property Rights or other rights that might be\
+    \ claimed to\n   pertain to the implementation or use of the technology described\
+    \ in\n   this document or the extent to which any license under such rights\n\
+    \   might or might not be available; nor does it represent that it has\n   made\
+    \ any independent effort to identify any such rights.  Information\n   on the\
+    \ procedures with respect to rights in RFC documents can be\n   found in BCP 78\
+    \ and BCP 79.\n   Copies of IPR disclosures made to the IETF Secretariat and any\n\
+    \   assurances of licenses to be made available, or the result of an\n   attempt\
+    \ made to obtain a general license or permission for the use of\n   such proprietary\
+    \ rights by implementers or users of this\n   specification can be obtained from\
+    \ the IETF on-line IPR repository at\n   http://www.ietf.org/ipr.\n   The IETF\
+    \ invites any interested party to bring to its attention any\n   copyrights, patents\
+    \ or patent applications, or other proprietary\n   rights that may cover technology\
+    \ that may be required to implement\n   this standard.  Please address the information\
+    \ to the IETF at\n   ietf-ipr@ietf.org.\n"
+- title: Acknowledgement
+  contents:
+  - "Acknowledgement\n   Funding for the RFC Editor function is provided by the IETF\n\
+    \   Administrative Support Activity (IASA).\n"

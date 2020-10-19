@@ -1,0 +1,430 @@
+- title: __initial_text__
+  contents:
+  - "             Implementing the Internet Checksum in Hardware\nStatus of This Memo\n\
+    \   This memo provides information for the Internet community.  This memo\n  \
+    \ does not specify an Internet standard of any kind.  Distribution of\n   this\
+    \ memo is unlimited.\nAbstract\n   This memo presents a techniques for efficiently\
+    \ implementing the\n   Internet Checksum in hardware. It includes PLD code for\
+    \ programming a\n   single, low cost part to perform checksumming at 1.26 Gbps.\n\
+    Introduction\n   The Internet Checksum is used in various Internet protocols to\
+    \ check\n   for data corruption in headers (e.g., IP) [4] and packet bodies (e.g,\n\
+    \   UDP, TCP) [5][6]. Efficient software implementation of this checksum\n   has\
+    \ been addressed in previous RFCs [1][2][3][7].\n   Efficient software implementations\
+    \ of the Internet Checksum algorithm\n   are often embedded in data copying operations\
+    \ ([1], Section 2). This\n   copy operation is increasingly being performed by\
+    \ dedicated direct\n   memory access (DMA) hardware. As a result, DMA hardware\
+    \ designs are\n   beginning to incorporate dedicated hardware to compute the Internet\n\
+    \   Checksum during the data transfer.\n   This note presents the architecture\
+    \ of an efficient, pipelined\n   Internet Checksum mechanism, suitable for inclusion\
+    \ in DMA hardware\n   [8]. This design can be implemented in a relatively inexpensive\n\
+    \   programmable logic device (PLD) (1995 cost of $40), and is capable of\n  \
+    \ supporting 1.26 Gbps transfer rates, at 26 ns per 32-bit word.\n   Appendix\
+    \ A provides the pseudocode for such a device. This design has\n   been implemented\
+    \ in the PC-ATOMIC host interface hardware [8]. We\n   believe this design is\
+    \ of general use to the Internet community.\n   The remainder of this document\
+    \ is organized as follows:\n            Review of the Internet Checksum\n    \
+    \        One's Complement vs. Two's Complement Addition\n            Interfaces\n\
+    \            Summary\n            Appendix A - PLD source code\nA Review of the\
+    \ Internet Checksum\n   The Internet Checksum is used for detecting corruption\
+    \ in a block of\n   data [1]. It is initialized to zero, and computed as the complement\n\
+    \   of the ones-complement sum of the data, taken in 16-bit units. A\n   subsequent\
+    \ checksum of the data and checksum together should generate\n   a zero checksum\
+    \ if no errors are detected.\n   The checksum allows [1]:\n            - byte\
+    \ order \"independence\"\n                    reordered output is equivalent to\
+    \ reordered input\n            - 16-bit word-order independence\n            \
+    \        reordering 16-bit words preserves the output\n            - incremental\
+    \ computation\n            - deferred carries\n            - parallel summation\n\
+    \                    a result of deferred carries, incremental\n             \
+    \       computation, and 16-bit word order independence\n   This note describes\
+    \ an implementation that computes two partial\n   checksums in parallel, over\
+    \ the odd and even 16-bit half-words of\n   32-bit data. The result is a pair\
+    \ of partial checksums (odd and\n   even), which can be combined, and the result\
+    \ inverted to generate the\n   true Internet Checksum. This technique is related\
+    \ to the long-word\n   parallel summation used in efficient software implementations\
+    \ [1].\n            +------------------+     +------------------+\n          \
+    \  |  high half-word  |     |  low half-word   |\n            | ones-complement\
+    \  |     | ones-complement  |\n            | partial checksum |     | partial\
+    \ checksum |\n            +------------------+     +------------------+\n    \
+    \                            \\   /\n                                  * (ones-complement\
+    \ sum)\n                                  |\n                         +------------------+\n\
+    \                         | partial checksum |\n                         +------------------+\n\
+    \                                  |\n                                  * (ones-complement\
+    \ negative)\n                                  |\n                        +-------------------+\n\
+    \                        |       final       |\n                        | Internet\
+    \ Checksum |\n                        +-------------------+\nOne's Complement\
+    \ vs. Two's Complement Addition\n   The Internet Checksum is composed of a ones-complement\
+    \ lookahead\n   adder and a bit-wise inverter. A ones-complement adder can be\
+    \ built\n   either using twos-complement components, or natively.\n   A twos-complement\
+    \ implementation of a ones-complement adder requires\n   either two twos-complement\
+    \ adders, or two cycles per add. The sum is\n   performed, then the high-bit carry-out\
+    \ is propagated to the carry-in,\n   and a second sum is performed. (ones-complement\
+    \ addition is {+1s} and\n   twos-complement is {+2s})\n            a {+1s} b ==\
+    \ (a {+2s} b) + carry(a {+2s} b)\n            e.g.,\n                    halfword16\
+    \ a,b;\n                    word32 c;\n                    a {+1s} b == r\n  \
+    \          such that:\n                    c = a {+2s} b;                    \
+    \      # sum value\n                    r = (c & 0xFFFF) {+2s} (c >> 16);    \
+    \   # sum carry\n   Bits of a twos-complement lookahead adder are progressively\
+    \ more\n   complex in carry lookahead. (OR the contents of each row, where terms\n\
+    \   are AND'd or XOR'd {^})\n            4-bit carry-lookahead 2's complement\
+    \ adder:\n                    a,b : input data\n                    p   : carry\
+    \ propagate, where pi = ai*bi = (ai)(bi)\n                    g   : carry generate,\
+    \ where gi = ai + bi\n            Out0 := a0 ^ b0 ^ ci\n            Out1 := a1\
+    \ ^ b1 ^ (cip0     + g0)\n            Out2 := a2 ^ b2 ^ (cip0p1   + g0p1   + g1)\n\
+    \            Out3 := a3 ^ b3 ^ (cip0p1p2 + g0p1p2 + g1p2 + g2)\n            Cout\
+    \ := cip0p1p2p3 + g0p1p2p3 + g1p2p3 + g2p3 + g3\n   The true ones-complement lookahead\
+    \ adder recognizes that the carry-\n   wrap of the twos-complement addition is\
+    \ equivalent to a toroidal\n   carry-lookahead. Bits of a ones-complement lookahead\
+    \ adder are all\n   the same complexity, that of the high-bit of a twos-complement\n\
+    \   lookahead adder. Thus the ones-complement sum (and thus the Internet\n   Checksum)\
+    \ is bit-position independent. We replace `ci' with the `co'\n   expression and\
+    \ reduce. (OR terms in each row pair).\n            4-bit carry-lookahead 1's\
+    \ complement ring adder:\n            Out0 = a0 ^ b0 ^ (g3       + g2p3     +\
+    \ g1p2p3   + g0p1p2p3)\n            Out1 = a1 ^ b1 ^ (g3p0     + g2p3p0   + g1p2p3p0\
+    \ + g0)\n            Out2 = a2 ^ b2 ^ (g3p0p1   + g2p3p0p1 + g1       + g0p1)\n\
+    \            Out3 = a3 ^ b3 ^ (g3p0p1p2 + g2       + g1p2     + g0p1p2)\n   A\
+    \ hardware implementation can use this toroidal design directly,\n   together\
+    \ with conventional twos-complement fast-adder internal\n   components, to perform\
+    \ a pipelined ones-complement adder [8].\n   A VLSI implementation could use any\
+    \ full-lookahead adder, adapted to\n   be toroidal and bit-equivalent, as above.\
+    \ In our PLD implementation,\n   we implement the adders via 2- and 3-bit full-lookahead\
+    \ sub-\n   components. The adder components are chained in a ring via carry bit\n\
+    \   registers.  This relies on delayed carry-propagation to implement a\n   carry\
+    \ pipeline between the fast-adder stages.\n            Full-lookahead adders in\
+    \ a toroidal pipeline\n         +-+-+-+   +-+-+-+   +-+-+   +-+-+-+   +-+-+-+\
+    \   +-+-+\n         |i|i|i|   |i|i|i|   |i|i|   |i|i|i|   |i|i|i|   |i|i|\n  \
+    \       |F|E|D|   |C|B|A|   |9|8|   |7|6|5|   |4|3|2|   |1|0|\n         +-+-+-+\
+    \   +-+-+-+   +-+-+   +-+-+-+   +-+-+-+   +-+-+\n           \"+\"       \"+\"\
+    \      \"+\"      \"+\"       \"+\"      \"+\"\n         +-+-+-+   +-+-+-+   +-+-+\
+    \   +-+-+-+   +-+-+-+   +-+-+\n         |s|s|s|   |s|s|s|   |s|s|   |s|s|s|  \
+    \ |s|s|s|   |s|s|\n         |F|E|D|   |C|B|A|   |9|8|   |7|6|5|   |4|3|2|   |1|0|\n\
+    \         +-+-+-+   +-+-+-+   +-+-+   +-+-+-+   +-+-+-+   +-+-+\n         v  \
+    \   |   v     |   v   |   v     |   v     |   v   |   +--+\n         |     ^ \
+    \  |     ^   |   ^   |     ^   |     ^   |   ^   v  |\n         |      +-+   \
+    \    +-+     +-+       +-+       +-+     +-+   |\n         |      |c|       |c|\
+    \     |c|       |c|       |c|     |c|   |\n         |      |5|       |4|     |3|\
+    \       |2|       |1|     |0|   |\n         |      +-+       +-+     +-+     \
+    \  +-+       +-+     +-+   |\n         +----------------------------------------------------------+\n\
+    \   Implementation of fast-adders in PLD hardware is currently limited to\n  \
+    \ 3-bits, because an i-bit adder requires 4+2^i product terms, and\n   current\
+    \ PLDs support only 16 product terms.  The resulting device\n   takes at most\
+    \ 5 \"idle\" clock periods for the carries to propagate\n   through the accumulation\
+    \ pipeline.\nInterfaces\n   The above device has been installed in a VL-Bus PC\
+    \ host interface\n   card [8]. It has a hardware and software interface, defined\
+    \ as\n   follows.\n Hardware Interface\n   The Internet Checksum hardware appears\
+    \ as a single-port 32-bit\n   register, with clock and control signals [8]:\n\
+    \                   +----------------------+\n            CLR--->|           \
+    \           |\n            OE---->|  32-bit register as  |\n            CLK--->|\
+    \  2 adjacent 16-bit   |<---/---> 32-bit data bus\n            ICLK-->| ones-complement\
+    \ sums |\n            ADD--->|                      |\n                   +----------------------+\n\
+    \            CLR    = zero the register\n            OE     = write the register\
+    \ onto the data bus\n            CLK    = clock to cycle the pipeline operation\n\
+    \            ICLK   = input data latch clock\n            ADD    = initiating\
+    \ an add of latched input data\n   CLR causes the contents of the checksum register\
+    \ and input latch to\n   be zeroed. There is no explicit load; a CLR followed\
+    \ by a write of\n   the load value to a dummy location is equivalent.\n   The\
+    \ OE causes the register to be written to the data bus, or tri-\n   stated.\n\
+    \   The CLK causes the pipeline to operate. If no new input data is\n   latched\
+    \ to be added (via ICLK, ADD), a virtual \"zero\" is summed into\n   the register,\
+    \ to permit the pipeline to empty.\n   The ICLK (transparently) latches the value\
+    \ on the data bus to be\n   latched internally, to be summed into the accumulator\
+    \ on the next ADD\n   signal. The ADD signal causes the latched input data (ICLK)\
+    \ to be\n   accumulated into the checksum pipeline. ADD and ICLK are commonly\n\
+    \   tied together. One 32-bit data value can be latched and accumulated\n   into\
+    \ the pipeline adder every 26-ns clock, assuming data is stable\n   when the ADD/ICLK\
+    \ signal occurs.\n   The internal 32-bit register is organized as two 16-bit ones-\n\
+    \   complement sums, over the even and odd 16-bit words of the data\n   stream.\
+    \ To compute the Internet Checksum from this quantity, ones-\n   complement add\
+    \ the halves together, and invert the result.\n Software Interface\n   The device\
+    \ is used as a memory-mapped register. The register is read\n   by performing\
+    \ a read on its equivalent memory location.\n   The device is controlled via an\
+    \ external memory-mapped register. Bits\n   in this control register clear the\
+    \ device (set/clear the CLR line),\n   and enable and disable the device (set/clear\
+    \ the ADD line). The CLR\n   line can alternatively be mapped to a memory write,\
+    \ e.g., such that\n   reading the location is a non-destructive read of the checksum\n\
+    \   register, and a write of any value clears the checksum register. The\n   enable/disable\
+    \ control must be stored in an external register.\n   The device is designed to\
+    \ operate in background during memory\n   transfers (either DMA or programmed\
+    \ I/O). Once enabled, all transfers\n   across that bus are summed into the checksum\
+    \ register. The checksum\n   is available 5 clocks after the last enabled data\
+    \ accumulation. This\n   delay is often hidden by memory access mechanisms and\
+    \ bus\n   arbitration.  If required, \"stall\" instructions can be executed for\n\
+    \   the appropriate delay.\n   For the following example, we assume that the device\
+    \ is located at\n   CKSUMLOC. We assume that reading that location reads the checksum\n\
+    \   register, and writing any value to that location clears the register.\n  \
+    \ The control register is located at CTLLOC, and the checksum\n   enable/disable\
+    \ bit is CKSUMBIT, where 1 is enabled, and 0 is\n   disabled.  To perform a checksum,\
+    \ a programmer would clear the\n   register, (optionally initialize the checksum),\
+    \ initiate a series of\n   transfers, and use the result:\n            /*******\
+    \ initialization *******/\n            *(CTLLOC) &= ~((ctlsize)(CKSUMBIT));  \
+    \   /* disable sum */\n            (word32)(*(CKSUMLOC)) = 0;               /*\
+    \ clear reg   */\n            *(CTLLOC) |= CKSUMBIT;                   /* enable\
+    \ sum  */\n            { (optional) write initial value to a dummy location }\n\
+    \            /***** perform a transfer *****/\n            { do one or more DMA\
+    \ or PIO transfers - read or write }\n            /***** gather the results *****/\n\
+    \            *(CTLLOC) &= ~((ctlsize)(CKSUMBIT));     /* disable sum  */\n   \
+    \         sum = (word32)(*(CKSUMLOC));             /* read sum     */\n      \
+    \      sum = (sum & 0xFFFF) + (sum >> 16);      /* fold halves  */\n         \
+    \   sum = (sum & 0xFFFF) + (sum >> 16);      /* add in carry */\n            ipcksum\
+    \ = (halfword16)(~(sum & 0xFFFF)); /* 1's negative */\nSummary\n   This note describes\
+    \ the design of a hardware Internet Checksum that\n   can be implemented in an\
+    \ inexpensive PLD, achieving 1.26 Gbps. This\n   design has been implemented in\
+    \ the PC-ATOMIC host interface hardware\n   [8]. We believe this design is of\
+    \ general use to the Internet\n   community.\nSecurity Considerations\n   Security\
+    \ considerations are not addressed here. The Internet Checksum\n   is not intended\
+    \ as a security measure.\nAcknowledgements\n   The authors would like to thank\
+    \ the members of the \"High-Performance\n   Computing and Communications\", notably\
+    \ Mike Carlton, and \"Advanced\n   Systems\" Divisions at ISI for their assistance\
+    \ in the development of\n   the hardware, and this memo.\nReferences\n   [1] Braden,\
+    \ R., Borman, D., and Partridge, C., \"Computing the\n       Internet Checksum,\"\
+    \ Network Working Group RFC-1071, ISI, Cray\n       Research, and BBN Labs, Sept.\
+    \ 1988.\n   [2] Mallory, T., and Kullberg, A., \"Incremental Updating of the\n\
+    \       Internet Checksum,\" Network Working Group RFC-1141, BBN Comm.,\n    \
+    \   Jan. 1990.\n   [3] Plummer, W., \"TCP Checksum Function Design,\" IEN-45,\
+    \ BBN, 1978,\n       included as an appendix in RFC-1071.\n   [4] Postel, Jon,\
+    \ \"Internet Protocol,\" Network Working Group RFC-\n       791/STD-5, ISI, Sept.\
+    \ 1981.\n   [5] Postel, Jon, \"User Datagram Protocol,\" Network Working Group\n\
+    \       RFC-768/STD-6, ISI, Aug. 1980.\n   [6] Postel, Jon, \"Transmission Control\
+    \ Protocol,\" Network Working\n       Group RFC-793/STD-7, ISI, Sept. 1981.\n\
+    \   [7] Rijsinghani, A., \"Computation of the Internet Checksum via\n       Incremental\
+    \ Update,\" Network Working Group RFC-1624, Digital\n       Equipment Corp., May\
+    \ 1994.\n   [8] Touch, J., \"PC-ATOMIC\", ISI Tech. Report. SR-95-407, June 1995.\n\
+    Authors' Addresses\n   Joe Touch\n   University of Southern California/Information\
+    \ Sciences Institute\n   4676 Admiralty Way\n   Marina del Rey, CA 90292-6695\n\
+    \   USA\n   Phone: +1 310-822-1511 x151\n   Fax:   +1 310-823-6714\n   URL:  \
+    \ http://www.isi.edu/~touch\n   EMail: touch@isi.edu\n   Bruce Parham\n   University\
+    \ of Southern California/Information Sciences Institute\n   4676 Admiralty Way\n\
+    \   Marina del Rey, CA 90292-6695\n   USA\n   Phone: +1 310-822-1511 x101\n  \
+    \ Fax:   +1 310-823-6714\n   EMail: bparham@isi.edu\nAppendix A: PLD source code\n\
+    The following is the PLD source code for an AMD MACH-435 PLD. The\nMACH-435 is\
+    \ composed of 8 22V10-equivalent PLD blocks, connected by a\nconfigurable internal\
+    \ matrix.\n---- (PLD source code follows) ----\nTITLE    PC-ATOMIC IP Sum Accelerator\
+    \ - 1-clock 2- and 3-bit 26 ns version\nPATTERN  ip_sum\nREVISION 1.01\nAUTHOR\
+    \   J. Touch & B. Parham\nCOMPANY  USC/ISI\nDATE     06/21/94\nCHIP    ip_sum\
+    \          MACH435\n; accumulates in 1 clock (1 level of logic)\n;\n; resources\
+    \ allocated to reduce fitting time\n;\n; uses an input register \"dl\" to latch\
+    \ the data bus values on rising edge\n; accumulates a hi/lo ones-complement sum\
+    \ in register \"q\"\n; the input and output are accessed via bidirectional pins\
+    \ \"dq\"\n;\n; uses 2 groups of 6 carry bit registers \"cy\"\n;\n; use 3-bit full-adders\
+    \ with carry lookahead (settles in 6 clocks)\n; group 16 bits as      [000102\
+    \ 030405 0607 080910 111213 1415]\n;                       [161718 192021 2223\
+    \ 242526 272829 3031]\n;\n; locking the pins down speeds up fitting and is designed\
+    \ to force\n; 4-bit components into single \"segments\" of the PLD.\n; we could\
+    \ have indicated the same thing via:\n;       GROUP MACH_SEG_A        dq[6..0]\n\
+    ;       GROUP MACH_SEG_B        dq[14..8]\n;       GROUP MACH_SEG_C        dq[22..16]\n\
+    ;       GROUP MACH_SEG_D        dq[30..24]\n;\n; control pins:\n;\nPIN     20\
+    \      clk             ; adder clock\nPIN     62      ip_add          ; add current\
+    \ data to sum\nPIN     83      ip_sum_ena      ; output current sum\nPIN     41\
+    \      ip_clr          ; clear current sum\nPIN 23  ip_dclk                 ;\
+    \ input data latch (tied to clk, or not)\n;\n; dq are data bus pins\n; dl is the\
+    \ input register\n;\nPIN     [9..3]          dq[6..0] IPAIR dl[6..0]         ;\
+    \ IO port\nPIN     [18..12]        dq[14..8] IPAIR dl[14..8]       ; IO port\n\
+    PIN     [30..24]        dq[22..16] IPAIR dl[22..16]     ; IO port\nPIN     [39..33]\
+    \        dq[30..24] IPAIR dl[30..24]     ; IO port\nPIN     ?       dq[31,23,15,7]\
+    \ IPAIR dl[31,23,15,7]     ; IO port\n;\n; q  is the partial checksum register\n\
+    ; dl is the input register\n; dq are the data bus pins\n;\nNODE    ?       q[31..0]\
+    \ OPAIR dq[31..0]        ; internal data in reg\nNODE    ?       dl[31..0] REG\
+    \                   ; input reg\n;\n; cy are the carry register bits\n;\nNODE\
+    \    ?       cy[31,29,26,23,21,18,15,13,10,7,5,2] REG\n                      \
+    \                          ;1-bit internal carry bits\nEQUATIONS\n;\n; .trst is\
+    \ the tri-state control, 0 means these are always inputs\n;\nip_add.trst     \
+    \        = 0\nip_clr.trst             = 0\nip_sum_ena.trst         = 0\n;\n; grab\
+    \ data to the input register on every clock (irrelevant if invalid)\n;\ndl[31..0].clkf\
+    \          = ip_dclk       ; grab data all the time\n        ; don't use setf,\
+    \ rstf, or trst for dl\n        ; we want dl to map to input registers, not internal\
+    \ cells\n        ; besides, input registers don't need setf, rstf, or trst\n;\n\
+    ; control of the checksum register\n;\ndq[31..0].clkf          = clk         \
+    \          ; clk clocks everything\ndq[31..0].setf          = gnd            \
+    \       ; never preset registers\ndq[31..0].rstf          = ip_clr           \
+    \     ; clear on reset\ndq[31..0].trst          = ip_sum_ena            ; ena\
+    \ outputs sum - read\n;\n; control for the carry register\n;\ncy[31,29,26,23,21,18,15,13,10,7,5,2].clkf\
+    \       = clk\ncy[31,29,26,23,21,18,15,13,10,7,5,2].setf       = gnd    ; never\
+    \ preset\ncy[31,29,26,23,21,18,15,13,10,7,5,2].rstf       = ip_clr ; clear on\
+    \ reset\n;\n; INPUT DATA LATCH\n; nothing fancy here - grab all inputs when ip_add\
+    \ signal is high\n; i.e., grab data in input register\n;\ndl[31..0]          \
+    \   := dq[31..0]\n;\n; COMBINATORIAL ADDER\n;\n; built as a series of 2-bit and\
+    \ 3-bit (carry-lookahead) full-adders\n; with carries sent to the carry register\
+    \ \"pipeline\"\n;\n; sum[n] are sum bits\n; cy[m] are carry bits\n; \":+:\" is\
+    \ XOR\n;\n; SUM[0] = (A0 :+: B0 :+: CARRY_IN)\n;\n; CY[0] = ((A0 * B0) + ((A0\
+    \ :+: B0) * CARRY_IN))\n;\n; actually, the latter can be rewritten as\n;\n; CY[0]\
+    \ = ((A0 * B0) + ((A0 + B0) * CARRY_IN))\n;\n; because the XOR won't be invalidated\
+    \ by the AND case, since the\n; result is always 1 from the first term then anyway\n\
+    ; this helps reduce the number of XOR terms required, which are\n; a limited resource\
+    \ in PLDs\n;\n; SUM THE LOW-ORDER WORD\n;\n;\n; the first 5 bits [0..4] of the\
+    \ low-order word\n;\nq[0]    := (q[0] :+: (ip_add * dl[0]) :+: cy[15])\nq[1] \
+    \   := (q[1] :+: (ip_add * dl[1]) :+:\n        ((ip_add *\n                (q[0]\
+    \ * dl[0] +\n                dl[0] * cy[15])) +\n        (q[0] * cy[15])))\nq[2]\
+    \    := (q[2] :+: (ip_add * dl[2]) :+:\n        ((ip_add *\n                (q[1]\
+    \ * dl[1] +\n                 q[1] *  q[0] *  dl[0] +\n                dl[1] *\
+    \  q[0] *  dl[0] +\n                 q[1] * dl[0] * cy[15] +\n               \
+    \ dl[1] * dl[0] * cy[15] +\n                dl[1] *  q[0] * cy[15])) +\n     \
+    \   (q[1] * q[0] * cy[15])))\ncy[2]   := ((ip_add *\n                (q[2] * dl[2]\
+    \ +\n                 q[2] *  q[1] * dl[1] +\n                dl[2] *  q[1] *\
+    \ dl[1] +\n                 q[2] *  q[1] *  q[0] *  dl[0] +\n                \
+    \ q[2] * dl[1] *  q[0] *  dl[0] +\n                dl[2] *  q[1] *  q[0] *  dl[0]\
+    \ +\n                dl[2] * dl[1] *  q[0] *  dl[0] +\n                 q[2] *\
+    \  q[1] * dl[0] * cy[15] +\n                 q[2] * dl[1] *  q[0] * cy[15] +\n\
+    \                 q[2] * dl[1] * dl[0] * cy[15] +\n                dl[2] *  q[1]\
+    \ *  q[0] * cy[15] +\n                dl[2] *  q[1] * dl[0] * cy[15] +\n     \
+    \           dl[2] * dl[1] *  q[0] * cy[15] +\n                dl[2] * dl[1] *\
+    \ dl[0] * cy[15])) +\n        (q[2] * q[1] * q[0] * cy[15]))\nq[3]    := (q[3]\
+    \ :+: (ip_add * dl[3]) :+: cy[2])\nq[4]    := (q[4] :+: (ip_add * dl[4]) :+:\n\
+    \        ((ip_add *\n                (q[3] * dl[3] +\n                dl[3] *\
+    \ cy[2])) +\n        (q[3] * cy[2])))\n;\n; the next 3 bits [5..7] of the low-order\
+    \ word\n;\nq[5]    := (q[5] :+: (ip_add * dl[5]) :+:\n        ((ip_add *\n   \
+    \             (q[4] * dl[4] +\n                 q[4] *  q[3] * dl[3] +\n     \
+    \           dl[4] *  q[3] * dl[3] +\n                 q[4] * dl[3] * cy[2] +\n\
+    \                dl[4] * dl[3] * cy[2] +\n                dl[4] *  q[3] * cy[2]))\
+    \ +\n        (q[4] * q[3] * cy[2])))\ncy[5]   := ((ip_add * (\n              \
+    \   q[5] * dl[5] +\n                 q[5] *  q[4] * dl[4] +\n                dl[5]\
+    \ *  q[4] * dl[4] +\n                 q[5] *  q[4] *  q[3] * dl[3] +\n       \
+    \          q[5] * dl[4] *  q[3] * dl[3] +\n                dl[5] *  q[4] *  q[3]\
+    \ * dl[3] +\n                dl[5] * dl[4] *  q[3] * dl[3] +\n               \
+    \  q[5] *  q[4] * dl[3] * cy[2] +\n                 q[5] * dl[4] *  q[3] * cy[2]\
+    \ +\n                 q[5] * dl[4] * dl[3] * cy[2] +\n                dl[5] *\
+    \  q[4] *  q[3] * cy[2] +\n                dl[5] *  q[4] * dl[3] * cy[2] +\n \
+    \               dl[5] * dl[4] *  q[3] * cy[2] +\n                dl[5] * dl[4]\
+    \ * dl[3] * cy[2])) +\n        (q[5] * q[4] * q[3] * cy[2]))\nq[6]    := (q[6]\
+    \ :+: (ip_add * dl[6]) :+: cy[5])\nq[7]    := (q[7] :+: (ip_add * dl[7]) :+:\n\
+    \        ((ip_add *\n                (q[6] * dl[6] +\n                dl[6] *\
+    \ cy[5])) +\n        (q[6] * cy[5])))\ncy[7]   := ((ip_add *\n               \
+    \ (q[7] * dl[7] +\n                 q[7] *  q[6] * dl[6] +\n                dl[7]\
+    \ *  q[6] * dl[6] +\n                 q[7] * dl[6] * cy[5] +\n               \
+    \ dl[7] * dl[6] * cy[5] +\n                dl[7] *  q[6] * cy[5])) +\n       \
+    \ (q[7] * q[6] * cy[5]))\n;\n; the next 5 bits [8..12] of the low-order word\n\
+    ;\nq[8]    := (q[8] :+: (ip_add * dl[8]) :+: cy[7])\nq[9]    := (q[9] :+: (ip_add\
+    \ * dl[9]) :+:\n        ((ip_add *\n                (q[8] * dl[8] +\n        \
+    \        dl[8] * cy[7])) +\n        (q[8] * cy[7])))\nq[10]   := (q[10] :+: (ip_add\
+    \ * dl[10]) :+:\n        ((ip_add *\n                (q[9] * dl[9] +\n       \
+    \          q[9] *  q[8] * dl[8] +\n                dl[9] *  q[8] * dl[8] +\n \
+    \                q[9] * dl[8] * cy[7] +\n                dl[9] * dl[8] * cy[7]\
+    \ +\n                dl[9] *  q[8] * cy[7])) +\n        (q[9] * q[8] * cy[7])))\n\
+    cy[10]  := ((ip_add *\n                (q[10] * dl[10] +\n                 q[10]\
+    \ *  q[9] * dl[9] +\n                dl[10] *  q[9] * dl[9] +\n              \
+    \   q[10] *  q[9] *  q[8] * dl[8] +\n                 q[10] * dl[9] *  q[8] *\
+    \ dl[8] +\n                dl[10] *  q[9] *  q[8] * dl[8] +\n                dl[10]\
+    \ * dl[9] *  q[8] * dl[8] +\n                 q[10] *  q[9] * dl[8] * cy[7] +\n\
+    \                 q[10] * dl[9] *  q[8] * cy[7] +\n                 q[10] * dl[9]\
+    \ * dl[8] * cy[7] +\n                dl[10] *  q[9] *  q[8] * cy[7] +\n      \
+    \          dl[10] *  q[9] * dl[8] * cy[7] +\n                dl[10] * dl[9] *\
+    \  q[8] * cy[7] +\n                dl[10] * dl[9] * dl[8] * cy[7])) +\n      \
+    \  (q[10] * q[9] * q[8] * cy[7]))\nq[11]   := (q[11] :+: (ip_add * dl[11]) :+:\
+    \ cy[10])\nq[12]   := (q[12] :+: (ip_add * dl[12]) :+:\n        ((ip_add *\n \
+    \               (q[11] * dl[11] +\n                dl[11] * cy[10])) +\n     \
+    \   (q[11] * cy[10])))\n;\n; the final 3 bits [13..15] of the low-order word\n\
+    ;\nq[13]   := (q[13] :+: (ip_add * dl[13]) :+:\n        ((ip_add *\n         \
+    \       (q[12] * dl[12] +\n                 q[12] *  q[11] * dl[11] +\n      \
+    \          dl[12] *  q[11] * dl[11] +\n                 q[12] * dl[11] * cy[10]\
+    \ +\n                dl[12] * dl[11] * cy[10] +\n                dl[12] *  q[11]\
+    \ * cy[10])) +\n        (q[12] * q[11] * cy[10])))\ncy[13]  := ((ip_add * (\n\
+    \                 q[13] * dl[13] +\n                 q[13] *  q[12] * dl[12] +\n\
+    \                dl[13] *  q[12] * dl[12] +\n                 q[13] *  q[12] *\
+    \  q[11] * dl[11] +\n                 q[13] * dl[12] *  q[11] * dl[11] +\n   \
+    \             dl[13] *  q[12] *  q[11] * dl[11] +\n                dl[13] * dl[12]\
+    \ *  q[11] * dl[11] +\n                 q[13] *  q[12] * dl[11] * cy[10] +\n \
+    \                q[13] * dl[12] *  q[11] * cy[10] +\n                 q[13] *\
+    \ dl[12] * dl[11] * cy[10] +\n                dl[13] *  q[12] *  q[11] * cy[10]\
+    \ +\n                dl[13] *  q[12] * dl[11] * cy[10] +\n                dl[13]\
+    \ * dl[12] *  q[11] * cy[10] +\n                dl[13] * dl[12] * dl[11] * cy[10]))\
+    \ +\n        (q[13] * q[12] *  q[11] * cy[10]))\nq[14]   := (q[14] :+: (ip_add\
+    \ * dl[14]) :+: cy[13])\nq[15]   := (q[15] :+: (ip_add * dl[15]) :+:\n       \
+    \ ((ip_add *\n                (q[14] * dl[14] +\n                dl[14] * cy[13]))\
+    \ +\n        (q[14] * cy[13])))\ncy[15]  := ((ip_add *\n                (q[15]\
+    \ * dl[15] +\n                 q[15] *  q[14] * dl[14] +\n                dl[15]\
+    \ *  q[14] * dl[14] +\n                 q[15] * dl[14] * cy[13] +\n          \
+    \      dl[15] * dl[14] * cy[13] +\n                dl[15] *  q[14] * cy[13]))\
+    \ +\n        (q[15] * q[14] * cy[13]))\n; SUM THE HIGH-ORDER WORD\n;\n;\n; the\
+    \ first 5 bits [16..20] of the high-order word\n;\nq[16]   := (q[16] :+: (ip_add\
+    \ * dl[16]) :+: cy[31])\nq[17]   := (q[17] :+: (ip_add * dl[17]) :+:\n       \
+    \ ((ip_add *\n                (q[16] * dl[16] +\n                dl[16] * cy[31]))\
+    \ +\n        (q[16] * cy[31])))\nq[18]   := (q[18] :+: (ip_add * dl[18]) :+:\n\
+    \        ((ip_add *\n                (q[17] * dl[17] +\n                 q[17]\
+    \ *  q[16] * dl[16] +\n                dl[17] *  q[16] * dl[16] +\n          \
+    \       q[17] * dl[16] * cy[31] +\n                dl[17] * dl[16] * cy[31] +\n\
+    \                dl[17] *  q[16] * cy[31])) +\n        (q[17] * q[16] * cy[31])))\n\
+    cy[18]  := ((ip_add *\n                (q[18] * dl[18] +\n                 q[18]\
+    \ *  q[17] * dl[17] +\n                dl[18] *  q[17] * dl[17] +\n          \
+    \       q[18] *  q[17] *  q[16] * dl[16] +\n                 q[18] * dl[17] *\
+    \  q[16] * dl[16] +\n                dl[18] *  q[17] *  q[16] * dl[16] +\n   \
+    \             dl[18] * dl[17] *  q[16] * dl[16] +\n                 q[18] *  q[17]\
+    \ * dl[16] * cy[31] +\n                 q[18] * dl[17] *  q[16] * cy[31] +\n \
+    \                q[18] * dl[17] * dl[16] * cy[31] +\n                dl[18] *\
+    \  q[17] *  q[16] * cy[31] +\n                dl[18] *  q[17] * dl[16] * cy[31]\
+    \ +\n                dl[18] * dl[17] *  q[16] * cy[31] +\n                dl[18]\
+    \ * dl[17] * dl[16] * cy[31])) +\n        (q[18] * q[17] * q[16] * cy[31]))\n\
+    q[19]   := (q[19] :+: (ip_add * dl[19]) :+: cy[18])\nq[20]   := (q[20] :+: (ip_add\
+    \ * dl[20]) :+:\n        ((ip_add *\n                (q[19] * dl[19] +\n     \
+    \           dl[19] * cy[18])) +\n        (q[19] * cy[18])))\n;\n; the next 3 bits\
+    \ [21..23] of the high-order word\n;\nq[21]   := (q[21] :+: (ip_add * dl[21])\
+    \ :+:\n        ((ip_add *\n                (q[20] * dl[20] +\n               \
+    \  q[20] *  q[19] * dl[19] +\n                dl[20] *  q[19] * dl[19] +\n   \
+    \              q[20] * dl[19] * cy[18] +\n                dl[20] * dl[19] * cy[18]\
+    \ +\n                dl[20] *  q[19] * cy[18])) +\n        (q[20] * q[19] * cy[18])))\n\
+    cy[21]  := ((ip_add * (\n                 q[21] * dl[21] +\n                 q[21]\
+    \ *  q[20] * dl[20] +\n                dl[21] *  q[20] * dl[20] +\n          \
+    \       q[21] *  q[20] *  q[19] * dl[19] +\n                 q[21] * dl[20] *\
+    \  q[19] * dl[19] +\n                dl[21] *  q[20] *  q[19] * dl[19] +\n   \
+    \             dl[21] * dl[20] *  q[19] * dl[19] +\n                 q[21] *  q[20]\
+    \ * dl[19] * cy[18] +\n                 q[21] * dl[20] *  q[19] * cy[18] +\n \
+    \                q[21] * dl[20] * dl[19] * cy[18] +\n                dl[21] *\
+    \  q[20] *  q[19] * cy[18] +\n                dl[21] *  q[20] * dl[19] * cy[18]\
+    \ +\n                dl[21] * dl[20] *  q[19] * cy[18] +\n                dl[21]\
+    \ * dl[20] * dl[19] * cy[18])) +\n        (q[21] * q[20] * q[19] * cy[18]))\n\
+    q[22]   := (q[22] :+: (ip_add * dl[22]) :+: cy[21])\nq[23]   := (q[23] :+: (ip_add\
+    \ * dl[23]) :+:\n        ((ip_add *\n                (q[22] * dl[22] +\n     \
+    \           dl[22] * cy[21])) +\n        (q[22] * cy[21])))\ncy[23]  := ((ip_add\
+    \ *\n                (q[23] * dl[23] +\n                 q[23] *  q[22] * dl[22]\
+    \ +\n                dl[23] *  q[22] * dl[22] +\n                 q[23] * dl[22]\
+    \ * cy[21] +\n                dl[23] * dl[22] * cy[21] +\n                dl[23]\
+    \ *  q[22] * cy[21])) +\n        (q[23] * q[22] * cy[21]))\n;\n; the next 5 bits\
+    \ [24..28] of the high-order word\n;\nq[24]   := (q[24] :+: (ip_add * dl[24])\
+    \ :+: cy[23])\nq[25]   := (q[25] :+: (ip_add * dl[25]) :+:\n        ((ip_add *\n\
+    \                (q[24] * dl[24] +\n                dl[24] * cy[23])) +\n    \
+    \    (q[24] * cy[23])))\nq[26]   := (q[26] :+: (ip_add * dl[26]) :+:\n       \
+    \ ((ip_add *\n                (q[25] * dl[25] +\n                 q[25] *  q[24]\
+    \ * dl[24] +\n                dl[25] *  q[24] * dl[24] +\n                 q[25]\
+    \ * dl[24] * cy[23] +\n                dl[25] * dl[24] * cy[23] +\n          \
+    \      dl[25] *  q[24] * cy[23])) +\n        (q[25] * q[24] * cy[23])))\ncy[26]\
+    \  := ((ip_add *\n                (q[26] * dl[26] +\n                 q[26] *\
+    \  q[25] * dl[25] +\n                dl[26] *  q[25] * dl[25] +\n            \
+    \     q[26] *  q[25] *  q[24] * dl[24] +\n                 q[26] * dl[25] *  q[24]\
+    \ * dl[24] +\n                dl[26] *  q[25] *  q[24] * dl[24] +\n          \
+    \      dl[26] * dl[25] *  q[24] * dl[24] +\n                 q[26] *  q[25] *\
+    \ dl[24] * cy[23] +\n                 q[26] * dl[25] *  q[24] * cy[23] +\n   \
+    \              q[26] * dl[25] * dl[24] * cy[23] +\n                dl[26] *  q[25]\
+    \ *  q[24] * cy[23] +\n                dl[26] *  q[25] * dl[24] * cy[23] +\n \
+    \               dl[26] * dl[25] *  q[24] * cy[23] +\n                dl[26] *\
+    \ dl[25] * dl[24] * cy[23])) +\n        (q[26] * q[25] * q[24] * cy[23]))\nq[27]\
+    \   := (q[27] :+: (ip_add * dl[27]) :+: cy[26])\nq[28]   := (q[28] :+: (ip_add\
+    \ * dl[28]) :+:\n        ((ip_add *\n                (q[27] * dl[27] +\n     \
+    \           dl[27] * cy[26])) +\n        (q[27] * cy[26])))\n;\n; the final 3\
+    \ bits [29..31] of the high-order word\n;\nq[29]   := (q[29] :+: (ip_add * dl[29])\
+    \ :+:\n        ((ip_add *\n                (q[28] * dl[28] +\n               \
+    \  q[28] *  q[27] * dl[27] +\n                dl[28] *  q[27] * dl[27] +\n   \
+    \              q[28] * dl[27] * cy[26] +\n                dl[28] * dl[27] * cy[26]\
+    \ +\n                dl[28] *  q[27] * cy[26])) +\n        (q[28] * q[27] * cy[26])))\n\
+    cy[29]  := ((ip_add * (\n                 q[29] * dl[29] +\n                 q[29]\
+    \ *  q[28] * dl[28] +\n                dl[29] *  q[28] * dl[28] +\n          \
+    \       q[29] *  q[28] *  q[27] * dl[27] +\n                 q[29] * dl[28] *\
+    \  q[27] * dl[27] +\n                dl[29] *  q[28] *  q[27] * dl[27] +\n   \
+    \             dl[29] * dl[28] *  q[27] * dl[27] +\n                 q[29] *  q[28]\
+    \ * dl[27] * cy[26] +\n                 q[29] * dl[28] *  q[27] * cy[26] +\n \
+    \                q[29] * dl[28] * dl[27] * cy[26] +\n                dl[29] *\
+    \  q[28] *  q[27] * cy[26] +\n                dl[29] *  q[28] * dl[27] * cy[26]\
+    \ +\n                dl[29] * dl[28] *  q[27] * cy[26] +\n                dl[29]\
+    \ * dl[28] * dl[27] * cy[26])) +\n        (q[29] * q[28] * q[27] * cy[26]))\n\
+    q[30]   := (q[30] :+: (ip_add * dl[30]) :+: cy[29])\nq[31]   := (q[31] :+: (ip_add\
+    \ * dl[31]) :+:\n        ((ip_add *\n                (q[30] * dl[30] +\n     \
+    \           dl[30] * cy[29])) +\n        (q[30] * cy[29])))\ncy[31]  := ((ip_add\
+    \ *\n                (q[31] * dl[31] +\n                 q[31] *  q[30] * dl[30]\
+    \ +\n                dl[31] *  q[30] * dl[30] +\n                 q[31] * dl[30]\
+    \ * cy[29] +\n                dl[31] * dl[30] * cy[29] +\n                dl[31]\
+    \ *  q[30] * cy[29])) +\n        (q[31] * q[30] * cy[29]))\n;\n; output nodes\
+    \ onto output pins (pending enable..)\n;\ndq[0]   := {q[0]}\ndq[1]   := {q[1]}\n\
+    dq[2]   := {q[2]}\ndq[3]   := {q[3]}\ndq[4]   := {q[4]}\ndq[5]   := {q[5]}\ndq[6]\
+    \   := {q[6]}\ndq[7]   := {q[7]}\ndq[8]   := {q[8]}\ndq[9]   := {q[9]}\ndq[10]\
+    \  := {q[10]}\ndq[11]  := {q[11]}\ndq[12]  := {q[12]}\ndq[13]  := {q[13]}\ndq[14]\
+    \  := {q[14]}\ndq[15]  := {q[15]}\ndq[16]  := {q[16]}\ndq[17]  := {q[17]}\ndq[18]\
+    \  := {q[18]}\ndq[19]  := {q[19]}\ndq[20]  := {q[20]}\ndq[21]  := {q[21]}\ndq[22]\
+    \  := {q[22]}\ndq[23]  := {q[23]}\ndq[24]  := {q[24]}\ndq[25]  := {q[25]}\ndq[26]\
+    \  := {q[26]}\ndq[27]  := {q[27]}\ndq[28]  := {q[28]}\ndq[29]  := {q[29]}\ndq[30]\
+    \  := {q[30]}\ndq[31]  := {q[31]}\n;\n; end.\n;\n"

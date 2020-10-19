@@ -1,0 +1,836 @@
+- title: __initial_text__
+  contents:
+  - '                             TCP Fast Open
+
+    '
+- title: Abstract
+  contents:
+  - "Abstract\n   This document describes an experimental TCP mechanism called TCP\
+    \ Fast\n   Open (TFO).  TFO allows data to be carried in the SYN and SYN-ACK\n\
+    \   packets and consumed by the receiving end during the initial\n   connection\
+    \ handshake, and saves up to one full round-trip time (RTT)\n   compared to the\
+    \ standard TCP, which requires a three-way handshake\n   (3WHS) to complete before\
+    \ data can be exchanged.  However, TFO\n   deviates from the standard TCP semantics,\
+    \ since the data in the SYN\n   could be replayed to an application in some rare\
+    \ circumstances.\n   Applications should not use TFO unless they can tolerate\
+    \ this issue,\n   as detailed in the Applicability section.\n"
+- title: Status of This Memo
+  contents:
+  - "Status of This Memo\n   This document is not an Internet Standards Track specification;\
+    \ it is\n   published for examination, experimental implementation, and\n   evaluation.\n\
+    \   This document defines an Experimental Protocol for the Internet\n   community.\
+    \  This document is a product of the Internet Engineering\n   Task Force (IETF).\
+    \  It represents the consensus of the IETF\n   community.  It has received public\
+    \ review and has been approved for\n   publication by the Internet Engineering\
+    \ Steering Group (IESG).  Not\n   all documents approved by the IESG are a candidate\
+    \ for any level of\n   Internet Standard; see Section 2 of RFC 5741.\n   Information\
+    \ about the current status of this document, any errata,\n   and how to provide\
+    \ feedback on it may be obtained at\n   http://www.rfc-editor.org/info/rfc7413.\n"
+- title: Copyright Notice
+  contents:
+  - "Copyright Notice\n   Copyright (c) 2014 IETF Trust and the persons identified\
+    \ as the\n   document authors.  All rights reserved.\n   This document is subject\
+    \ to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n\
+    \   (http://trustee.ietf.org/license-info) in effect on the date of\n   publication\
+    \ of this document.  Please review these documents\n   carefully, as they describe\
+    \ your rights and restrictions with respect\n   to this document.  Code Components\
+    \ extracted from this document must\n   include Simplified BSD License text as\
+    \ described in Section 4.e of\n   the Trust Legal Provisions and are provided\
+    \ without warranty as\n   described in the Simplified BSD License.\n"
+- title: Table of Contents
+  contents:
+  - "Table of Contents\n   1. Introduction ....................................................3\n\
+    \      1.1. Terminology ................................................4\n  \
+    \ 2. Data in SYN .....................................................4\n    \
+    \  2.1. Relaxing TCP Semantics on Duplicated SYNs ..................4\n      2.2.\
+    \ SYNs with Spoofed IP Addresses .............................5\n   3. Protocol\
+    \ Overview ...............................................5\n   4. Protocol Details\
+    \ ................................................7\n      4.1. Fast Open Cookie\
+    \ ...........................................7\n           4.1.1. Fast Open Option\
+    \ ....................................8\n           4.1.2. Server Cookie Handling\
+    \ ..............................8\n           4.1.3. Client Cookie Handling ..............................9\n\
+    \                  4.1.3.1. Client Caching Negative Responses .........10\n  \
+    \    4.2. Fast Open Protocol ........................................11\n    \
+    \       4.2.1. Fast Open Cookie Request ...........................11\n      \
+    \     4.2.2. TCP Fast Open ......................................12\n   5. Security\
+    \ Considerations ........................................14\n      5.1. Resource\
+    \ Exhaustion Attack by SYN Flood with Valid\n           Cookies ...................................................14\n\
+    \           5.1.1. Attacks from behind Shared Public IPs (NATs) .......15\n  \
+    \    5.2. Amplified Reflection Attack to Random Host ................16\n   6.\
+    \ TFO Applicability ..............................................17\n      6.1.\
+    \ Duplicate Data in SYNs ....................................17\n      6.2. Potential\
+    \ Performance Improvement .........................17\n      6.3. Example: Web\
+    \ Clients and Servers ..........................18\n           6.3.1. HTTP Request\
+    \ Replay ................................18\n           6.3.2. HTTP over TLS (HTTPS)\
+    \ ..............................18\n           6.3.3. Comparison with HTTP Persistent\
+    \ Connections ........18\n           6.3.4. Load Balancers and Server Farms ....................19\n\
+    \   7. Open Areas for Experimentation .................................19\n  \
+    \    7.1. Performance Impact Due to Middleboxes and NAT .............19\n    \
+    \  7.2. Impact on Congestion Control ..............................20\n      7.3.\
+    \ Cookie-less Fast Open .....................................20\n   8. Related\
+    \ Work ...................................................20\n      8.1. T/TCP\
+    \ .....................................................20\n      8.2. Common Defenses\
+    \ against SYN Flood Attacks .................21\n      8.3. Speculative Connections\
+    \ by the Applications ...............21\n      8.4. Fast Open Cookie-in-FIN ...................................21\n\
+    \      8.5. TCP Cookie Transaction (TCPCT) ............................21\n  \
+    \ 9. IANA Considerations ............................................22\n   10.\
+    \ References ....................................................22\n      10.1.\
+    \ Normative References .....................................22\n      10.2. Informative\
+    \ References ...................................23\n   Appendix A. Example Socket\
+    \ API Changes to Support TFO .............25\n    A.1. Active Open .................................................25\n\
+    \    A.2. Passive Open ................................................25\n  \
+    \ Acknowledgments ...................................................26\n   Authors'\
+    \ Addresses ................................................26\n"
+- title: 1.  Introduction
+  contents:
+  - "1.  Introduction\n   TCP Fast Open (TFO) is an experimental update to TCP that\
+    \ enables\n   data to be exchanged safely during TCP's connection handshake. \
+    \ This\n   document describes a design that enables applications to save a round\n\
+    \   trip while avoiding severe security ramifications.  At the core of\n   TFO\
+    \ is a security cookie used by the server side to authenticate a\n   client initiating\
+    \ a TFO connection.  This document covers the details\n   of exchanging data during\
+    \ TCP's initial handshake, the protocol for\n   TFO cookies, potential new security\
+    \ vulnerabilities and their\n   mitigation, and the new socket API.\n   TFO is\
+    \ motivated by the performance needs of today's Web\n   applications.  Current\
+    \ TCP only permits data exchange after the\n   three-way handshake (3WHS) [RFC793],\
+    \ which adds one RTT to network\n   latency.  For short Web transfers this additional\
+    \ RTT is a\n   significant portion of overall network latency, even when HTTP\n\
+    \   persistent connection is widely used.  For example, the Chrome\n   browser\
+    \ [Chrome] keeps TCP connections idle for up to 5 minutes, but\n   35% of HTTP\
+    \ requests are made on new TCP connections [RCCJR11].  For\n   such Web and Web-like\
+    \ applications, placing data in the SYN can yield\n   significant latency improvements.\
+    \  Next we describe how we resolve\n   the challenges that arise upon doing so.\n"
+- title: 1.1.  Terminology
+  contents:
+  - "1.1.  Terminology\n   The key words \"MUST\", \"MUST NOT\", \"REQUIRED\", \"\
+    SHALL\", \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\", \"MAY\"\
+    , and \"OPTIONAL\" in this\n   document are to be interpreted as described in\
+    \ RFC 2119 [RFC2119].\n   \"TFO\" refers to TCP Fast Open.  \"Client\" refers\
+    \ to TCP's active open\n   side, and \"server\" refers to TCP's passive open side.\n"
+- title: 2.  Data in SYN
+  contents:
+  - "2.  Data in SYN\n   Standard TCP already allows data to be carried in SYN packets\n\
+    \   ([RFC793], Section 3.4) but forbids the receiver from delivering it\n   to\
+    \ the application until the 3WHS is completed.  This is because\n   TCP's initial\
+    \ handshake serves to capture old or duplicate SYNs.\n   To enable applications\
+    \ to exchange data in a TCP handshake, TFO\n   removes the constraint and allows\
+    \ data in SYN packets to be delivered\n   to the application.  This change to\
+    \ TCP semantic raises two issues\n   (discussed in the following subsections)\
+    \ that make TFO unsuitable for\n   certain applications.\n   Therefore, TCP implementations\
+    \ MUST NOT use TFO by default, but only\n   use TFO if requested explicitly by\
+    \ the application on a per-service-\n   port basis.  Applications need to evaluate\
+    \ TFO applicability as\n   described in Section 6 before using TFO.\n"
+- title: 2.1.  Relaxing TCP Semantics on Duplicated SYNs
+  contents:
+  - "2.1.  Relaxing TCP Semantics on Duplicated SYNs\n   TFO allows data to be delivered\
+    \ to the application before the 3WHS is\n   completed, thus opening itself to\
+    \ a data integrity issue in either of\n   the two cases below:\n   a) the receiver\
+    \ host receives data in a duplicate SYN after it has\n      forgotten it received\
+    \ the original SYN (e.g., due to a reboot);\n   b) the duplicate is received after\
+    \ the connection created by the\n      original SYN has been closed and the close\
+    \ was initiated by the\n      sender (so the receiver will not be protected by\
+    \ the TIME-WAIT 2\n      MSL state).\n   The now obsoleted T/TCP [RFC1644] (obsoleted\
+    \ by [RFC6247]) attempted\n   to address these issues.  It was not successful\
+    \ and not deployed due\n   to various vulnerabilities as described in Section\
+    \ 8, \"Related Work\".\n   Rather than trying to capture all dubious SYN packets\
+    \ to make TFO\n   100% compatible with TCP semantics, we made a design decision\
+    \ early\n   on to accept old SYN packets with data, i.e., to restrict TFO use\
+    \ to\n   a class of applications (Section 6) that are tolerant of duplicate\n\
+    \   SYN packets with data.  We believe this is the right design trade-\n   off:\
+    \ balancing complexity with usefulness.\n"
+- title: 2.2.  SYNs with Spoofed IP Addresses
+  contents:
+  - "2.2.  SYNs with Spoofed IP Addresses\n   Standard TCP suffers from the SYN flood\
+    \ attack [RFC4987] because SYN\n   packets with spoofed source IP addresses can\
+    \ easily fill up a\n   listener's small queue, causing a service port to be blocked\n\
+    \   completely.\n   TFO goes one step further to allow server-side TCP to send\
+    \ up data to\n   the application layer before the 3WHS is completed.  This opens\
+    \ up\n   serious new vulnerabilities.  Applications serving ports that have\n\
+    \   TFO enabled may waste lots of CPU and memory resources processing the\n  \
+    \ requests and producing the responses.  If the response is much larger\n   than\
+    \ the request, the attacker can further mount an amplified\n   reflection attack\
+    \ against victims of choice beyond the TFO server\n   itself.\n   Numerous mitigation\
+    \ techniques against regular SYN flood attacks\n   exist and have been well documented\
+    \ [RFC4987].  Unfortunately, none\n   are applicable to TFO.  We propose a server-supplied\
+    \ cookie to\n   mitigate these new vulnerabilities in Section 3 and evaluate the\n\
+    \   effectiveness of the defense in Section 7.\n"
+- title: 3.  Protocol Overview
+  contents:
+  - "3.  Protocol Overview\n   The key component of TFO is the Fast Open Cookie (cookie),\
+    \ a message\n   authentication code (MAC) tag generated by the server.  The client\n\
+    \   requests a cookie in one regular TCP connection, then uses it for\n   future\
+    \ TCP connections to exchange data during the 3WHS:\n   Requesting a Fast Open\
+    \ Cookie:\n   1. The client sends a SYN with a Fast Open option with an empty\n\
+    \      cookie field to request a cookie.\n   2. The server generates a cookie\
+    \ and sends it through the Fast Open\n      option of a SYN-ACK packet.\n   3.\
+    \ The client caches the cookie for future TCP Fast Open connections\n      (see\
+    \ below).\n   Performing TCP Fast Open:\n   1. The client sends a SYN with data\
+    \ and the cookie in the Fast Open\n      option.\n   2. The server validates the\
+    \ cookie:\n      a. If the cookie is valid, the server sends a SYN-ACK\n     \
+    \    acknowledging both the SYN and the data.  The server then\n         delivers\
+    \ the data to the application.\n      b. Otherwise, the server drops the data\
+    \ and sends a SYN-ACK\n         acknowledging only the SYN sequence number.\n\
+    \   3. If the server accepts the data in the SYN packet, it may send the\n   \
+    \   response data before the handshake finishes.  The maximum amount\n      is\
+    \ governed by TCP's congestion control [RFC5681].\n   4. The client sends an ACK\
+    \ acknowledging the SYN and the server data.\n      If the client's data is not\
+    \ acknowledged, the client retransmits\n      the data in the ACK packet.\n  \
+    \ 5. The rest of the connection proceeds like a normal TCP connection.\n     \
+    \ The client can repeat many Fast Open operations once it acquires a\n      cookie\
+    \ (until the cookie is expired by the server).  Thus, TFO is\n      useful for\
+    \ applications that have temporal locality on client and\n      server connections.\n\
+    \   Requesting Fast Open Cookie in connection 1:\n   TCP A (Client)          \
+    \                            TCP B (Server)\n   ______________               \
+    \                       ______________\n   CLOSED                            \
+    \                          LISTEN\n   #1 SYN-SENT       ----- <SYN,CookieOpt=NIL>\
+    \  ---------->  SYN-RCVD\n   #2 ESTABLISHED    <---- <SYN,ACK,CookieOpt=C> ----------\
+    \  SYN-RCVD\n   (caches cookie C)\n   Performing TCP Fast Open in connection 2:\n\
+    \   TCP A (Client)                                      TCP B (Server)\n   ______________\
+    \                                      ______________\n   CLOSED             \
+    \                                         LISTEN\n   #1 SYN-SENT       ----- <SYN=x,CookieOpt=C,DATA_A>\
+    \ ---->  SYN-RCVD\n   #2 ESTABLISHED    <---- <SYN=y,ACK=x+len(DATA_A)+1> ----\
+    \  SYN-RCVD\n   #3 ESTABLISHED    <---- <ACK=x+len(DATA_A)+1,DATA_B>----  SYN-RCVD\n\
+    \   #4 ESTABLISHED    ----- <ACK=y+1>--------------------> ESTABLISHED\n   #5\
+    \ ESTABLISHED    --- <ACK=y+len(DATA_B)+1>----------> ESTABLISHED\n"
+- title: 4.  Protocol Details
+  contents:
+  - '4.  Protocol Details
+
+    '
+- title: 4.1.  Fast Open Cookie
+  contents:
+  - "4.1.  Fast Open Cookie\n   The Fast Open Cookie is designed to mitigate new security\n\
+    \   vulnerabilities in order to enable data exchange during a handshake.\n   The\
+    \ cookie is a MAC tag generated by the server and is opaque to the\n   client;\
+    \ the client simply caches the cookie and passes it back on\n   subsequent SYN\
+    \ packets to open new connections.  The server can\n   expire the cookie at any\
+    \ time to enhance security.\n"
+- title: 4.1.1.  Fast Open Option
+  contents:
+  - "4.1.1.  Fast Open Option\n                                   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \                                   |      Kind     |    Length     |\n   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \   |                                                               |\n   ~  \
+    \                          Cookie                             ~\n   |        \
+    \                                                       |\n   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
+    \   Kind            1 byte: value = 34\n   Length          1 byte: range 6 to\
+    \ 18 (bytes); limited by\n                           remaining space in the options\
+    \ field.\n                           The number MUST be even.\n   Cookie     \
+    \     0, or 4 to 16 bytes (Length - 2)\n   The Fast Open option is used to request\
+    \ or to send a Fast Open\n   Cookie.  When a cookie is not present or is empty,\
+    \ the option is used\n   by the client to request a cookie from the server.  When\
+    \ the cookie\n   is present, the option is used to pass the cookie from the server\
+    \ to\n   the client or from the client back to the server (to perform a Fast\n\
+    \   Open).\n   The minimum cookie size is 4 bytes.  Although the diagram shows\
+    \ a\n   cookie aligned on 32-bit boundaries, alignment is not required.\n   Options\
+    \ with invalid Length values or without the SYN flag set MUST\n   be ignored.\n"
+- title: 4.1.2.  Server Cookie Handling
+  contents:
+  - "4.1.2.  Server Cookie Handling\n   The server is in charge of cookie generation\
+    \ and authentication.  The\n   cookie SHOULD be a MAC tag with the following properties.\
+    \  We use\n   \"SHOULD\" because, in some cases, the cookie may be trivially\n\
+    \   generated as discussed in Section 7.3.\n   1. The cookie authenticates the\
+    \ client's (source) IP address of the\n      SYN packet.  The IP address may be\
+    \ an IPv4 or IPv6 address.\n   2. The cookie can only be generated by the server\
+    \ and cannot be\n      fabricated by any other parties, including the client.\n\
+    \   3. The generation and verification are fast relative to the rest of\n    \
+    \  SYN and SYN-ACK processing.\n   4. A server may encode other information in\
+    \ the cookie and accept\n      more than one valid cookie per client at any given\
+    \ time.  But this\n      is server-implementation dependent and transparent to\
+    \ the client.\n   5. The cookie expires after a certain amount of time.  The reason\
+    \ for\n      cookie expiration is detailed in the \"Security Considerations\"\n\
+    \      section (Section 5).  This can be done by either periodically\n      changing\
+    \ the server key used to generate cookies or including a\n      timestamp when\
+    \ generating the cookie.\n      To gradually invalidate cookies over time, the\
+    \ server can\n      implement key rotation to generate and verify cookies using\n\
+    \      multiple keys.  This approach is useful for large-scale servers to\n  \
+    \    retain Fast Open rolling key updates.  We do not specify a\n      particular\
+    \ mechanism because the implementation is server\n      specific.\n   The server\
+    \ supports the cookie-generation and verification\n   operations:\n   -  GetCookie(IP_Address):\
+    \ returns a (new) cookie.\n   -  IsCookieValid(IP_Address, Cookie): checks if\
+    \ the cookie is valid,\n      i.e., it has not expired and the cookie authenticates\
+    \ the client\n      IP address.\n   Example Implementation: a simple implementation\
+    \ is to use AES_128 to\n   encrypt the IPv4 (with padding) or IPv6 address and\
+    \ truncate to 64\n   bits.  The server can periodically update the key to expire\
+    \ the\n   cookies.  AES encryption on recent processors is fast and takes only\n\
+    \   a few hundred nanoseconds [RCCJR11].\n   If only one valid cookie is allowed\
+    \ per IP, and the server can\n   regenerate the cookie independently, the best\
+    \ validation process is\n   to simply regenerate a valid cookie and compare it\
+    \ against the\n   incoming cookie.  In that case, if the incoming cookie fails\
+    \ the\n   check, a valid cookie is readily available to be sent to the client.\n"
+- title: 4.1.3.  Client Cookie Handling
+  contents:
+  - "4.1.3.  Client Cookie Handling\n   The client MUST cache cookies from servers\
+    \ for later Fast Open\n   connections.  For a multihomed client, the cookies are\
+    \ dependent on\n   the client and server IP addresses.  Hence, the client should\
+    \ cache\n   at most one (most recently received) cookie per client and server\
+    \ IP\n   address pair.\n   When caching cookies, we recommend that the client\
+    \ also cache the\n   Maximum Segment Size (MSS) advertised by the server.  The\
+    \ client can\n   cache the MSS advertised by the server in order to determine\
+    \ the\n   maximum amount of data that the client can fit in the SYN packet in\n\
+    \   subsequent TFO connections.  Caching the server MSS is useful\n   because,\
+    \ with Fast Open, a client sends data in the SYN packet before\n   the server\
+    \ announces its MSS in the SYN-ACK packet.  If the client\n   sends more data\
+    \ in the SYN packet than the server will accept, this\n   will likely require\
+    \ the client to retransmit some or all of the data.\n   Hence, caching the server\
+    \ MSS can enhance performance.\n   Without a cached server MSS, the amount of\
+    \ data in the SYN packet is\n   limited to the default MSS of 536 bytes for IPv4\
+    \ [RFC1122] and 1220\n   bytes for IPv6 [RFC2460].  Even if the client complies\
+    \ with this\n   limit when sending the SYN, it is known that an IPv4 receiver\n\
+    \   advertising an MSS less than 536 bytes can receive a segment larger\n   than\
+    \ it is expecting.\n   If the cached MSS is larger than the typical size (1460\
+    \ bytes for\n   IPv4 or 1440 bytes for IPv6), then the excess data in the SYN\
+    \ packet\n   may cause problems that offset the performance benefit of Fast Open.\n\
+    \   For example, the unusually large SYN may trigger IP fragmentation and\n  \
+    \ may confuse firewalls or middleboxes, causing SYN retransmission and\n   other\
+    \ side effects.  Therefore, the client MAY limit the cached MSS\n   to 1460 bytes\
+    \ for IPv4 or 1440 for IPv6.\n"
+- title: 4.1.3.1.  Client Caching Negative Responses
+  contents:
+  - "4.1.3.1.  Client Caching Negative Responses\n   The client MUST cache negative\
+    \ responses from the server in order to\n   avoid potential connection failures.\
+    \  Negative responses include the\n   server not acknowledging the data in the\
+    \ SYN, ICMP error messages,\n   and (most importantly) no response (SYN-ACK) from\
+    \ the server at all,\n   i.e., connection timeout.  The last case is likely due\
+    \ to\n   incompatible middleboxes or firewall blocking the connection\n   completely\
+    \ after processing the SYN packet with data.  If the client\n   does not react\
+    \ to these negative responses and continues to retry\n   Fast Open, the client\
+    \ may never be able to connect to the specific\n   server.\n   For any negative\
+    \ responses, the client SHOULD disable Fast Open on\n   the specific path (the\
+    \ source and destination IP addresses and ports)\n   at least temporarily.  Since\
+    \ TFO is enabled on a per-service-port\n   basis, but cookies are independent\
+    \ of service ports, the client's\n   cache should include remote port numbers,\
+    \ too.\n"
+- title: 4.2.  Fast Open Protocol
+  contents:
+  - "4.2.  Fast Open Protocol\n   One predominant requirement of TFO is to be fully\
+    \ compatible with\n   existing TCP implementations, on both the client and server\
+    \ sides.\n   The server keeps two variables per listening socket (IP address and\n\
+    \   port):\n   FastOpenEnabled: default is off.  It MUST be turned on explicitly\
+    \ by\n      the application.  When this flag is off, the server does not\n   \
+    \   perform any TFO-related operations and MUST ignore all cookie\n      options.\n\
+    \   PendingFastOpenRequests: tracks the number of TFO connections in SYN-\n  \
+    \    RCVD state.  If this variable goes over a preset system limit, the\n    \
+    \  server MUST disable TFO for all new connection requests until\n      PendingFastOpenRequests\
+    \ drops below the system limit.  This\n      variable is used for defending some\
+    \ vulnerabilities discussed in\n      the \"Security Considerations\" section\
+    \ (Section 5).\n   The server keeps a FastOpened flag per connection to mark if\
+    \ a\n   connection has successfully performed a TFO.\n"
+- title: 4.2.1.  Fast Open Cookie Request
+  contents:
+  - "4.2.1.  Fast Open Cookie Request\n   Any client attempting TFO MUST first request\
+    \ a cookie from the server\n   with the following steps:\n   1. The client sends\
+    \ a SYN packet with a Fast Open option with a\n      Length field of 0 (empty\
+    \ cookie field).\n   2. The server responds with a SYN-ACK based on the procedures\
+    \ in the\n      \"Server Cookie Handling\" section (Section 4.1.2).  This SYN-ACK\n\
+    \      may contain a Fast Open option if the server currently supports\n     \
+    \ TFO for this listener port.\n   3. If the SYN-ACK has a Fast Open option with\
+    \ a cookie, the client\n      replaces the cookie and other information as described\
+    \ in the\n      \"Client Cookie Handling\" section (Section 4.1.3).  Otherwise,\
+    \ if\n      the SYN-ACK is first seen and not a (spurious) retransmission, the\n\
+    \      client MAY remove the server information from the cookie cache.\n     \
+    \ If the SYN-ACK is a spurious retransmission, the client does\n      nothing\
+    \ to the cookie cache for the reasons below.\n   The network or servers may drop\
+    \ the SYN or SYN-ACK packets with the\n   new cookie options, which will cause\
+    \ SYN or SYN-ACK timeouts.  We\n   RECOMMEND both the client and the server to\
+    \ retransmit SYN and SYN-\n   ACK packets without the cookie options on timeouts.\
+    \  This ensures the\n   connections of cookie requests will go through and lowers\
+    \ the latency\n   penalty (of dropped SYN/SYN-ACK packets).  The obvious downside\
+    \ for\n   maximum compatibility is that any regular SYN drop will fail the\n \
+    \  cookie (although one can argue the delay in the data transmission\n   until\
+    \ after the 3WHS is justified if the SYN drop is due to network\n   congestion).\
+    \  The next section describes a heuristic to detect such\n   drops when the client\
+    \ receives the SYN-ACK.\n   We also RECOMMEND the client to record the set of\
+    \ servers that failed\n   to respond to cookie requests and only attempt another\
+    \ cookie request\n   after a certain period.\n"
+- title: 4.2.2.  TCP Fast Open
+  contents:
+  - "4.2.2.  TCP Fast Open\n   Once the client obtains the cookie from the target\
+    \ server, it can\n   perform subsequent TFO connections until the cookie is expired\
+    \ by the\n   server.\n   Client: Sending SYN\n   To open a TFO connection, the\
+    \ client MUST have obtained a cookie from\n   the server:\n   1. Send a SYN packet.\n\
+    \      a. If the SYN packet does not have enough option space for the\n      \
+    \   Fast Open option, abort TFO and fall back to the regular 3WHS.\n      b. Otherwise,\
+    \ include the Fast Open option with the cookie of the\n         server.  Include\
+    \ any data up to the cached server MSS or\n         default 536 bytes.\n   2.\
+    \ Advance to SYN-SENT state and update SND.NXT to include the data\n      accordingly.\n\
+    \   To deal with network or servers dropping SYN packets with payload or\n   unknown\
+    \ options, when the SYN timer fires, the client SHOULD\n   retransmit a SYN packet\
+    \ without data and Fast Open options.\n   Server: Receiving SYN and responding\
+    \ with SYN-ACK\n   Upon receiving the SYN packet with Fast Open option:\n   1.\
+    \ Initialize and reset a local FastOpened flag.  If FastOpenEnabled\n      is\
+    \ false, go to step 5.\n   2. If PendingFastOpenRequests is over the system limit,\
+    \ go to step 5.\n   3. If IsCookieValid() (in Section 4.1.2) returns false, go\
+    \ to step 5.\n   4. Buffer the data and notify the application.  Set the FastOpened\n\
+    \      flag and increment PendingFastOpenRequests.\n   5. Send the SYN-ACK packet.\
+    \  The packet MAY include a Fast Open\n      option.  If the FastOpened flag is\
+    \ set, the packet acknowledges\n      the SYN and data sequence.  Otherwise, it\
+    \ acknowledges only the\n      SYN sequence.  The server MAY include data in the\
+    \ SYN-ACK packet\n      if the response data is readily available.  Some applications\
+    \ may\n      favor delaying the SYN-ACK, allowing the application to process\n\
+    \      the request in order to produce a response, but this is left up to\n  \
+    \    the implementation.\n   6. Advance to the SYN-RCVD state.  If the FastOpened\
+    \ flag is set, the\n      server MUST follow [RFC5681] (based on [RFC3390]) to\
+    \ set the\n      initial congestion window for sending more data packets.\n  \
+    \ If the SYN-ACK timer fires, the server SHOULD retransmit a SYN-ACK\n   segment\
+    \ with neither data nor Fast Open options for compatibility\n   reasons.\n   A\
+    \ special case is simultaneous open where the SYN receiver is a\n   client in\
+    \ SYN-SENT state.  The protocol remains the same because\n   [RFC793] already\
+    \ supports both data in the SYN and simultaneous open.\n   But the client's socket\
+    \ may have data available to read before it's\n   connected.  This document does\
+    \ not cover the corresponding API\n   change.\n   Client: Receiving SYN-ACK\n\
+    \   The client SHOULD perform the following steps upon receiving the SYN-\n  \
+    \ ACK:\n   1. If the SYN-ACK has a Fast Open option, an MSS option, or both,\n\
+    \      update the corresponding cookie and MSS information in the cookie\n   \
+    \   cache.\n   2. Send an ACK packet.  Set acknowledgment number to RCV.NXT and\n\
+    \      include the data after SND.UNA if data is available.\n   3. Advance to\
+    \ the ESTABLISHED state.\n   Note there is no latency penalty if the server does\
+    \ not acknowledge\n   the data in the original SYN packet.  The client SHOULD\
+    \ retransmit\n   any unacknowledged data in the first ACK packet in step 2.  The\
+    \ data\n   exchange will start after the handshake like a regular TCP\n   connection.\n\
+    \   If the client has timed out and retransmitted only regular SYN\n   packets,\
+    \ it can heuristically detect paths that intentionally drop\n   SYNs with the\
+    \ Fast Open option or data.  If the SYN-ACK acknowledges\n   only the initial\
+    \ sequence and does not carry a Fast Open cookie\n   option, presumably it is\
+    \ triggered by a retransmitted (regular) SYN\n   and the original SYN or the corresponding\
+    \ SYN-ACK was lost.\n   Server: Receiving ACK\n   Upon receiving an ACK acknowledging\
+    \ the SYN sequence, the server\n   decrements PendingFastOpenRequests and advances\
+    \ to the ESTABLISHED\n   state.  No special handling is required further.\n"
+- title: 5.  Security Considerations
+  contents:
+  - "5.  Security Considerations\n   The Fast Open Cookie stops an attacker from trivially\
+    \ flooding\n   spoofed SYN packets with data to burn server resources or to mount\
+    \ an\n   amplified reflection attack on random hosts.  The server can defend\n\
+    \   against spoofed SYN floods with invalid cookies using existing\n   techniques\
+    \ [RFC4987].  We note that although generating bogus cookies\n   is cost free,\
+    \ the cost of validating the cookies, inherent to any\n   authentication scheme,\
+    \ may be substantial compared to processing a\n   regular SYN packet.  We describe\
+    \ these new vulnerabilities of TFO and\n   the countermeasures in detail below.\n"
+- title: 5.1.  Resource Exhaustion Attack by SYN Flood with Valid Cookies
+  contents:
+  - "5.1.  Resource Exhaustion Attack by SYN Flood with Valid Cookies\n   An attacker\
+    \ may still obtain cookies from some compromised hosts,\n   then flood spoofed\
+    \ SYN packets with data and \"valid\" cookies (from\n   these hosts or other vantage\
+    \ points).  Like regular TCP handshakes,\n   TFO is vulnerable to such an attack.\
+    \  But the potential damage can be\n   much more severe.  Besides causing temporary\
+    \ disruption to service\n   ports under attack, it may exhaust server CPU and\
+    \ memory resources.\n   Such an attack will show up on application server logs\
+    \ as an\n   application-level DoS from botnets, triggering other defenses and\n\
+    \   alerts.\n   To protect the server, it is important to limit the maximum number\
+    \ of\n   total pending TFO connection requests, i.e., PendingFastOpenRequests\n\
+    \   (Section 4.2).  When the limit is exceeded, the server temporarily\n   disables\
+    \ TFO entirely as described in \"Server Cookie Handling\"\n   (Section 4.1.2).\
+    \  Then, subsequent TFO requests will be downgraded to\n   regular connection\
+    \ requests, i.e., with the data dropped and only\n   SYNs acknowledged.  This\
+    \ allows regular SYN flood defense techniques\n   [RFC4987] like SYN cookies to\
+    \ kick in and prevent further service\n   disruption.\n   The main impact of SYN\
+    \ floods against the standard TCP stack is not\n   directly from the floods themselves\
+    \ costing TCP processing overhead\n   or host memory, but rather from the spoofed\
+    \ SYN packets filling up\n   the often small listener's queue.\n   On the other\
+    \ hand, TFO SYN floods can cause damage directly if\n   admitted without limit\
+    \ into the stack.  The reset (RST) packets from\n   the spoofed host will fuel\
+    \ rather than defeat the SYN floods as\n   compared to the non-TFO case, because\
+    \ the attacker can flood more\n   SYNs with data and incur more cost in terms\
+    \ of data processing\n   resources.  For this reason, a TFO server needs to monitor\
+    \ the\n   connections in SYN-RCVD being reset in addition to imposing a\n   reasonable\
+    \ max queue length.  Implementations may combine the two,\n   e.g., by continuing\
+    \ to account for those connection requests that\n   have just been reset against\
+    \ the listener's PendingFastOpenRequests\n   until a timeout period has passed.\n\
+    \   Limiting the maximum number of pending TFO connection requests does\n   make\
+    \ it easy for an attacker to overflow the queue, causing TFO to be\n   disabled.\
+    \  We argue that causing TFO to be disabled is unlikely to be\n   of interest\
+    \ to attackers because the service will remain intact\n   without TFO; hence,\
+    \ there is hardly any real damage.\n"
+- title: 5.1.1.  Attacks from behind Shared Public IPs (NATs)
+  contents:
+  - "5.1.1.  Attacks from behind Shared Public IPs (NATs)\n   An attacker behind a\
+    \ NAT can easily obtain valid cookies to launch\n   the above attack to hurt other\
+    \ clients that share the path.\n   [BRISCOE12] suggested that the server can extend\
+    \ cookie generation to\n   include the TCP timestamp -- GetCookie(IP_Address,\
+    \ Timestamp) -- and\n   implement it by encrypting the concatenation of the two\
+    \ values to\n   generate the cookie.  The client stores both the cookie and its\n\
+    \   corresponding timestamp, and it echoes both in the SYN.  The server\n   then\
+    \ implements IsCookieValid(IP_Address, Timestamp, Cookie) by\n   encrypting the\
+    \ IP and timestamp data and comparing it with the cookie\n   value.\n   This enables\
+    \ the server to issue different cookies to clients that\n   share the same IP\
+    \ address; hence, it can selectively discard those\n   misused cookies from the\
+    \ attacker.  However, the attacker can simply\n   repeat the attack with new cookies.\
+    \  The server would eventually need\n   to throttle all requests from the IP address\
+    \ just like the current\n   approach.  Moreover, this approach requires modifying\
+    \ [RFC1323]\n   (obsoleted by [RFC7323]) to send a non-zero Timestamp Echo Reply\
+    \ in\n   the SYN, potentially causing firewall issues.  Therefore, we believe\n\
+    \   the benefit does not outweigh the drawbacks.\n"
+- title: 5.2.  Amplified Reflection Attack to Random Host
+  contents:
+  - "5.2.  Amplified Reflection Attack to Random Host\n   Limiting PendingFastOpenRequests\
+    \ with a system limit can be done\n   without Fast Open cookies and would protect\
+    \ the server from resource\n   exhaustion.  It would also limit how much damage\
+    \ an attacker can\n   cause through an amplified reflection attack from that server.\n\
+    \   However, it would still be vulnerable to an amplified reflection\n   attack\
+    \ from a large number of servers.  An attacker can easily cause\n   damage by\
+    \ tricking many servers to respond with data packets at once\n   to any spoofed\
+    \ victim IP address of choice.\n   With the use of Fast Open cookies, the attacker\
+    \ would first have to\n   steal a valid cookie from its target victim.  This likely\
+    \ requires\n   the attacker to compromise the victim host or network first.  But,\
+    \ in\n   some cases, it may be relatively easy.\n   The attacker here has little\
+    \ interest in mounting an attack on the\n   victim host that has already been\
+    \ compromised.  But it may be\n   motivated to disrupt the victim's network. \
+    \ Since a stolen cookie is\n   only valid for a single server, it has to steal\
+    \ valid cookies from a\n   large number of servers and use them before they expire\
+    \ to cause\n   sufficient damage without triggering the defense.\n   One can argue\
+    \ that if the attacker has compromised the target network\n   or hosts, it could\
+    \ perform a similar but simpler attack by injecting\n   bits directly.  The degree\
+    \ of damage will be identical, but a TFO-\n   specific attack allows the attacker\
+    \ to remain anonymous and disguises\n   the attack as from other servers.\n  \
+    \ For example, with DHCP, an attacker can obtain cookies when he (or\n   the host\
+    \ he has compromised) owns a particular IP address by\n   performing regular Fast\
+    \ Open to servers supporting TFO and he can\n   collect valid cookies.  Then,\
+    \ the attacker actively or passively\n   releases his IP address.  When the IP\
+    \ address is reassigned to\n   another host (victim) via DHCP, the attacker then\
+    \ floods spoofed Fast\n   Open requests with valid cookies to the servers.  Since\
+    \ the cookies\n   are valid, these servers accept the requests and respond with\
+    \ a SYN-\n   ACK plus data packets to the victim instead of the attacker.  Thus,\n\
+    \   the attacker is able to launch amplified reflection attacks to other\n   hosts\
+    \ that share IP addresses.\n   The best defense is for the server not to respond\
+    \ with data until the\n   handshake finishes.  In this case, the risk of an amplification\n\
+    \   reflection attack is completely eliminated.  But the potential\n   latency\
+    \ saving from TFO may diminish if the server application\n   produces responses\
+    \ earlier before the handshake completes.\n"
+- title: 6.  TFO Applicability
+  contents:
+  - "6.  TFO Applicability\n   This section is to help applications considering TFO\
+    \ to evaluate\n   TFO's benefits and drawbacks using the Web client and server\n\
+    \   applications as an example throughout.  Applications here refer\n   specifically\
+    \ to the process that writes data into the socket -- for\n   example, a JavaScript\
+    \ process that sends data to the server.  A\n   proposed socket API change is\
+    \ provided in the Appendix.\n"
+- title: 6.1.  Duplicate Data in SYNs
+  contents:
+  - "6.1.  Duplicate Data in SYNs\n   It is possible that using TFO results in the\
+    \ first data written to a\n   socket to be delivered more than once to the application\
+    \ on the\n   remote host (Section 2.1).  This replay potential only applies to\n\
+    \   data in the SYN but not subsequent data exchanges.\n   Empirically, [JIDKT07]\
+    \ showed the packet duplication on a Tier-1\n   network is rare.  Since the replay\
+    \ only happens specifically when the\n   SYN data packet is duplicated and also\
+    \ the duplicate arrives after\n   the receiver has cleared the original SYN's\
+    \ connection state, the\n   replay is thought to be uncommon in practice.  Nevertheless,\
+    \ a client\n   that cannot handle receiving the same SYN data more than once MUST\n\
+    \   NOT enable TFO to send data in a SYN.  Similarly, a server that\n   cannot\
+    \ accept receiving the same SYN data more than once MUST NOT\n   enable TFO to\
+    \ receive data in a SYN.  Further investigation is needed\n   to judge the probability\
+    \ of receiving duplicated SYN or SYN-ACK\n   packets with data in networks that\
+    \ are not Tier 1.\n"
+- title: 6.2.  Potential Performance Improvement
+  contents:
+  - "6.2.  Potential Performance Improvement\n   TFO is designed for latency-conscious\
+    \ applications that are sensitive\n   to TCP's initial connection setup delay.\
+    \  To benefit from TFO, the\n   first application data unit (e.g., an HTTP request)\
+    \ needs to be no\n   more than TCP's maximum segment size (minus options used\
+    \ in the SYN).\n   Otherwise, the remote server can only process the client's\n\
+    \   application data unit once the rest of it is delivered after the\n   initial\
+    \ handshake, diminishing TFO's benefit.\n   To the extent possible, applications\
+    \ SHOULD reuse the connection to\n   take advantage of TCP's built-in congestion\
+    \ control and reduce\n   connection setup overhead.  An application that employs\
+    \ too many\n   short-lived connections will negatively impact network stability,\
+    \ as\n   these connections often exit before TCP's congestion control\n   algorithm\
+    \ takes effect.\n"
+- title: '6.3.  Example: Web Clients and Servers'
+  contents:
+  - '6.3.  Example: Web Clients and Servers
+
+    '
+- title: 6.3.1.  HTTP Request Replay
+  contents:
+  - "6.3.1.  HTTP Request Replay\n   While TFO is motivated by Web applications, the\
+    \ browser should not\n   use TFO to send requests in SYNs if those requests cannot\
+    \ tolerate\n   replays.  One example is POST requests without application-layer\n\
+    \   transaction protection (e.g., a unique identifier in the request\n   header).\n\
+    \   On the other hand, TFO is particularly useful for GET requests.  GET\n   request\
+    \ replay could happen across striped TCP connections: after a\n   server receives\
+    \ an HTTP request but before the ACKs of the requests\n   reach the browser, the\
+    \ browser may time out and retry the same\n   request on another (possibly new)\
+    \ TCP connection.  This differs from\n   a TFO replay only in that the replay\
+    \ is initiated by the browser, not\n   by the TCP stack.\n"
+- title: 6.3.2.  HTTP over TLS (HTTPS)
+  contents:
+  - "6.3.2.  HTTP over TLS (HTTPS)\n   For Transport Layer Security (TLS) over TCP,\
+    \ it is safe and useful to\n   include a TLS client_hello in the SYN packet to\
+    \ save one RTT in the\n   TLS handshake.  There is no concern about violating\
+    \ idempotency.  In\n   particular, it can be used alone with the speculative connection\n\
+    \   above.\n"
+- title: 6.3.3.  Comparison with HTTP Persistent Connections
+  contents:
+  - "6.3.3.  Comparison with HTTP Persistent Connections\n   Is TFO useful given the\
+    \ wide deployment of HTTP persistent\n   connections?  The short answer is yes.\
+    \  Studies ([RCCJR11] [AERG11])\n   show that the average number of transactions\
+    \ per connection is\n   between 2 and 4, based on large-scale measurements from\
+    \ both servers\n   and clients.  In these studies, the servers and clients both\
+    \ kept\n   idle connections up to several minutes, well into \"human think\" time.\n\
+    \   Keeping connections open and idle even longer risks a greater\n   performance\
+    \ penalty.  [HNESSK10] and [MQXMZ11] show that the majority\n   of home routers\
+    \ and ISPs fail to meet the 124-minute idle timeout\n   mandated in [RFC5382].\
+    \  In [MQXMZ11], 35% of mobile ISPs silently\n   time out idle connections within\
+    \ 30 minutes.  End hosts, unaware of\n   silent middlebox timeouts, suffer multi-minute\
+    \ TCP timeouts upon\n   using those long-idle connections.\n   To circumvent this\
+    \ problem, some applications send frequent TCP keep-\n   alive probes.  However,\
+    \ this technique drains power on mobile devices\n   [MQXMZ11].  In fact, power\
+    \ has become such a prominent issue in\n   modern Long Term Evolution (LTE) devices\
+    \ that mobile browsers close\n   HTTP connections within seconds or even immediately\
+    \ [SOUDERS11].\n   [RCCJR11] studied the performance of the Chrome browser [Chrome]\n\
+    \   based on 28 days of global statistics.  The Chrome browser keeps idle\n  \
+    \ HTTP persistent connections for 5 to 10 minutes.  However, the\n   average number\
+    \ of the transactions per connection is only 3.3, and\n   the TCP 3WHS accounts\
+    \ for up to 25% of the HTTP transaction network\n   latency.  The authors estimated\
+    \ that TFO improves page load time by\n   10% to 40% on selected popular Web sites.\n"
+- title: 6.3.4.  Load Balancers and Server Farms
+  contents:
+  - "6.3.4.  Load Balancers and Server Farms\n   Servers behind load balancers that\
+    \ accept connection requests to the\n   same server IP address should use the\
+    \ same key such that they\n   generate identical Fast Open cookies for a particular\
+    \ client IP\n   address.  Otherwise, a client may get different cookies across\n\
+    \   connections; its Fast Open attempts would fall back to the regular\n   3WHS.\n"
+- title: 7.  Open Areas for Experimentation
+  contents:
+  - "7.  Open Areas for Experimentation\n   We now outline some areas that need experimentation\
+    \ in the Internet\n   and under different network scenarios.  These experiments\
+    \ should help\n   evaluate Fast Open benefits and risks and its related protocols.\n"
+- title: 7.1.  Performance Impact Due to Middleboxes and NAT
+  contents:
+  - "7.1.  Performance Impact Due to Middleboxes and NAT\n   [MAF04] found that some\
+    \ middleboxes and end hosts may drop packets\n   with unknown TCP options.  Studies\
+    \ ([LANGLEY06] [HNRGHT11]) have\n   found that 6% of the probed paths on the Internet\
+    \ drop SYN packets\n   with data or with unknown TCP options.  The TFO protocol\
+    \ deals with\n   this problem by falling back to the regular TCP handshake and\n\
+    \   retransmitting the SYN without data or cookie options after the\n   initial\
+    \ SYN timeout.  Moreover, the implementation is recommended to\n   negatively\
+    \ cache such incidents to avoid recurring timeouts.  Further\n   study is required\
+    \ to evaluate the performance impact of these drop\n   behaviors.\n   Another\
+    \ interesting study is the loss of TFO performance benefit\n   behind certain\
+    \ Carrier-Grade NAT (CGN).  Typically, hosts behind a\n   NAT sharing the same\
+    \ IP address will get the same cookie for the same\n   server.  This will not\
+    \ prevent TFO from working.  But, on some CGN\n   configurations where every new\
+    \ TCP connection from the same physical\n   host uses a different public IP address,\
+    \ TFO does not provide latency\n   benefits.  However, there is no performance\
+    \ penalty either, as\n   described in the \"Client: Receiving SYN-ACK\" text in\
+    \ Section 4.2.2.\n"
+- title: 7.2.  Impact on Congestion Control
+  contents:
+  - "7.2.  Impact on Congestion Control\n   Although TFO does not directly change\
+    \ TCP's congestion control, there\n   are subtle cases where it could do so. \
+    \ When a SYN-ACK times out,\n   regular TCP reduces the initial congestion window\
+    \ before sending any\n   data [RFC5681].  However, in TFO, the server may have\
+    \ already sent up\n   to an initial window of data.\n   If the server serves mostly\
+    \ short connections, then the losses of\n   SYN-ACKs are not as effective as regular\
+    \ TCP on reducing the\n   congestion window.  This could result in an unstable\
+    \ network\n   condition.  The connections that experience losses may attempt again\n\
+    \   and add more load under congestion.  A potential solution is to\n   temporarily\
+    \ disable Fast Open if the server observes many SYN-ACK or\n   data losses during\
+    \ the handshake across connections.  Further\n   experimentation regarding the\
+    \ congestion control impact will be\n   useful.\n"
+- title: 7.3.  Cookie-less Fast Open
+  contents:
+  - "7.3.  Cookie-less Fast Open\n   The cookie mechanism mitigates resource exhaustion\
+    \ and amplification\n   attacks.  However, cookies are not necessary if the server\
+    \ has\n   application-level protection or is immune to these attacks.  For\n \
+    \  example, a Web server that only replies with a simple HTTP redirect\n   response\
+    \ that fits in the SYN-ACK packet may not care about resource\n   exhaustion.\n\
+    \   For such applications the server may choose to generate a trivial or\n   even\
+    \ a zero-length cookie to improve performance by avoiding the\n   cookie generation\
+    \ and verification.  If the server believes it's\n   under a DoS attack through\
+    \ other defense mechanisms, it can switch to\n   regular Fast Open for listener\
+    \ sockets.\n"
+- title: 8.  Related Work
+  contents:
+  - '8.  Related Work
+
+    '
+- title: 8.1.  T/TCP
+  contents:
+  - "8.1.  T/TCP\n   TCP Extensions for Transactions [RFC1644] attempted to bypass\
+    \ the\n   3WHS, among other things; hence, it shared the same goal but also the\n\
+    \   same set of issues as TFO.  It focused most of its effort battling\n   old\
+    \ or duplicate SYNs, but paid no attention to security\n   vulnerabilities it\
+    \ introduced when bypassing the 3WHS [PHRACK98].\n   As stated earlier, we take\
+    \ a practical approach to focus TFO on the\n   security aspect, while allowing\
+    \ old, duplicate SYN packets with data\n   after recognizing that 100% TCP semantics\
+    \ is likely infeasible.  We\n   believe this approach strikes the right trade-off\
+    \ and makes TFO much\n   simpler and more appealing to TCP implementers and users.\n"
+- title: 8.2.  Common Defenses against SYN Flood Attacks
+  contents:
+  - "8.2.  Common Defenses against SYN Flood Attacks\n   [RFC4987] studies the mitigation\
+    \ of attacks from regular SYN floods,\n   i.e., SYNs without data.  But from the\
+    \ stateless SYN cookies to the\n   stateful SYN Cache, none can preserve data\
+    \ sent with SYNs safely\n   while still providing an effective defense.\n   The\
+    \ best defense may be simply to disable TFO when a host is\n   suspected to be\
+    \ under a SYN flood attack, e.g., the SYN backlog is\n   filled.  Once TFO is\
+    \ disabled, normal SYN flood defenses can be\n   applied.  The \"Security Considerations\"\
+    \ section (Section 5) contains\n   a thorough discussion on this topic.\n"
+- title: 8.3.  Speculative Connections by the Applications
+  contents:
+  - "8.3.  Speculative Connections by the Applications\n   Some Web browsers maintain\
+    \ a history of the domains for frequently\n   visited Web pages.  The browsers\
+    \ then speculatively pre-open TCP\n   connections to these domains before the\
+    \ user initiates any requests\n   for them [BELSHE11].  While this technique also\
+    \ saves the handshake\n   latency, it wastes server and network resources by initiating\
+    \ and\n   maintaining idle connections.\n"
+- title: 8.4.  Fast Open Cookie-in-FIN
+  contents:
+  - "8.4.  Fast Open Cookie-in-FIN\n   An alternate proposal is to request a TFO cookie\
+    \ in the FIN instead,\n   since FIN-drop by incompatible middleboxes does not\
+    \ affect latency.\n   However, paths that block SYN cookies may be more likely\
+    \ to drop a\n   later SYN packet with data, and many applications close a connection\n\
+    \   with RST instead anyway.\n   Although cookie-in-FIN may not improve robustness,\
+    \ it would give\n   clients using a single connection a latency advantage over\
+    \ clients\n   opening multiple parallel connections.  If experiments with TFO\
+    \ find\n   that it leads to increased connection-sharding, cookie-in-FIN may\n\
+    \   prove to be a useful alternative.\n"
+- title: 8.5.  TCP Cookie Transaction (TCPCT)
+  contents:
+  - "8.5.  TCP Cookie Transaction (TCPCT)\n   TCPCT [RFC6013] eliminates server state\
+    \ during the initial handshake\n   and defends spoofing DoS attacks.  Like TFO,\
+    \ TCPCT allows SYN and\n   SYN-ACK packets to carry data.  But the server can\
+    \ only send up to\n   MSS bytes of data during the handshake instead of the initial\n\
+    \   congestion window, unlike TFO.  Therefore, the latency of\n   applications\
+    \ (e.g., Web applications) may be worse than with TFO.\n"
+- title: 9.  IANA Considerations
+  contents:
+  - "9.  IANA Considerations\n   IANA has allocated one value, 34, in the \"TCP Option\
+    \ Kind Numbers\"\n   registry.  See Section 4.1.1.  The length of this new TCP\
+    \ option is\n   variable, and the Meaning as shown in the \"TCP Option Kind Numbers\"\
+    \n   registry is set to \"TCP Fast Open Cookie\".  Current and new\n   implementations\
+    \ SHOULD use option (34).  Existing implementations\n   that are using experimental\
+    \ option 254 per [RFC6994] with magic\n   number 0xF989 (16 bits) as allocated\
+    \ in the IANA \"TCP Experimental\n   Option Experiment Identifiers (TCP ExIDs)\"\
+    \ registry by this document,\n   SHOULD migrate to use this new option (34) by\
+    \ default.\n"
+- title: 10.  References
+  contents:
+  - '10.  References
+
+    '
+- title: 10.1.  Normative References
+  contents:
+  - "10.1.  Normative References\n   [RFC793]    Postel, J., \"Transmission Control\
+    \ Protocol\", STD 7, RFC\n               793, September 1981,\n              \
+    \ <http://www.rfc-editor.org/info/rfc793>.\n   [RFC1122]   Braden, R., Ed., \"\
+    Requirements for Internet Hosts -\n               Communication Layers\", STD\
+    \ 3, RFC 1122, October 1989,\n               <http://www.rfc-editor.org/info/rfc1122>.\n\
+    \   [RFC2119]   Bradner, S., \"Key words for use in RFCs to Indicate\n       \
+    \        Requirement Levels\", BCP 14, RFC 2119, March 1997,\n               <http://www.rfc-editor.org/info/rfc2119>.\n\
+    \   [RFC3390]   Allman, M., Floyd, S., and C. Partridge, \"Increasing\n      \
+    \         TCP's Initial Window\", RFC 3390, October 2002,\n               <http://www.rfc-editor.org/info/rfc3390>.\n\
+    \   [RFC5382]   Guha, S., Ed., Biswas, K., Ford, B., Sivakumar, S., and\n    \
+    \           P. Srisuresh, \"NAT Behavioral Requirements for TCP\", BCP\n     \
+    \          142, RFC 5382, October 2008,\n               <http://www.rfc-editor.org/info/rfc5382>.\n\
+    \   [RFC5681]   Allman, M., Paxson, V., and E. Blanton, \"TCP Congestion\n   \
+    \            Control\", RFC 5681, September 2009,\n               <http://www.rfc-editor.org/info/rfc5681>.\n\
+    \   [RFC6994]   Touch, J., \"Shared Use of Experimental TCP Options\", RFC\n \
+    \              6994, August 2013,\n               <http://www.rfc-editor.org/info/rfc6994>.\n"
+- title: 10.2.  Informative References
+  contents:
+  - "10.2.  Informative References\n   [AERG11]    Al-Fares, M., Elmeleegy, K., Reed,\
+    \ B., and I. Gashinsky,\n               \"Overclocking the Yahoo! CDN for Faster\
+    \ Web Page Loads\",\n               in Proceedings of Internet Measurement Conference,\n\
+    \               November 2011.\n   [BELSHE11]  Belshe, M., \"The Era of Browser\
+    \ Preconnect\", February\n               2011, <http://www.belshe.com/2011/02/10/\n\
+    \               the-era-of-browser-preconnect/>.\n   [BRISCOE12] Briscoe, B.,\
+    \ \"Some ideas building on draft-ietf-tcpm-\n               fastopen-01\", message\
+    \ to the tcpm mailing list, July\n               2012, <http://www.ietf.org/mail-archive/\n\
+    \               web/tcpm/current/msg07192.html>.\n   [Chrome]    Google Chrome,\n\
+    \               <https://www.google.com/intl/en-US/chrome/browser/>.\n   [HNESSK10]\
+    \  Haetoenen, S., Nyrhinen, A., Eggert, L., Strowes, S.,\n               Sarolahti,\
+    \ P., and M. Kojo, \"An Experimental Study of\n               Home Gateway Characteristics\"\
+    , in Proceedings of Internet\n               Measurement Conference, October 2010.\n\
+    \   [HNRGHT11]  Honda, M., Nishida, Y., Raiciu, C., Greenhalgh, A.,\n        \
+    \       Handley, M., and H. Tokuda, \"Is it Still Possible to\n              \
+    \ Extend TCP?\", in Proceedings of Internet Measurement\n               Conference,\
+    \ November 2011.\n   [JIDKT07]   Jaiswal, S., Iannaccone, G., Diot, C., Kurose,\
+    \ J., and D.\n               Towsley, \"Measurement and Classification of Out-of-\n\
+    \               Sequence Packets in a Tier-1 IP Backbone\" IEEE/ACM\n        \
+    \       Transactions on Networking (TON), Volume 15, Issue 1, pp\n           \
+    \    54-66.\n   [LANGLEY06] Langley, A., \"Probing the viability of TCP extensions\"\
+    ,\n               <http://www.imperialviolet.org/binary/ecntest.pdf>.\n   [MAF04]\
+    \     Medina, A., Allman, M., and S. Floyd, \"Measuring\n               Interactions\
+    \ Between Transport Protocols and\n               Middleboxes\", in Proceedings\
+    \ of Internet Measurement\n               Conference, October 2004.\n   [MQXMZ11]\
+    \   Wang, Z., Qian, Z., Xu, Q., Mao, Z., and M. Zhang, \"An\n               Untold\
+    \ Story of Middleboxes in Cellular Networks\", in\n               Proceedings\
+    \ of SIGCOMM, August 2011.\n   [PHRACK98]  \"T/TCP vulnerabilities\", Phrack Magazine,\
+    \ Volume 8, Issue\n               53, Article 6, July 8, 1998,\n             \
+    \  <http://www.phrack.com/issues.html?issue=53&id=6>.\n   [RCCJR11]   Radhakrishnan,\
+    \ S., Cheng, Y., Chu, J., Jain, A., and B.\n               Raghavan, \"TCP Fast\
+    \ Open\", in Proceedings of the 7th ACM\n               CoNEXT Conference, December\
+    \ 2011.\n   [RFC1323]   Jacobson, V., Braden, R., and D. Borman, \"TCP Extensions\n\
+    \               for High Performance\", RFC 1323, May 1992,\n               <http://www.rfc-editor.org/info/rfc1323>.\n\
+    \   [RFC1644]   Braden, R., \"T/TCP -- TCP Extensions for Transactions\n     \
+    \          Functional Specification\", RFC 1644, July 1994,\n               <http://www.rfc-editor.org/info/rfc1644>.\n\
+    \   [RFC2460]   Deering, S. and R. Hinden, \"Internet Protocol, Version 6\n  \
+    \             (IPv6) Specification\", RFC 2460, December 1998,\n             \
+    \  <http://www.rfc-editor.org/info/rfc2460>.\n   [RFC4987]   Eddy, W., \"TCP SYN\
+    \ Flooding Attacks and Common\n               Mitigations\", RFC 4987, August\
+    \ 2007,\n               <http://www.rfc-editor.org/info/rfc4987>.\n   [RFC6013]\
+    \   Simpson, W., \"TCP Cookie Transactions (TCPCT)\", RFC 6013,\n            \
+    \   January 2011, <http://www.rfc-editor.org/info/rfc6013>.\n   [RFC6247]   Eggert,\
+    \ L., \"Moving the Undeployed TCP Extensions RFC\n               1072, RFC 1106,\
+    \ RFC 1110, RFC 1145, RFC 1146, RFC 1379,\n               RFC 1644, and RFC 1693\
+    \ to Historic Status\", RFC 6247, May\n               2011, <http://www.rfc-editor.org/info/rfc6247>.\n\
+    \   [RFC7323]   Borman, D., Braden, B., Jacobson, V., and R.\n               Scheffenegger,\
+    \ Ed., \"TCP Extensions for High\n               Performance\", RFC 7323, September\
+    \ 2014,\n               <http://www.rfc-editor.org/info/rfc7323>.\n   [SOUDERS11]\
+    \ Souders, S., \"Making A Mobile Connection\",\n               <http://www.stevesouders.com/blog/2011/09/21/\n\
+    \               making-a-mobile-connection/>.\n"
+- title: Appendix A.  Example Socket API Changes to Support TFO
+  contents:
+  - 'Appendix A.  Example Socket API Changes to Support TFO
+
+    '
+- title: A.1.  Active Open
+  contents:
+  - "A.1.  Active Open\n   The active open side involves changing or replacing the\
+    \ connect()\n   call, which does not take a user data buffer argument.  We recommend\n\
+    \   replacing the connect() call to minimize API changes, and, hence,\n   applications\
+    \ to reduce the deployment hurdle.\n   One solution implemented in Linux 3.7 is\
+    \ introducing a new flag,\n   MSG_FASTOPEN, for sendto() or sendmsg().  MSG_FASTOPEN\
+    \ marks the\n   attempt to send data in the SYN like a combination of connect()\
+    \ and\n   sendto(), by performing an implicit connect() operation.  It blocks\n\
+    \   until the handshake has completed and the data is buffered.\n   For a non-blocking\
+    \ socket, it returns the number of bytes buffered\n   and sent in the SYN packet.\
+    \  If the cookie is not available locally,\n   it returns -1 with errno EINPROGRESS,\
+    \ and sends a SYN with a TFO\n   cookie request automatically.  The caller needs\
+    \ to write the data\n   again when the socket is connected.  On errors, it returns\
+    \ the same\n   errno as connect() if the handshake fails.\n   An implementation\
+    \ may prefer not to change the sendmsg() call because\n   TFO is a TCP-specific\
+    \ feature.  A solution is to add a new socket\n   option, TCP_FASTOPEN, for TCP\
+    \ sockets.  When the option is enabled\n   before a connect() operation, sendmsg()\
+    \ or sendto() will perform a\n   Fast Open operation similar to the MSG_FASTOPEN\
+    \ flag described above.\n   This approach, however, requires an extra setsockopt()\
+    \ system call.\n"
+- title: A.2.  Passive Open
+  contents:
+  - "A.2.  Passive Open\n   The passive open side change is simpler compared to the\
+    \ active open\n   side.  The application only needs to enable the reception of\
+    \ Fast\n   Open requests via a new TCP_FASTOPEN setsockopt() socket option\n \
+    \  before listen().\n   The option enables Fast Open on the listener socket. \
+    \ The option\n   value specifies the PendingFastOpenRequests threshold, i.e.,\
+    \ the\n   maximum length of pending SYNs with data payload.  Once enabled, the\n\
+    \   TCP implementation will respond with TFO cookies per request.\n   Traditionally,\
+    \ accept() returns only after a socket is connected.\n   But, for a Fast Open\
+    \ connection, accept() returns upon receiving a\n   SYN with a valid Fast Open\
+    \ cookie and data, and the data is available\n   to be read through, e.g., recvmsg(),\
+    \ read().\n"
+- title: Acknowledgments
+  contents:
+  - "Acknowledgments\n   We thank Bob Briscoe, Michael Scharf, Gorry Fairhurst, Rick\
+    \ Jones,\n   Roberto Peon, William Chan, Adam Langley, Neal Cardwell, Eric\n \
+    \  Dumazet, and Matt Mathis for their feedback.  We especially thank\n   Barath\
+    \ Raghavan for his contribution on the security design of Fast\n   Open and proofreading\
+    \ this document numerous times.\n"
+- title: Authors' Addresses
+  contents:
+  - "Authors' Addresses\n   Yuchung Cheng\n   Google, Inc.\n   1600 Amphitheatre Parkway\n\
+    \   Mountain View, CA  94043\n   United States\n   EMail: ycheng@google.com\n\
+    \   Jerry Chu\n   Google, Inc.\n   1600 Amphitheatre Parkway\n   Mountain View,\
+    \ CA  94043\n   United States\n   EMail: hkchu@google.com\n   Sivasankar Radhakrishnan\n\
+    \   Department of Computer Science and Engineering\n   University of California,\
+    \ San Diego\n   9500 Gilman Drive\n   La Jolla, CA  92093-0404\n   United States\n\
+    \   EMail: sivasankar@cs.ucsd.edu\n   Arvind Jain\n   Google, Inc.\n   1600 Amphitheatre\
+    \ Parkway\n   Mountain View, CA  94043\n   United States\n   EMail: arvind@google.com\n"
