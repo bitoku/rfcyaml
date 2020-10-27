@@ -10,75 +10,83 @@
     \   Stream Control Transmission Protocol (SCTP) currently uses an Adler-\n   32\
     \ checksum.  For small packets Adler-32 provides weak detection of\n   errors.\
     \  This document changes that checksum and updates SCTP to use\n   a 32 bit CRC\
-    \ checksum.\nTable of Contents\n1 Introduction\n   A fundamental weakness has\
-    \ been detected in SCTP's current Adler-32\n   checksum algorithm [STONE].  This\
-    \ document updates and replaces the\n   Adler-32 checksum definition in [RFC 2960].\
-    \  Note that there is no\n   graceful transition mechanism for migrating to the\
-    \ new checksum.\n   Implementations are expected to immediately switch to the\
-    \ new\n   algorithm; use of the old algorithm is deprecated.\n   One requirement\
-    \ of an effective checksum is that it evenly and\n   smoothly spreads its input\
-    \ packets over the available check bits.\n   From an email from Jonathan Stone,\
-    \ who analyzed the Adler-32 as part\n   of his doctoral thesis:\n   \"Briefly,\
-    \ the problem is that, for very short packets, Adler32 is\n   guaranteed to give\
-    \ poor coverage of the available bits.  Don't take\n   my word for it, ask Mark\
-    \ Adler.  :-)\n   Adler-32 uses two 16-bit counters, s1 and s2.  s1 is the sum\
-    \ of the\n   input, taken as 8-bit bytes.  s2 is a running sum of each value of\n\
-    \   s1.  Both s1 and s2 are computed mod-65521 (the largest prime less\n   than\
-    \ 2^16).  Consider a packet of 128 bytes.  The *most* that each\n   byte can be\
-    \ is 255.  There are only 128 bytes of input, so the\n   greatest value which\
-    \ the s1 accumulator can have is 255 * 128 =\n   32640.  So, for 128-byte packets,\
-    \ s1 never wraps.  That is critical.\n   Why?\n   The key is to consider the distribution\
-    \ of the s1 values, over some\n   distribution of the values of the individual\
-    \ input bytes in each\n   packet.  Because s1 never wraps, s1 is simply the sum\
-    \ of the\n   individual input bytes.  (Even Doug's trick of adding 0x5555 doesn't\n\
-    \   help here, and an even larger value doesn't really help: we can get\n   at\
-    \ most one mod-65521 reduction.)\n   Given the further assumption that the input\
-    \ bytes are drawn\n   independently from some distribution (they probably aren't:\
-    \ for file\n   system data, it's even worse than that!), the Central Limit Theorem\n\
-    \   tells us that that s1 will tend to have a normal distribution.\n   That's\
-    \ bad: it tells us that the value of s1 will have hot-spots at\n   around 128\
-    \ times the mean of the input distribution: around 16k,\n   assuming a uniform\
-    \ distribution.  That's bad.  We want the\n   accumulator to wrap as many times\
-    \ as possible, so that the resulting\n   sum has as close to a uniform distribution\
-    \ as possible.  (I call this\n   \"fairness\".)\n   So, for short packets, the\
-    \ Adler-32 s1 sum is guaranteed to be\n   unfair.  Why is that bad?  It's bad\
-    \ because the space of valid\n   packets -- input data, plus checksum values --\
-    \ is also small.  If all\n   packets have checksum values very close to 32640,\
-    \ then the likelihood\n   of even a 'small' error leaving a damaged packet with\
-    \ a valid\n   checksum is higher than if all checksum values are equally likely.\"\
-    \n   Due to this inherent weakness, exacerbated by the fact that SCTP will\n \
-    \  first be used as a signaling transport protocol where signaling\n   messages\
-    \ are usually less than 128 bytes, a new checksum algorithm is\n   specified by\
-    \ this document, replacing the current Adler-32 algorithm\n   with CRC-32c.\n\
-    1.1 Conventions\n   The keywords MUST, MUST NOT, REQUIRED, SHALL, SHALL NOT,\n\
-    \   SHOULD,SHOULD NOT, RECOMMENDED, NOT RECOMMENDED, MAY, and OPTIONAL,\n   when\
-    \ they appear in this document, are to be interpreted as described\n   in [RFC2119].\n\
-    \   Bit number order is defined in [RFC1700].\n2 Checksum Procedures\n   The procedures\
-    \ described in section 2.1 of this document MUST be\n   followed, replacing the\
-    \ current checksum defined in [RFC2960].\n   Furthermore any references within\
-    \ [RFC2960] to Adler-32 MUST be\n   treated as a reference to CRC-32c.  Section\
-    \ 2.1 of this document\n   describes the new calculation and verification procedures\
-    \ that MUST\n   be followed.\n2.1 Checksum Calculation\n   When sending an SCTP\
-    \ packet, the endpoint MUST strengthen the data\n   integrity of the transmission\
-    \ by including the CRC-32c checksum value\n   calculated on the packet, as described\
-    \ below.\n   After the packet is constructed (containing the SCTP common header\n\
-    \   and one or more control or DATA chunks), the transmitter shall:\n   1) Fill\
-    \ in the proper Verification Tag in the SCTP common header and\n      initialize\
-    \ the Checksum field to 0's.\n   2) Calculate the CRC-32c of the whole packet,\
-    \ including the SCTP\n      common header and all the chunks.\n   3) Put the resulting\
-    \ value into the Checksum field in the common\n      header, and leave the rest\
-    \ of the bits unchanged.\n   When an SCTP packet is received, the receiver MUST\
-    \ first check the\n   CRC-32c checksum:\n   1) Store the received CRC-32c value,\n\
-    \   2) Replace the 32 bits of the Checksum field in the received SCTP\n      packet\
-    \ with all '0's and calculate a CRC-32c value of the whole\n      received packet.\
-    \  And,\n   3) Verify that the calculated CRC-32c value is the same as the\n \
-    \     received CRC-32c value.  If not, the receiver MUST treat the\n      packet\
-    \ as an invalid SCTP packet.\n   The default procedure for handling invalid SCTP\
-    \ packets is to\n   silently discard them.\n   Any hardware implementation SHOULD\
-    \ be done in a way that is\n   verifiable by the software.\n   We define a 'reflected\
-    \ value' as one that is the opposite of the\n   normal bit order of the machine.\
-    \  The 32 bit CRC is calculated as\n   described for CRC-32c and uses the polynomial\
-    \ code 0x11EDC6F41\n   (Castagnoli93) or x^32+x^28+x^27+x^26+x^25\n   +x^23+x^22+x^20+x^19+x^18+x^14+x^13+x^11+x^10+x^9+x^8+x^6+x^0.\
+    \ checksum.\nTable of Contents\n   1 Introduction ...................................................\
+    \  2\n   2 Checksum Procedures ............................................  3\n\
+    \   3 Security Considerations.........................................  6\n  \
+    \ 4 IANA Considerations.............................................  6\n   5\
+    \ Acknowledgments ................................................  6\n   6 References\
+    \ .....................................................  7\n   Appendix .........................................................\
+    \  9\n   Authors' Addresses ............................................... 16\n\
+    \   Full Copyright Statement ......................................... 17\n1 Introduction\n\
+    \   A fundamental weakness has been detected in SCTP's current Adler-32\n   checksum\
+    \ algorithm [STONE].  This document updates and replaces the\n   Adler-32 checksum\
+    \ definition in [RFC 2960].  Note that there is no\n   graceful transition mechanism\
+    \ for migrating to the new checksum.\n   Implementations are expected to immediately\
+    \ switch to the new\n   algorithm; use of the old algorithm is deprecated.\n \
+    \  One requirement of an effective checksum is that it evenly and\n   smoothly\
+    \ spreads its input packets over the available check bits.\n   From an email from\
+    \ Jonathan Stone, who analyzed the Adler-32 as part\n   of his doctoral thesis:\n\
+    \   \"Briefly, the problem is that, for very short packets, Adler32 is\n   guaranteed\
+    \ to give poor coverage of the available bits.  Don't take\n   my word for it,\
+    \ ask Mark Adler.  :-)\n   Adler-32 uses two 16-bit counters, s1 and s2.  s1 is\
+    \ the sum of the\n   input, taken as 8-bit bytes.  s2 is a running sum of each\
+    \ value of\n   s1.  Both s1 and s2 are computed mod-65521 (the largest prime less\n\
+    \   than 2^16).  Consider a packet of 128 bytes.  The *most* that each\n   byte\
+    \ can be is 255.  There are only 128 bytes of input, so the\n   greatest value\
+    \ which the s1 accumulator can have is 255 * 128 =\n   32640.  So, for 128-byte\
+    \ packets, s1 never wraps.  That is critical.\n   Why?\n   The key is to consider\
+    \ the distribution of the s1 values, over some\n   distribution of the values\
+    \ of the individual input bytes in each\n   packet.  Because s1 never wraps, s1\
+    \ is simply the sum of the\n   individual input bytes.  (Even Doug's trick of\
+    \ adding 0x5555 doesn't\n   help here, and an even larger value doesn't really\
+    \ help: we can get\n   at most one mod-65521 reduction.)\n   Given the further\
+    \ assumption that the input bytes are drawn\n   independently from some distribution\
+    \ (they probably aren't: for file\n   system data, it's even worse than that!),\
+    \ the Central Limit Theorem\n   tells us that that s1 will tend to have a normal\
+    \ distribution.\n   That's bad: it tells us that the value of s1 will have hot-spots\
+    \ at\n   around 128 times the mean of the input distribution: around 16k,\n  \
+    \ assuming a uniform distribution.  That's bad.  We want the\n   accumulator to\
+    \ wrap as many times as possible, so that the resulting\n   sum has as close to\
+    \ a uniform distribution as possible.  (I call this\n   \"fairness\".)\n   So,\
+    \ for short packets, the Adler-32 s1 sum is guaranteed to be\n   unfair.  Why\
+    \ is that bad?  It's bad because the space of valid\n   packets -- input data,\
+    \ plus checksum values -- is also small.  If all\n   packets have checksum values\
+    \ very close to 32640, then the likelihood\n   of even a 'small' error leaving\
+    \ a damaged packet with a valid\n   checksum is higher than if all checksum values\
+    \ are equally likely.\"\n   Due to this inherent weakness, exacerbated by the\
+    \ fact that SCTP will\n   first be used as a signaling transport protocol where\
+    \ signaling\n   messages are usually less than 128 bytes, a new checksum algorithm\
+    \ is\n   specified by this document, replacing the current Adler-32 algorithm\n\
+    \   with CRC-32c.\n1.1 Conventions\n   The keywords MUST, MUST NOT, REQUIRED,\
+    \ SHALL, SHALL NOT,\n   SHOULD,SHOULD NOT, RECOMMENDED, NOT RECOMMENDED, MAY,\
+    \ and OPTIONAL,\n   when they appear in this document, are to be interpreted as\
+    \ described\n   in [RFC2119].\n   Bit number order is defined in [RFC1700].\n\
+    2 Checksum Procedures\n   The procedures described in section 2.1 of this document\
+    \ MUST be\n   followed, replacing the current checksum defined in [RFC2960].\n\
+    \   Furthermore any references within [RFC2960] to Adler-32 MUST be\n   treated\
+    \ as a reference to CRC-32c.  Section 2.1 of this document\n   describes the new\
+    \ calculation and verification procedures that MUST\n   be followed.\n2.1 Checksum\
+    \ Calculation\n   When sending an SCTP packet, the endpoint MUST strengthen the\
+    \ data\n   integrity of the transmission by including the CRC-32c checksum value\n\
+    \   calculated on the packet, as described below.\n   After the packet is constructed\
+    \ (containing the SCTP common header\n   and one or more control or DATA chunks),\
+    \ the transmitter shall:\n   1) Fill in the proper Verification Tag in the SCTP\
+    \ common header and\n      initialize the Checksum field to 0's.\n   2) Calculate\
+    \ the CRC-32c of the whole packet, including the SCTP\n      common header and\
+    \ all the chunks.\n   3) Put the resulting value into the Checksum field in the\
+    \ common\n      header, and leave the rest of the bits unchanged.\n   When an\
+    \ SCTP packet is received, the receiver MUST first check the\n   CRC-32c checksum:\n\
+    \   1) Store the received CRC-32c value,\n   2) Replace the 32 bits of the Checksum\
+    \ field in the received SCTP\n      packet with all '0's and calculate a CRC-32c\
+    \ value of the whole\n      received packet.  And,\n   3) Verify that the calculated\
+    \ CRC-32c value is the same as the\n      received CRC-32c value.  If not, the\
+    \ receiver MUST treat the\n      packet as an invalid SCTP packet.\n   The default\
+    \ procedure for handling invalid SCTP packets is to\n   silently discard them.\n\
+    \   Any hardware implementation SHOULD be done in a way that is\n   verifiable\
+    \ by the software.\n   We define a 'reflected value' as one that is the opposite\
+    \ of the\n   normal bit order of the machine.  The 32 bit CRC is calculated as\n\
+    \   described for CRC-32c and uses the polynomial code 0x11EDC6F41\n   (Castagnoli93)\
+    \ or x^32+x^28+x^27+x^26+x^25\n   +x^23+x^22+x^20+x^19+x^18+x^14+x^13+x^11+x^10+x^9+x^8+x^6+x^0.\
     \  The\n   CRC is computed using a procedure similar to ETHERNET CRC [ITU32],\n\
     \   modified to reflect transport level usage.\n   CRC computation uses polynomial\
     \ division.  A message bit-string M is\n   transformed to a polynomial, M(X),\

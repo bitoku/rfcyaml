@@ -1,12 +1,13 @@
 import codecs
+import json
 import pathlib
 import re
 from typing import List
 
-from matplotlib import pyplot as plt
 from tqdm import tqdm
 
-from RFC import RFC, RFCSection
+from RFC import RFC, RFCSection, RFCStatus
+from matplotlib import pyplot as plt
 
 RFC_DIR = pathlib.Path(__file__).parent / 'rfc'
 
@@ -23,7 +24,7 @@ def ignore_trivial_line(text: List[str]) -> List[str]:
         'Supercedes NWG/RFC |' \
         'Obsoletes|OBSOLETES|' \
         'Updates|UPDATES|' \
-        '\[?Categor[ies|y]:? ?|CATEGOR[IES|y]|' \
+        r'\[?Categor[ies|y]:? ?|CATEGOR[IES|y]|' \
         'Internet Engineering Task Force|' \
         'Related:? |' \
         'References?:? |' \
@@ -40,8 +41,6 @@ def ignore_trivial_line(text: List[str]) -> List[str]:
         if line.strip() == '':  # remove empty line
             continue
         if re.match(ignore_pattern, line):  # remove header
-            continue
-        if re.search(r'\.{5,}', line):  # remove ToC
             continue
         if re.match(r'\W{32,}', line):  # remove right aligned sentence
             continue
@@ -133,23 +132,44 @@ def get_sections_l0(text: List[str]) -> List[RFCSection]:
 
 def get_sections_l1(text:List[str]) -> List[RFCSection]:
     return [RFCSection(title='__initial_text__', contents=[''.join(text)])]
+# def get_sections_l1(text: List[str]) -> List[RFCSection]:
+#     sections: List[RFCSection] = []
+#     section: List[str] = []
+#     title = '__initial_text__'
+#     prev_section_number: List[int] = [0]
+#     for line in text:
+#         # 1.2.3. -> [1, 2, 3]
+#         temp_section_number: List[int] = extract_section_number(line)
+#         if is_continuous(prev_section_number, temp_section_number):
+#             sections.append(RFCSection(title=title, contents=section))
+#             prev_section_number = temp_section_number
+#             title = line.strip()
+#             section = []
+#         section.append(line)
+#     return sections
 
 
 def main():
     bad = []
+    ratios = []
     for i in tqdm(range(1, 9000)):
         try:
             text = preprocess(i)
             rfc = RFC(i, extract_sections(i, text))
-            ratio = len(rfc.sections) / len(rfc.get_all_text().split('\n'))
-            if ratio > 0.2:
-                bad.append((i, ratio))
-            rfc.dump()
+            ratio = len(rfc.sections) / len(rfc.get_text_all().split('\n'))
+            if rfc.info['status'] in {
+                RFCStatus.PROPOSED_STANDARD,
+                RFCStatus.INTERNET_STANDARD,
+                RFCStatus.DRAFT_STANDARD
+            }:
+                if ratio > 0.15:
+                    print(i)
+                ratios.append(ratio)
         except FileNotFoundError:
             continue
     print(bad)
-    # plt.hist(ratio)
-    # plt.show()
+    plt.hist(ratios)
+    plt.show()
 
 
 if __name__ == '__main__':
