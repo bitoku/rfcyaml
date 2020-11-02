@@ -62,7 +62,7 @@ def is_trivial_section(title: str) -> bool:
     status_of_this_memo = r'[Ss]tatus [Oo]f [Tt]his [Mm]emo'
     copyright_notice = r'[Cc]opyright [Nn]otice'
     table_of_contents = r'[Tt]able [Oo]f [Cc]ontents?'
-    authors_address = r"[Aa]uthor['s|s']? [Aa]ddress(es)?"
+    authors_address = r"[Aa]uthor('s|s')? [Aa]ddress(es)?"
     full_copyright_statement = r'[Ff]ull [Cc]opyright [Ss]tatement'
     intellectual_property = r'[Ii]ntellectual [Pp]roperty'
     acknowledgment = r'[Aa]cknowledge?ments?$'
