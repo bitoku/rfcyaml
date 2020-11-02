@@ -30,7 +30,7 @@ class RFC:
 
     def _load_sections(self) -> List[RFCSection]:
         with open(self.yaml_file) as f:
-            return yaml.load(f, yaml.SafeLoader)
+            return yaml.load(f, yaml.CSafeLoader)
 
     def _load_info(self) -> RFCInfo:
         with open(self.json_file) as f:
@@ -38,13 +38,17 @@ class RFC:
 
     def dump(self):
         with open(self.yaml_file, "w") as f:
-            yaml.dump(self.sections, f)
+            yaml.dump(self.sections, f, yaml.CSafeDumper)
 
     def get_text(self):
-        ret: List[str] = []
+        texts: List[str] = []
         for section in self.sections:
-            ret.append(get_section_text(section))
-        return ''.join(ret)
+            texts.append(get_section_text(section))
+        # TODO
+        one_text = ''.join(texts)
+        if one_text == '':
+            return self.get_text_all()
+        return ''.join(texts)
 
     def get_text_all(self):
         ret: List[str] = []
@@ -115,6 +119,7 @@ class RFCStatus(Enum):
     INTERNET_STANDARD = 'INTERNET STANDARD'
     PROPOSED_STANDARD = 'PROPOSED STANDARD'
     UNKNOWN = 'UNKNOWN'
+    NOT_ISSUED = 'NOT ISSUED'
 
 
 class RFCFormat(Enum):
@@ -124,6 +129,7 @@ class RFCFormat(Enum):
     PS = 'PS'
     TEXT = 'TEXT'
     XML = 'XML'
+    NULL = ''
 
 
 def decode_rfc_info(dct):
@@ -161,10 +167,3 @@ class RFCInfo(TypedDict):
 class RFCSection(TypedDict):
     title: str
     contents: List[Union[RFCSection, str]]
-
-
-def represent_section(dumper, instance):
-    return dumper.represent_mapping('tag:yaml.org,2002:map', instance.items())
-
-
-yaml.add_representer(dict, represent_section)
