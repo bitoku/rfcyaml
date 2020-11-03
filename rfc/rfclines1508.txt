@@ -1,0 +1,522 @@
+Abstract This Generic Security Service Application Program Interface (GSS API) definition provides security services to callers in a generic fashion, supportable with a range of underlying mechanisms and technologies and hence allowing source level portability of applications to different environments.
+This specification defines GSS API services and primitives at a level independent of underlying mechanism and programming language environment, and is to be complemented by other, related specifications:
+documents defining specific parameter bindings for particular language environments documents defining token formats, protocols, and procedures to be implemented in order to realize GSS API services atop particular security mechanisms 1.
+GSS API Characteristics and Concepts
+The operational paradigm in which GSS API operates is as follows.
+A typical GSS API caller is itself a communications protocol, calling on GSS API in order to protect its communications with authentication, integrity, and/or confidentiality security services.
+A GSS API caller accepts tokens provided to it by its local GSS API implementation and transfers the tokens to a peer on a remote system; that peer passes the received tokens to its local GSS API implementation for processing.
+The security services available through GSS API in this fashion are implementable (and have been implemented) over a range of underlying mechanisms based on secret  key and public key cryptographic technologies.
+The GSS API separates the operations of initializing a security context between peers, achieving peer entity authentication (This security service definition, and other definitions used in this document, corresponds to that provided in International Standard ISO 7498 2 1988(E), Security Architecture.)
+(GSS Init sec context() and GSS Accept sec context() calls), from the operations of providing per message data origin authentication and data integrity protection (GSS Sign() and GSS Verify() calls) for messages subsequently transferred in conjunction with that context.
+Per message GSS Seal() and GSS Unseal() calls provide the data origin authentication and data integrity services which GSS Sign() and GSS Verify() offer, and also support selection of confidentiality services as a caller option.
+Additional calls provide supportive functions to the GSS  API's users.
+The following paragraphs provide an example illustrating the dataflows involved in use of the GSS API by a client and server in a mechanism independent fashion, establishing a security context and transferring a protected message.
+The example assumes that credential acquisition has already been completed.
+The example assumes that the underlying authentication technology is capable of authenticating a client to a server using elements carried within a single token, and of authenticating the server to the client (mutual authentication) with a single returned token; this assumption holds for presently  documented CAT mechanisms but is not necessarily true for other cryptographic technologies and associated protocols.
+The client calls GSS Init sec context()  to establish a security context to the server identified by targ name, and elects to set the mutual req flag so that mutual authentication is performed in the course of context establishment.
+GSS Init sec context()  returns an output token to be passed to the server, and indicates GSS CONTINUE NEEDED status pending completion of the mutual authentication sequence.
+Had mutual req flag not been set, the initial call to GSS Init sec context
+()  would have returned GSS COMPLETE status.
+The client sends the output token to the server.
+The server passes the received token as the input token parameter to GSS Accept sec context().
+GSS Accept sec context indicates GSS COMPLETE status, provides the client's authenticated identity in the src name result, and provides an output token to be passed to the client.
+The server sends the output token to the client.
+This call to GSS Init sec context()  returns GSS COMPLETE status, indicating successful mutual authentication and the completion of context establishment for this example.
+The client generates a data message and passes it to GSS Seal().
+GSS Seal() performs data origin authentication, data integrity, and (optionally) confidentiality processing on the message and encapsulates the result into output message, indicating GSS COMPLETE status.
+The client sends the output message to the server.
+The server passes the received message to GSS Unseal().
+GSS Unseal()  indicates successful validation by returning GSS COMPLETE status along with the resultant output message.
+For purposes of this example, we assume that the server knows by out of band means that this context will have no further use after one protected message is transferred from client to server.
+Given this premise, the server now calls GSS Delete sec context() to flush context level information.
+GSS Delete sec context() returns a context token for the server to pass to the client.
+The GSS API design assumes and addresses several basic goals, including: Mechanism independence:
+The GSS API defines an interface to cryptographically implemented strong authentication and other security services at a generic level which is independent of particular underlying mechanisms.
+For example, GSS API provided services can be implemented by secret key technologies (e.g., Kerberos) or public key approaches (e.g., X.509).
+The GSS API is independent of the communications protocol suites with which it is employed, permitting use in a broad range of protocol environments.
+In appropriate environments, an intermediate implementation "veneer" which is oriented to a particular communication protocol (e.g., Remote Procedure Call (RPC)) may be interposed between applications which call that protocol and the GSS API, thereby invoking GSS API facilities in conjunction with that protocol's communications invocations.
+The GSS API's security context construct is independent of communications protocol association constructs.
+This characteristic allows a single GSS API implementation to be utilized by a variety of invoking protocol modules on behalf of those modules' calling applications.
+GSS API services can also be invoked directly by applications, wholly independent of protocol associations.
+Suitability to a range of implementation placements: GSS API clients are not constrained to reside within any Trusted Computing Base (TCB) perimeter defined on a system where the GSS API is implemented; security services are specified in a manner suitable to both intra TCB and extra TCB callers.
+This section describes the basic elements comprising the GSS API.
+Credentials Credentials structures provide the prerequisites enabling peers to establish security contexts with each other.
+A caller may designate that its default credential be used for context establishment calls without presenting an explicit handle to that credential.
+Alternately, those GSS API callers which need to make explicit selection of particular credentials structures may make references to those credentials through GSS API provided credential handles ("cred handles").
+A single credential structure may be used for initiation of outbound contexts and acceptance of inbound contexts.
+Callers needing to operate in only one of these modes may designate this fact when credentials are acquired for use, allowing underlying mechanisms to optimize their processing and storage requirements.
+The credential elements defined by a particular mechanism may contain multiple cryptographic keys, e.g., to enable authentication and message encryption to be performed with different algorithms.
+A single credential structure may accommodate credential information associated with multiple underlying mechanisms (mech types); a credential structure's contents will vary depending on the set of mech types supported by a particular GSS API implementation.
+Commonly, a single mech type will be used for all security contexts established by a particular initiator to a particular target; the primary motivation for supporting credential sets representing multiple mech types is to allow initiators on systems which are equipped to handle multiple types to initiate contexts to targets on other systems which can accommodate only a subset of the set supported at the initiator's system.
+It is the responsibility of underlying system specific mechanisms and OS functions below the GSS API to ensure that the ability to acquire and use credentials associated with a given identity is constrained to appropriate processes within a system.
+This responsibility should be taken seriously by implementors, as the ability for an entity to utilize a principal's credentials is equivalent to the entity's ability to successfully assert that principal's identity.
+Once a set of GSS API credentials is established, the transferability of that credentials set to other processes or analogous constructs within a system is a local matter, not defined by the GSS API.
+An example local policy would be one in which any credentials received as a result of login to a given user account, or of delegation of rights to that account, are accessible by, or transferable to, processes running under that account.
+The credential establishment process (particularly when performed on behalf of users rather than server processes) is likely to require access to passwords or other quantities which should be protected locally and exposed for the shortest time possible.
+As a result, it will often be appropriate for preliminary credential establishment to be performed through local means at user login time, with the result(s) cached for subsequent reference.
+These preliminary credentials would be set aside (in a system specific fashion) for subsequent use, either: to be accessed by an invocation of the GSS API GSS Acquire
+cred() call, returning an explicit handle to reference that credential as the default credentials installed on behalf of a process 1.1.2.
+Tokens Tokens are data elements transferred between GSS API callers, and are divided into two classes.
+Context level tokens are exchanged in order to establish and manage a security context between peers.
+Per message tokens are exchanged in conjunction with an established context to provide protective security services for corresponding data messages.
+The internal contents of both classes of tokens are specific to the particular underlying mechanism used to support the GSS API; Appendix B of this document provides a uniform recommendation for designers of GSS API support mechanisms, encapsulating mechanism specific information along with a globally interpretable mechanism identifier.
+Tokens are opaque from the viewpoint of GSS API callers.
+They are generated within the GSS API implementation at an end system, provided to a GSS API caller to be transferred to the peer GSS API caller at a remote end system, and processed by the GSS API implementation at that remote end system.
+Tokens may be output by GSS API primitives (and are to be transferred to GSS API peers)
+independent of the status indications which those primitives indicate.
+Token transfer may take place in an in band manner, integrated into the same protocol stream used by the GSS API callers for other data transfers, or in an out of band manner across a logically separate channel.
+Development of GSS API support primitives based on a particular underlying cryptographic technique and protocol does not necessarily imply that GSS API callers invoking that GSS API mechanism type will be able to interoperate with peers invoking the same technique and protocol outside the GSS API paradigm.
+For example, the format of GSS API tokens defined in conjunction with a particular mechanism, and the techniques used to integrate those tokens into callers' protocols, may not be the same as those used by non GSS API callers of the same underlying technique.
+Security Contexts Security contexts are established between peers, using credentials established locally in conjunction with each peer or received by peers via delegation.
+Multiple contexts may exist simultaneously between a pair of peers, using the same or different sets of credentials.
+Coexistence of multiple contexts using different credentials allows graceful rollover when credentials expire.
+Distinction among multiple contexts based on the same credentials serves applications by distinguishing different message streams in a security sense.
+The GSS API is independent of underlying protocols and addressing structure, and depends on its callers to transport GSS API provided data elements.
+As a result of these factors, it is a caller responsibility to parse communicated messages, separating GSS API  related data elements from caller provided data.
+The GSS API is independent of connection vs. connectionless orientation of the underlying communications service.
+No correlation between security context and communications protocol association is dictated.
+(The optional channel binding facility, discussed in Section 1.1.6 of this document, represents an intentional exception to this rule, supporting additional protection features within GSS API supporting mechanisms.)
+This separation allows the GSS API to be used in a wide range of communications environments, and also simplifies the calling sequences of the individual calls.
+In many cases (depending on underlying security protocol, associated mechanism, and availability of cached information), the state information required for context setup can be sent concurrently with initial signed user data, without interposing additional message exchanges.
+In order to successfully establish a security context with a target peer, it is necessary to identify an appropriate underlying mechanism type (mech type) which both initiator and target peers support.
+The definition of a mechanism embodies not only the use of a particular cryptographic technology (or a hybrid or choice among alternative cryptographic technologies), but also definition of the syntax and semantics of data element exchanges which that mechanism will employ in order to support security services.
+It is recommended that callers initiating contexts specify the "default" mech type value, allowing system specific functions within or invoked by the GSS API implementation to select the appropriate mech type, but callers may direct that a particular mech type be employed when necessary.
+The means for identifying a shared mech type to establish a security context with a peer will vary in different environments and circumstances; examples include (but are not limited to): use of a fixed mech type, defined by configuration, within an environment syntactic convention on a target specific basis, through examination of a target's name lookup of a target's name in a naming service or other database in order to identify mech types supported by that target explicit negotiation between GSS API callers in advance of security context setup When transferred between GSS API peers, mech type specifiers (per Appendix B, represented as Object Identifiers (OIDs)) serve to qualify the interpretation of associated tokens.
+(The structure and encoding of Object Identifiers is defined in ISO/IEC 8824, "Specification of Abstract Syntax Notation One (ASN.1)" and in ISO/IEC 8825, "Specification of Basic Encoding Rules for Abstract Syntax Notation One (ASN.1)".)
+Use of hierarchically structured OIDs serves to preclude ambiguous interpretation of mech type specifiers.
+The OID representing the DASS MechType, for example, is 1.3.12.2.1011.7.5.
+avoids prescription of naming structures, treating the names transferred across the interface in order to initiate and accept security contexts as opaque octet string quantities.
+This approach supports the GSS API's goal of implementability atop a range of underlying security mechanisms, recognizing the fact that different mechanisms process and authenticate names which are presented in different forms.
+Generalized services offering translation functions among arbitrary sets of naming environments are outside the scope of the GSS API; availability and use of local conversion functions to translate among the naming formats supported within a given end system is anticipated.
+Two distinct classes of name representations are used in conjunction with different GSS API parameters: a printable form (denoted by OCTET STRING), for acceptance from and presentation to users; printable name forms are accompanied by OID tags identifying the namespace to which they correspond an internal form (denoted by INTERNAL NAME), opaque to callers and defined by individual GSS API implementations; GSS API implementations supporting multiple namespace types are responsible for maintaining internal tags to disambiguate the interpretation of particular names Tagging of printable names allows GSS API callers and underlying GSS API mechanisms to disambiguate name types and to determine whether an associated name's type is one which they are capable of processing, avoiding aliasing problems which could result from misinterpreting a name of one type as a name of another type.
+In addition to providing means for names to be tagged with types, this specification defines primitives to support a level of naming environment independence for certain calling applications.
+(It is anticipated that these proposed GSS API calls will be implemented in many end systems based on system specific name manipulation primitives already extant within those end systems; inclusion within the GSS API is intended to offer GSS API callers a portable means to perform specific operations, supportive of authorization and audit requirements, on authenticated names.)
+implementations can, where appropriate, support more than one printable syntax corresponding to a given namespace (e.g., alternative printable representations for X.500 Distinguished Names), allowing flexibility for their callers to select among alternative representations.
+implementations output a printable syntax selected as appropriate to their operational environments; this selection is a local matter.
+Callers desiring portability across alternative printable syntaxes should refrain from implementing comparisons based on printable name forms and should instead use the GSS Compare name()  call to determine whether or not one internal format name matches another.
+The GSS API accommodates the concept of caller provided channel binding ("chan binding") information, used by GSS API callers to bind the establishment of a security context to relevant characteristics (e.g., addresses, transformed representations of encryption keys) of the underlying communications channel and of protection mechanisms applied to that communications channel.
+Verification by one peer of chan binding information provided by the other peer to a context serves to protect against various active attacks.
+The caller initiating a security context must determine the chan binding values before making the GSS Init sec context()
+call, and consistent values must be provided by both peers to a context.
+Callers should not assume that underlying mechanisms provide confidentiality protection for channel binding information.
+Use or non use of the GSS API channel binding facility is a caller option, and GSS API supporting mechanisms can support operation in an environment where NULL channel bindings are presented.
+When non NULL channel bindings are used, certain mechanisms will offer enhanced security value by interpreting the bindings' content (rather than simply representing those bindings, or signatures computed on them, within tokens) and will therefore depend on presentation of specific data in a defined format.
+To this end, agreements among mechanism implementors are defining conventional interpretations for the contents of channel binding arguments, including address specifiers (with content dependent on communications protocol environment) for context initiators and acceptors.
+(These conventions are being incorporated into related documents.)
+In order for GSS API callers to be portable across multiple mechanisms and achieve the full security functionality available from each mechanism, it is strongly recommended that GSS API callers provide channel bindings consistent with these conventions and those of the networking environment in which they operate.
+GSS API Features and Issues
+This section describes aspects of GSS API operations, of the security services which the GSS API provides, and provides commentary on design issues.
+Each GSS API call provides two status return values.
+Major status values provide a mechanism independent indication of call status (e.g., GSS COMPLETE, GSS FAILURE, GSS CONTINUE NEEDED), sufficient to drive normal control flow within the caller in a generic fashion.
+Table 1 summarizes the defined major status return codes in tabular fashion.
+invalid signature GSS CONTEXT EXPIRED
+no valid security context specified GSS NO CRED
+Minor status values are not specified in this document.
+GSS CONTINUE NEEDED major status returns, and optional message outputs, are provided in GSS Init sec context()  and GSS Accept sec context()
+calls so that different mechanisms' employment of different numbers of messages within their authentication sequences need not be reflected in separate code paths within calling applications.
+Instead, such cases are accomodated with sequences of continuation calls to GSS Init sec context()  and GSS Accept sec context().
+The same mechanism is used to encapsulate mutual authentication within the GSS API's context initiation calls.
+For mech types which require interactions with third party servers in order to establish a security context, GSS API context establishment calls may block pending completion of such third party interactions.
+On the other hand, no GSS API calls pend on serialized interactions with GSS API peer entities.
+As a result, local GSS API status returns cannot reflect unpredictable or asynchronous exceptions occurring at remote peers, and reflection of such status information is a caller responsibility outside the GSS API.
+Per Message Security Service Availability When a context is established, two flags are returned to indicate the set of per message protection security services which will be available on the context: the integ avail flag indicates whether per message integrity and data origin authentication services are available the conf avail flag indicates whether per message confidentiality services are available, and will never be returned TRUE unless the integ avail flag is also returned TRUE GSS API callers desiring per message security services should check the values of these flags at context establishment time, and must be aware that a returned FALSE value for integ avail means that invocation of GSS Sign()  or GSS Seal() primitives on the associated context will apply no cryptographic protection to user data messages.
+The GSS API per message protection service primitives, as the category name implies, are oriented to operation at the granularity of protocol data units.
+They perform cryptographic operations on the data units, transfer cryptographic control information in tokens, and, in the case of GSS Seal(), encapsulate the protected data unit.
+As such, these primitives are not oriented to efficient data protection for stream paradigm protocols (e.g., Telnet) if cryptography must be applied on an octet by octet basis.
+Per Message Replay Detection and Sequencing Certain underlying mech types are expected to offer support for replay detection and/or sequencing of messages transferred on the contexts they support.
+These optionally selectable protection features are distinct from replay detection and sequencing features applied to the context establishment operation itself; the presence or absence of context level replay or sequencing features is wholly a function of the underlying mech type's capabilities, and is not selected or omitted as a caller option.
+The caller initiating a context provides flags (replay det req flag and sequence req flag) to specify whether the use of per message replay detection and sequencing features is desired on the context being established.
+The GSS API implementation at the initiator system can determine whether these features are supported (and whether they are optionally selectable) as a function of mech type, without need for bilateral negotiation with the target.
+When enabled, these features provide recipients with indicators as a result of GSS API processing of incoming messages, identifying whether those messages were detected as duplicates or out of sequence.
+Detection of such events does not prevent a suspect message from being provided to a recipient; the appropriate course of action on a suspect message is a matter of caller policy.
+The semantics of the replay detection and sequencing services applied to received messages, as visible across the interface which the GSS  API provides to its clients, are as follows:
+When replay det state is TRUE, the possible major status returns for well formed and correctly signed messages are as follows:
+GSS COMPLETE indicates that the message was within the window (of time or sequence space) allowing replay events to be detected, and that the message was not a replay of a previously processed message within that window.
+GSS DUPLICATE TOKEN indicates that the signature on the received message was correct, but that the message was recognized as a duplicate of a previously processed message.
+GSS OLD TOKEN indicates that the signature on the received message was correct, but that the message is too old to be checked for duplication.
+When sequence state is TRUE, the possible major status returns for well formed and correctly signed messages are as follows:
+GSS COMPLETE indicates that the message was within the window (of time or sequence space) allowing replay events to be detected, and that the message was not a replay of a previously processed message within that window.
+GSS DUPLICATE TOKEN indicates that the signature on the received message was correct, but that the message was recognized as a duplicate of a previously processed message.
+GSS OLD TOKEN indicates that the signature on the received message was correct, but that the token is too old to be checked for duplication.
+GSS UNSEQ TOKEN indicates that the signature on the received message was correct, but that it is earlier in a sequenced stream than a message already processed on the context.
+Mechanisms can be architected to provide a stricter form of sequencing service, delivering particular messages to recipients only after all predecessor messages in an ordered stream have been delivered.
+This type of support is incompatible with the GSS API paradigm in which recipients receive all messages, whether in order or not, and provide them (one at a time, without intra GSS  API message buffering) to GSS API routines for validation.
+GSS  API facilities provide supportive functions, aiding clients to achieve strict message stream integrity in an efficient manner in conjunction with sequencing provisions in communications protocols, but the GSS API does not offer this level of message stream integrity service by itself.]
+As the message stream integrity features (especially sequencing) may interfere with certain applications' intended communications paradigms, and since support for such features is likely to be resource intensive, it is highly recommended that mech types supporting these features allow them to be activated selectively on initiator request when a context is established.
+A context initiator and target are provided with corresponding indicators (replay det state and sequence state), signifying whether these features are active on a given context.
+An example mech type supporting per message replay detection could (when replay det state is TRUE) implement the feature as follows: The underlying mechanism would insert timestamps in data elements output by GSS Sign() and GSS Seal(), and would maintain (within a time  limited window)
+a cache (qualified by originator recipient pair) identifying received data elements processed by GSS Verify() and GSS Unseal().
+When this feature is active, exception status returns (GSS DUPLICATE TOKEN, GSS  OLD TOKEN) will be provided when GSS Verify() or GSS Unseal() is presented with a message which is either a detected duplicate of a prior message or which is too old to validate against a cache of recently received messages.
+Some mech types will provide their users with fine granularity control over the means used to provide per message protection, allowing callers to trade off security processing overhead dynamically against the protection requirements of particular messages.
+A per message quality of protection parameter (analogous to quality of service, or QOS) selects among different QOP options supported by that mechanism.
+On context establishment for a multi QOP mech type, context level data provides the prerequisite data for a range of protection qualities.
+It is expected that the majority of callers will not wish to exert explicit mechanism specific QOP control and will therefore request selection of a default QOP.
+Definitions of, and choices among,
+non  default QOP values are mechanism specific, and no ordered sequences of QOP values can be assumed equivalent across different mechanisms.
+Meaningful use of non default QOP values demands that callers be familiar with the QOP definitions of an underlying mechanism or mechanisms, and is therefore a non portable construct.
+This section describes the GSS API's service interface, dividing the set of calls offered into four groups.
+Credential management calls are related to the acquisition and release of credentials by principals.
+Context level calls are related to the management of security contexts between principals.
+Per message calls are related to the protection of individual messages on established security contexts.
+Support calls provide ancillary functions useful to GSS API callers.
+Table 2 groups and summarizes the calls in tabular fashion.
+Table 2:  GSS API Calls
+CREDENTIAL MANAGEMENT GSS Acquire cred
+Credential management calls These GSS API calls provide functions related to the management of credentials.
+Their characterization with regard to whether or not they may block pending exchanges with other network entities (e.g., directories or authentication servers) depends in part on OS specific (extra GSS API) issues, so is not specified in this document.
+call is defined within the GSS API in support of application portability, with a particular orientation towards support of portable server applications.
+It is recognized that (for certain systems and mechanisms) credentials for interactive users may be managed differently from credentials for server processes; in such environments, it is the GSS API implementation's responsibility to distinguish these cases and the procedures for making this distinction are a local matter.
+call provides a means for callers to indicate to the GSS API that use of a credentials structure is no longer required.
+() call allows callers to determine information about a credentials structure.
+GSS Acquire cred call Inputs:
+NULL requests locally determined default  lifetime req INTEGER, in seconds; 0 requests default  desired mechs SET OF OBJECT IDENTIFIER, empty set requests system selected default  cred usage INTEGER 0 INITIATE AND ACCEPT, 1 INITIATE ONLY, 2 ACCEPT
+ONLY Outputs:  major status INTEGER,  minor status INTEGER,
+output cred handle OCTET STRING,  actual mechs SET OF OBJECT
+lifetime rec INTEGER  in seconds, or reserved value for INDEFINITE Return major status codes:
+GSS COMPLETE indicates that requested credentials were successfully established, for the duration indicated in lifetime rec, suitable for the usage requested in cred usage, for the set of mech types indicated in actual mechs, and that those credentials can be referenced for subsequent use with the handle returned in output cred handle.
+GSS BAD MECH indicates that a mech type unsupported by the GSS API implementation type was requested, causing the credential establishment operation to fail.
+GSS BAD NAMETYPE indicates that the provided desired name is uninterpretable or of a type unsupported by the supporting GSS API implementation, so no credentials could be established for the accompanying desired name.
+GSS BAD NAME indicates that the provided desired name is inconsistent in terms of internally incorporated type specifier information, so no credentials could be established for the accompanying desired name.
+GSS FAILURE indicates that credential establishment failed for reasons unspecified at the GSS API level, including lack of authorization to establish and use credentials associated with the identity named in the input desired name argument.
+GSS Acquire cred()  is used to acquire credentials so that a principal can (as a function of the input cred usage parameter) initiate and/or accept security contexts under the identity represented by the desired name input argument.
+On successful completion, the returned output cred handle result provides a handle for subsequent references to the acquired credentials.
+Typically, single user client processes using only default credentials for context establishment purposes will have no need to invoke this call.
+A caller may provide the value NULL for desired name, signifying a request for credentials corresponding to a default principal identity.
+The procedures used by GSS API implementations to select the appropriate principal identity in response to this form of request are local matters.
+It is possible that multiple pre  established credentials may exist for the same principal identity (for example, as a result of multiple user login sessions) when GSS Acquire cred() is called; the means used in such cases to select a specific credential are local matters.
+The input lifetime req argument to GSS Acquire cred() may provide useful information for local GSS API implementations to employ in making this disambiguation in a manner which will best satisfy a caller's intent.
+The lifetime rec result indicates the length of time for which the acquired credentials will be valid, as an offset from the present.
+A mechanism may return a reserved value indicating INDEFINITE if no constraints on credential lifetime are imposed.
+A caller of GSS Acquire cred()  can request a length of time for which acquired credentials are to be valid (lifetime req argument), beginning at the present, or can request credentials with a default validity interval.
+(Requests for postdated credentials are not supported within the GSS API.)
+Certain mechanisms and implementations may bind in credential validity period specifiers at a point preliminary to invocation of the GSS Acquire cred() call (e.g., in conjunction with user login procedures).
+As a result, callers requesting non default values for lifetime req must recognize that such requests cannot always be honored and must be prepared to accommodate the use of returned credentials with different lifetimes as indicated in lifetime rec.
+The caller of GSS Acquire cred() can explicitly specify a set of mech types which are to be accommodated in the returned credentials (desired mechs argument), or can request credentials for a system  defined default set of mech types.
+Selection of the system specified default set is recommended in the interests of application portability.
+The actual mechs return value may be interrogated by the caller to determine the set of mechanisms with which the returned credentials may be used.
+GSS Release cred call Input:  cred handle
+OCTET STRING NULL specifies default credentials Outputs:  major status INTEGER,  minor status INTEGER Return major status codes:
+GSS COMPLETE indicates that the credentials referenced by the input cred handle were released for purposes of subsequent access by the caller.
+The effect on other processes which may be authorized shared access to such credentials is a local matter.
+GSS NO CRED indicates that no release operation was performed, either because the input cred handle was invalid or because the caller lacks authorization to access the referenced credentials.
+GSS FAILURE indicates that the release operation failed for reasons unspecified at the GSS API level.
+Provides a means for a caller to explicitly request that credentials be released when their use is no longer required.
+Note that system  specific credential management functions are also likely to exist, for example to assure that credentials shared among processes are properly deleted when all affected processes terminate, even if no explicit release requests are issued by those processes.
+Given the fact that multiple callers are not precluded from gaining authorized access to the same credentials, invocation of GSS Release cred() cannot be assumed to delete a particular set of credentials on a system wide basis.
+GSS Inquire cred call Input:
+NULL specifies default credentials Outputs:  major status INTEGER,  minor status INTEGER,  cred name INTERNAL NAME,
+lifetime rec INTEGER  in seconds, or reserved value for INDEFINITE  cred usage INTEGER,  0
+INITIATE AND ACCEPT, 1 INITIATE ONLY, 2 ACCEPT
+ONLY  mech set SET OF OBJECT
+IDENTIFIER Return major status codes:  GSS COMPLETE indicates that the credentials referenced by the input cred handle argument were valid, and that the output cred name, lifetime rec, and cred usage values represent, respectively, the credentials' associated principal name, remaining lifetime, suitable usage modes, and supported mechanism types.
+GSS NO CRED indicates that no information could be returned about the referenced credentials, either because the input cred handle was invalid or because the caller lacks authorization to access the referenced credentials.
+GSS FAILURE indicates that the release operation failed for reasons unspecified at the GSS API level.
+call is defined primarily for the use of those callers which make use of default credentials rather than acquiring credentials explicitly with GSS Acquire cred().
+It enables callers to determine a credential structure's associated principal name, remaining validity period, usability for security context initiation and/or acceptance, and supported mechanisms.
+Context level calls This group of calls is devoted to the establishment and management of security contexts between peers.
+At the target, that token is passed to GSS Accept sec context().
+Depending on the underlying mech type and specified options, additional token exchanges may be performed in the course of context establishment; such exchanges are accommodated by GSS CONTINUE NEEDED status returns from GSS Init sec context()  and GSS Accept sec context().
+Either party to an established context may invoke GSS Delete sec context()  to flush context information when a context is no longer required.
+()  is used to process received tokens carrying context level control information.
+()  allows a caller to determine the length of time for which an established context will remain valid.
+GSS Init sec context call Inputs:
+claimant cred handle OCTET STRING
+,  NULL specifies "use default"  input context handle INTEGER,
+0 specifies "none assigned yet"  targ name INTERNAL NAME,  mech type OBJECT IDENTIFIER,
+NULL parameter specifies "use default"  deleg req flag BOOLEAN,  mutual req flag BOOLEAN,  replay det req flag BOOLEAN,  sequence req flag BOOLEAN,  lifetime req INTEGER, 0 specifies default lifetime
+chan bindings OCTET STRING,  input token OCTET STRING NULL or token received from target Outputs:  major status INTEGER,  minor status INTEGER,  output context handle
+INTEGER,  mech type OBJECT IDENTIFIER,  actual mechanism always indicated, never NULL
+output token OCTET STRING,  NULL or token to pass to context target  deleg state BOOLEAN,  mutual state BOOLEAN,  replay det state BOOLEAN,  sequence state BOOLEAN,  conf avail BOOLEAN,  integ avail BOOLEAN,  lifetime rec INTEGER in seconds, or reserved value for INDEFINITE
+This call may block pending network interactions for those mech types in which an authentication server or other network entity must be consulted on behalf of a context initiator in order to generate an output token suitable for presentation to a specified target.
+Return major status codes:  GSS COMPLETE indicates that context level information was successfully initialized, and that the returned output token will provide sufficient information for the target to perform per  message processing on the newly established context.
+GSS DEFECTIVE TOKEN indicates that consistency checks performed on the input token failed, preventing further processing from being performed based on that token.
+GSS DEFECTIVE CREDENTIAL indicates that consistency checks performed on the credential structure referenced by claimant cred handle failed, preventing further processing from being performed using that credential structure.
+GSS BAD SIG indicates that the received input token contains an incorrect signature, so context setup cannot be accomplished.
+GSS NO CRED indicates that no context was established, either because the input cred handle was invalid, because the referenced credentials are valid for context acceptor use only, or because the caller lacks authorization to access the referenced credentials.
+GSS CREDENTIALS EXPIRED indicates that the credentials provided through the input claimant cred handle argument are no longer valid, so context establishment cannot be completed.
+GSS BAD BINDINGS indicates that a mismatch between the caller  provided chan bindings and those extracted from the input token was detected, signifying a security relevant event and preventing context establishment.
+(This result will be returned by GSS Init sec context only for contexts where mutual state is TRUE.)
+NO CONTEXT indicates that no valid context was recognized for the input context handle provided; this major status will be returned only for successor calls following GSS CONTINUE NEEDED status returns.
+GSS BAD NAMETYPE indicates that the provided targ name is of a type uninterpretable or unsupported by the supporting GSS API implementation, so context establishment cannot be completed.
+GSS BAD NAME indicates that the provided targ name is inconsistent in terms of internally incorporated type specifier information, so context establishment cannot be accomplished.
+GSS FAILURE indicates that context setup could not be accomplished for reasons unspecified at the GSS API level, and that no interface defined recovery action is available.
+This routine is used by a context initiator, and ordinarily emits one (or, for the case of a multi step exchange,
+more than one) output token suitable for use by the target within the selected mech type's protocol.
+Using information in the credentials structure referenced by claimant cred handle, GSS Init sec context() initializes the data structures required to establish a security context with target targ name.
+The claimant cred handle must correspond to the same valid credentials structure on the initial call to GSS Init sec context()  and on any successor calls resulting from GSS CONTINUE NEEDED status returns; different protocol sequences modeled by the GSS CONTINUE NEEDED mechanism will require access to credentials at different points in the context establishment sequence.
+The input context handle argument is 0, specifying "not yet assigned", on the first GSS Init sec context()
+call relating to a given context.
+That call returns an output context handle for future references to this context.
+When continuation attempts to GSS Init sec context()  are needed to perform context establishment, the previously returned non zero handle value is entered into the input context handle argument and will be echoed in the returned output context handle argument.
+On such continuation attempts (and only on continuation attempts) the input token value is used, to provide the token returned from the context's target.
+The chan bindings argument is used by the caller to provide information binding the security context to security related characteristics (e.g., addresses, cryptographic keys) of the underlying communications channel.
+See Section 1.1.6 of this document for more discussion of this argument's usage.
+The input token argument contains a message received from the target, and is significant only on a call to GSS Init sec context() which follows a previous return indicating GSS CONTINUE NEEDED major status.
+It is the caller's responsibility to establish a communications path to the target, and to transmit any returned output token (independent of the accompanying returned major status value) to the target over that path.
+The output token can, however, be transmitted along with the first application provided input message to be processed by GSS Sign() or GSS Seal() in conjunction with a successfully  established context.
+The initiator may request various context level functions through input flags: the deleg req flag requests delegation of access rights, the mutual req flag requests mutual authentication,
+the replay det req flag requests that replay detection features be applied to messages transferred on the established context, and the sequence req flag requests that sequencing be enforced.
+(See Section 1.2.3 for more information on replay detection and sequencing features.)
+Not all of the optionally requestable features will be available in all underlying mech types;
+the corresponding return state values (deleg state, mutual state, replay det state, sequence state) indicate, as a function of mech type processing capabilities and initiator provided input flags, the set of features which will be active on the context.
+These state indicators' values are undefined unless the routine's major status indicates COMPLETE.
+Failure to provide the precise set of features requested by the caller does not cause context establishment to fail; it is the caller's prerogative to delete the context if the feature set provided is unsuitable for the caller's use.
+The returned mech type value indicates the specific mechanism employed on the context, and will never indicate the value for "default".
+The conf avail return value indicates whether the context supports per message confidentiality services, and so informs the caller whether or not a request for encryption through the conf req flag input to GSS Seal() can be honored.
+In similar fashion, the integ avail return value indicates whether per message integrity services are available (through either GSS Sign() or GSS Seal()) on the established context.
+The lifetime req input specifies a desired upper bound for the lifetime of the context to be established, with a value of 0 used to request a default lifetime.
+The lifetime rec return value indicates the length of time for which the context will be valid, expressed as an offset from the present; depending on mechanism capabilities, credential lifetimes, and local policy, it may not correspond to the value requested in lifetime req.
+If no constraints on context lifetime are imposed, this may be indicated by returning a reserved value representing INDEFINITE lifetime req.
+The values of conf avail, integ avail, and lifetime rec are undefined unless the routine's major status indicates COMPLETE.
+If the mutual state is TRUE, this fact will be reflected within the output token.
+A call to GSS Accept sec context() at the target in conjunction with such a context will return a token, to be processed by a continuation call to GSS Init sec context(), in order to achieve mutual authentication.
+GSS Accept sec context call Inputs:
+acceptor cred handle OCTET STRING
+, NULL specifies "use default"  input context handle INTEGER,  0 specifies "not yet assigned"  chan bindings OCTET STRING,  input token OCTET STRING Outputs:  major status INTEGER,  minor status INTEGER,  src name INTERNAL NAME,  mech type OBJECT IDENTIFIER,  output context handle INTEGER,  deleg state BOOLEAN,  mutual state BOOLEAN,  replay det state BOOLEAN,  sequence state BOOLEAN,  conf avail BOOLEAN,  integ avail BOOLEAN,  lifetime rec INTEGER, in seconds, or reserved value for INDEFINITE  delegated cred handle OCTET STRING,  output token OCTET STRING  NULL or token to pass to context initiator
+This call may block pending network interactions for those mech types in which a directory service or other network entity must be consulted on behalf of a context acceptor in order to validate a received input token.
+Return major status codes:  GSS COMPLETE indicates that context level data structures were successfully initialized, and that per message processing can now be performed in conjunction with this context.
+GSS CONTINUE NEEDED indicates that control information in the returned output token must be sent to the initiator, and that a response must be received and passed as the input token argument to a continuation call to GSS Accept sec context
+(), before per  message processing can be performed in conjunction with this context.
+GSS DEFECTIVE TOKEN indicates that consistency checks performed on the input token failed, preventing further processing from being performed based on that token.
+GSS DEFECTIVE CREDENTIAL indicates that consistency checks performed on the credential structure referenced by acceptor cred handle failed, preventing further processing from being performed using that credential structure.
+GSS BAD SIG indicates that the received input token contains an incorrect signature, so context setup cannot be accomplished.
+GSS DUPLICATE TOKEN indicates that the signature on the received input token was correct, but that the input token was recognized as a duplicate of an input token already processed.
+No new context is established.
+GSS OLD TOKEN indicates that the signature on the received input token was correct, but that the input token is too old to be checked for duplication against previously processed input tokens.
+No new context is established.
+GSS NO CRED indicates that no context was established, either because the input cred handle was invalid, because the referenced credentials are valid for context initiator use only, or because the caller lacks authorization to access the referenced credentials.
+GSS CREDENTIALS EXPIRED indicates that the credentials provided through the input acceptor cred handle argument are no longer valid, so context establishment cannot be completed.
+GSS BAD BINDINGS indicates that a mismatch between the caller  provided chan bindings and those extracted from the input token was detected, signifying a security relevant event and preventing context establishment.
+NO CONTEXT indicates that no valid context was recognized for the input context handle provided; this major status will be returned only for successor calls following GSS CONTINUE NEEDED status returns.
+GSS FAILURE indicates that context setup could not be accomplished for reasons unspecified at the GSS API level, and that no interface defined recovery action is available.
+The GSS Accept sec context()
+routine is used by a context target.
+Using information in the credentials structure referenced by the input acceptor cred handle, it verifies the incoming input token and (following the successful completion of a context establishment sequence) returns the authenticated src name and the mech type used.
+The acceptor cred handle must correspond to the same valid credentials structure on the initial call to GSS Accept sec context() and on any successor calls resulting from GSS CONTINUE NEEDED status returns; different protocol sequences modeled by the GSS CONTINUE NEEDED mechanism will require access to credentials at different points in the context establishment sequence.
+The input context handle argument is 0, specifying "not yet assigned", on the first GSS Accept sec context()
+call relating to a given context.
+That call returns an output context handle for future references to this context; when continuation attempts to GSS Accept sec context()  are needed to perform context establishment, that handle value will be entered into the input context handle argument.
+The chan bindings argument is used by the caller to provide information binding the security context to security related characteristics (e.g., addresses, cryptographic keys) of the underlying communications channel.
+See Section 1.1.6 of this document for more discussion of this argument's usage.
+The returned state results (deleg state, mutual state, replay det state, and sequence state) reflect the same context state values as returned to GSS Init sec context()'s  caller at the initiator system.
+The conf avail return value indicates whether the context supports per message confidentiality services, and so informs the caller whether or not a request for encryption through the conf req flag input to GSS Seal()  can be honored.
+The lifetime rec return value indicates the length of time for which the context will be valid, expressed as an offset from the present.
+The values of deleg state, mutual state, replay det state, sequence state, conf avail, integ avail, and lifetime rec are undefined unless the accompanying major status indicates COMPLETE.
+The delegated cred handle result is significant only when deleg state is TRUE, and provides a means for the target to reference the delegated credentials.
+The output token result, when non NULL, provides a context level token to be returned to the context initiator to continue a multi step context establishment sequence.
+These data elements may arrive in a single application message, and GSS Accept sec context()  must be performed before per message processing can be performed successfully.
+GSS Delete sec context call Input:
+context handle INTEGER Outputs:  major status INTEGER,  minor status INTEGER,  output context token
+OCTET STRING Return major status codes:
+GSS COMPLETE indicates that the context was recognized, that relevant context specific information was flushed, and that the returned output context token is ready for transfer to the context's peer.
+NO CONTEXT indicates that no valid context was recognized for the input context handle provide, so no deletion was performed.
+GSS FAILURE indicates that the context is recognized, but that the GSS Delete sec context()  operation could not be performed for reasons unspecified at the GSS API level.
+This call may block pending network interactions for mech types in which active notification must be made to a central server when a security context is to be deleted.
+This call can be made by either peer in a security context, to flush context specific information and to return an output context token which can be passed to the context's peer informing it that the peer's corresponding context information can also be flushed.
+(Once a context is established, the peers involved are expected to retain cached credential and context related information until the information's expiration time is reached or until a GSS Delete sec context() call is made.)
+Attempts to perform per  message processing on a deleted context will result in error returns.
+GSS Process context token call Inputs:
+input context token OCTET STRING Outputs:  major status INTEGER,  minor status INTEGER, Return major status codes:
+GSS COMPLETE indicates that the input context token was successfully processed in conjunction with the context referenced by context handle.
+GSS DEFECTIVE TOKEN indicates that consistency checks performed on the received context token failed, preventing further processing from being performed with that token.
+NO CONTEXT indicates that no valid context was recognized for the input context handle provided.
+GSS FAILURE indicates that the context is recognized, but that the GSS Process context token()  operation could not be performed for reasons unspecified at the GSS API level.
+This call is used to process context tokens received from a peer once a context has been established, with corresponding impact on context level state information.
+Another use is to process tokens indicating remote peer context establishment failures after the point where the local GSS API implementation has already indicated GSS COMPLETE status.
+GSS Context time call Input:
+context handle INTEGER, Outputs:  major status INTEGER,  minor status INTEGER,  lifetime rec INTEGER in seconds, or reserved value for INDEFINITE Return major status codes:  GSS COMPLETE indicates that the referenced context is valid, and will remain valid for the amount of time indicated in lifetime rec.
+GSS CONTEXT EXPIRED indicates that data items related to the referenced context have expired.
+GSS CREDENTIALS EXPIRED indicates that the context is recognized, but that its associated credentials have expired.
+NO CONTEXT indicates that no valid context was recognized for the input context handle provided.
+GSS FAILURE indicates that the requested operation failed for reasons unspecified at the GSS API level.
+This call is used to determine the amount of time for which a currently established context will remain valid.
+Per message calls This group of calls is used to perform per message protection processing on an established security context.
+None of these calls block pending network interactions.
+These calls may be invoked by a context's initiator or by the context's target.
+GSS Sign()  and GSS Verify() support data origin authentication and data integrity services.
+When GSS Sign()  is invoked on an input message, it yields a per message token containing data items which allow underlying mechanisms to provide the specified security services.
+GSS Seal()  and GSS Unseal() support caller requested confidentiality in addition to the data origin authentication and data integrity services offered by GSS Sign()  and GSS Verify().
+GSS Seal()  outputs a single data element, encapsulating optionally enciphered user data as well as associated token data items.
+The data element output from GSS Seal()  is passed to the remote peer and processed by GSS Unseal
+GSS Unseal() combines decipherment (as required) with validation of data items related to authentication and integrity.
+context handle INTEGER,  qop req INTEGER,
+0 specifies default QOP  message OCTET STRING Outputs:  major status INTEGER,  minor status INTEGER,  per msg
+OCTET STRING Return major status codes:
+GSS COMPLETE indicates that a signature, suitable for an established security context, was successfully applied and that the message and corresponding per msg token are ready for transmission.
+GSS CONTEXT EXPIRED indicates that context related data items have expired, so that the requested operation cannot be performed.
+GSS CREDENTIALS EXPIRED indicates that the context is recognized, but that its associated credentials have expired, so that the requested operation cannot be performed.
+NO CONTEXT indicates that no valid context was recognized for the input context handle provided.
+GSS FAILURE indicates that the context is recognized, but that the requested operation could not be performed for reasons unspecified at the GSS API level.
+Using the security context referenced by context handle, apply a signature to the input message (along with timestamps and/or other data included in support of mech type specific mechanisms) and return the result in per msg token.
+The qop req parameter allows quality  of protection control.
+The caller passes the message and the per msg token to the target.
+The GSS Sign()  function completes before the message and per msg token is sent to the peer; successful application of GSS Sign()  does not guarantee that a corresponding GSS Verify() has been (or can necessarily be) performed successfully when the message arrives at the destination.
+token OCTET STRING Outputs:  qop state INTEGER,  major status INTEGER,  minor status INTEGER, Return major status codes:
+GSS COMPLETE indicates that the message was successfully verified.
+GSS DEFECTIVE TOKEN indicates that consistency checks performed on the received per msg token failed, preventing further processing from being performed with that token.
+GSS BAD SIG indicates that the received per msg token contains an incorrect signature for the message.
+GSS DUPLICATE TOKEN, GSS OLD TOKEN, and GSS UNSEQ TOKEN values appear in conjunction with the optional per message replay detection features described in Section 1.2.3; their semantics are described in that section.
+GSS CONTEXT EXPIRED indicates that context related data items have expired, so that the requested operation cannot be performed.
+GSS CREDENTIALS EXPIRED indicates that the context is recognized, but that its associated credentials have expired, so that the requested operation cannot be performed.
+NO CONTEXT indicates that no valid context was recognized for the input context handle provided.
+GSS FAILURE indicates that the context is recognized, but that the GSS Verify()  operation could not be performed for reasons unspecified at the GSS API level.
+Using the security context referenced by context handle, verify that the input per msg token contains an appropriate signature for the input message, and apply any active replay detection or sequencing features.
+Return an indication of the quality of protection applied to the processed message in the qop state result.
+context handle INTEGER,  conf req flag BOOLEAN,  qop req INTEGER,
+0 specifies default QOP  input message OCTET STRING Outputs:  major status INTEGER,  minor status INTEGER,  conf state BOOLEAN,  output message
+OCTET STRING Return major status codes:
+GSS COMPLETE indicates that the input message was successfully processed and that the output message is ready for transmission.
+GSS CONTEXT EXPIRED indicates that context related data items have expired, so that the requested operation cannot be performed.
+GSS CREDENTIALS EXPIRED indicates that the context is recognized, but that its associated credentials have expired, so that the requested operation cannot be performed.
+NO CONTEXT indicates that no valid context was recognized for the input context handle provided.
+GSS FAILURE indicates that the context is recognized, but that the GSS Seal()  operation could not be performed for reasons unspecified at the GSS API level.
+Performs the data origin authentication and data integrity functions of GSS Sign().
+If the input conf req flag is TRUE, requests that confidentiality be applied to the input message.
+Confidentiality may not be supported in all mech types or by all implementations; the returned conf state flag indicates whether confidentiality was provided for the input message.
+The qop req parameter allows quality of protection control.
+In all cases, the GSS Seal()  call yields a single output message data element containing (optionally enciphered) user data as well as control information.
+context handle INTEGER,  input message
+OCTET STRING Outputs:  conf state BOOLEAN,  qop state INTEGER,  major status INTEGER,  minor status INTEGER,
+STRING Return major status codes:
+GSS COMPLETE indicates that the input message was successfully processed and that the resulting output message is available.
+GSS DEFECTIVE TOKEN indicates that consistency checks performed on the per msg token extracted from the input message failed, preventing further processing from being performed.
+GSS BAD SIG indicates that an incorrect signature was detected for the message.
+GSS DUPLICATE TOKEN, GSS OLD TOKEN, and GSS UNSEQ TOKEN values appear in conjunction with the optional per message replay detection features described in Section 1.2.3; their semantics are described in that section.
+GSS CONTEXT EXPIRED indicates that context related data items have expired, so that the requested operation cannot be performed.
+GSS CREDENTIALS EXPIRED indicates that the context is recognized, but that its associated credentials have expired, so that the requested operation cannot be performed.
+NO CONTEXT indicates that no valid context was recognized for the input context handle provided.
+GSS FAILURE indicates that the context is recognized, but that the GSS Unseal()  operation could not be performed for reasons unspecified at the GSS API level.
+The returned conf state value indicates whether confidentiality was applied to the input message.
+If conf state is TRUE, GSS Unseal()  deciphers the input message.
+Returns an indication of the quality of protection applied to the processed message in the qop state result.
+GSS Seal()  performs the data integrity and data origin authentication checking functions of GSS Verify
+()  on the plaintext data.
+Plaintext data is returned in output message.
+Support calls This group of calls provides support functions useful to GSS API callers, independent of the state of established contexts.
+Their characterization with regard to blocking or non blocking status in terms of network interactions is unspecified.
+GSS Display status call Inputs:  status value INTEGER, GSS API major status or minor status return value  status type INTEGER, 1 if major status, 2 if minor status  mech type OBJECT IDENTIFIER mech type to be used for minor  status translation Outputs:  major status INTEGER,  minor status INTEGER,  status string set SET OF OCTET STRING Return major status codes:  GSS COMPLETE indicates that a valid printable status representation (possibly representing more than one status event encoded within the status value) is available in the returned status string set.
+GSS BAD MECH indicates that translation in accordance with an unsupported mech type was requested, so translation could not be performed.
+GSS BAD STATUS indicates that the input status value was invalid, or that the input status type carried a value other than 1 or 2, so translation could not be performed.
+GSS FAILURE indicates that the requested operation could not be performed for reasons unspecified at the GSS API level.
+Provides a means for callers to translate GSS API returned major and minor status codes into printable string representations.
+Input:  (none) Outputs:  major status INTEGER,  minor status INTEGER,
+mech set SET OF OBJECT IDENTIFIER Return major status codes:  GSS COMPLETE indicates that a set of available mechanisms has been returned in mech set.
+GSS FAILURE indicates that the requested operation could not be performed for reasons unspecified at the GSS API level.
+Allows callers to determine the set of mechanism types available on the local system.
+GSS Compare name call Inputs:  name1 INTERNAL NAME,
+name2 INTERNAL NAME Outputs:  major status INTEGER,  minor status INTEGER,
+BOOLEAN Return major status codes:
+GSS COMPLETE indicates that name1 and name2 were comparable, and that the name equal result indicates whether name1 and name2 were equal or unequal.
+GSS BAD NAMETYPE indicates that one or both of name1 and name2 contained internal type specifiers uninterpretable by the supporting GSS API implementation, or that the two names' types are different and incomparable, so the equality comparison could not be completed.
+GSS BAD NAME indicates that one or both of the input names was ill formed in terms of its internal type specifier, so the equality comparison could not be completed.
+GSS FAILURE indicates that the requested operation could not be performed for reasons unspecified at the GSS API level.
+Allows callers to compare two internal name representations for equality.
+GSS Display name call Inputs:
+name INTERNAL NAME Outputs:  major status INTEGER,  minor status INTEGER,
+,  name type OBJECT IDENTIFIER Return major status codes:  GSS COMPLETE indicates that a valid printable name representation is available in the returned name string.
+GSS BAD NAMETYPE indicates that the provided name was of a type uninterpretable by the supporting GSS API implementation, so no printable representation could be generated.
+GSS BAD NAME indicates that the contents of the provided name were inconsistent with the internally indicated name type, so no printable representation could be generated.
+GSS FAILURE indicates that the requested operation could not be performed for reasons unspecified at the GSS API level.
+Allows callers to translate an internal name representation into a printable form with associated namespace type descriptor.
+The syntax of the printable form is a local matter.
+GSS Import name call Inputs:  input name string OCTET STRING,  input name type OBJECT IDENTIFIER Outputs:  major status INTEGER,  minor status INTEGER,  output name
+INTERNAL NAME Return major status codes:
+GSS COMPLETE indicates that a valid name representation is output in output name and described by the type value in output name type.
+GSS BAD NAMETYPE indicates that the input name type is unsupported by the GSS API implementation, so the import operation could not be completed.
+GSS BAD NAME indicates that the provided input name string is ill formed in terms of the input name type, so the import operation could not be completed.
+GSS FAILURE indicates that the requested operation could not be performed for reasons unspecified at the GSS API level.
+Allows callers to provide a printable name representation, designate the type of namespace in conjunction with which it should be parsed, and convert that printable representation to an internal form suitable for input to other GSS API routines.
+The syntax of the input name is a local matter.
+GSS Release name call Inputs:
+name INTERNAL NAME Outputs:  major status INTEGER,  minor status INTEGER Return
+GSS COMPLETE indicates that the storage associated with the input name was successfully released.
+GSS BAD NAME indicates that the input name argument did not contain a valid name.
+GSS FAILURE indicates that the requested operation could not be performed for reasons unspecified at the GSS API level.
+Allows callers to release the storage associated with an internal name representation.
+GSS Release buffer call Inputs:  buffer OCTET STRING Outputs:  major status INTEGER,  minor status INTEGER Return
+GSS COMPLETE indicates that the storage associated with the input buffer was successfully released.
+GSS FAILURE indicates that the requested operation could not be performed for reasons unspecified at the GSS API level.
+Allows callers to release the storage associated with an OCTET STRING buffer allocated by another GSS API call.
+GSS Release oid set call Inputs:  buffer SET OF OBJECT IDENTIFIER Outputs:  major status INTEGER,  minor status
+INTEGER Return major status codes:
+GSS COMPLETE indicates that the storage associated with the input object identifier set was successfully released.
+GSS FAILURE indicates that the requested operation could not be performed for reasons unspecified at the GSS API level.
+Allows callers to release the storage associated with an object identifier set object allocated by another GSS API call.
+This section provides illustrative overviews of the use of various candidate mechanism types to support the GSS API.
+These discussions are intended primarily for readers familiar with specific security technologies, demonstrating how GSS API functions can be used and implemented by candidate underlying mechanisms.
+They should not be regarded as constrictive to implementations or as defining the only means through which GSS API functions can be realized with a particular underlying technology, and do not demonstrate all GSS API features with each technology.
+Kerberos V5, single TGT OS specific login functions yield a TGT to the local realm Kerberos server; TGT is placed in a credentials structure for the client.
+Client calls GSS Acquire cred()  to acquire a cred handle in order to reference the credentials for use in establishing security contexts.
+Client calls GSS Init sec context().
+If the requested service is located in a different realm, GSS Init sec context()
+gets the necessary TGT/key pairs needed to traverse the path from local to target realm; these data are placed in the owner's TGT cache.
+After any needed remote realm resolution, GSS Init sec context()  yields a service ticket to the requested service with a corresponding session key; these data are stored in conjunction with the context.
+GSS API code sends KRB TGS REQ request(s) and receives KRB TGS REP response(s) (in the successful case) or KRB ERROR.
+Assuming success, GSS Init sec context()  builds a Kerberos formatted KRB AP REQ message, and returns it in output token.
+The client sends the output token to the service.
+Both parties now hold the session key associated with the service ticket, and can use this key in subsequent GSS Sign(), GSS Verify(), GSS Seal(), and GSS Unseal() operations.
+Kerberos V5, double TGT TGT acquisition as above.
+Note: To avoid unnecessary frequent invocations of error paths when implementing the GSS API atop Kerberos V5, it seems appropriate to represent "single TGT K V5" and "double TGT K V5" with separate mech types, and this discussion makes that assumption.
+Based on the (specified or defaulted) mech type, GSS Init sec context()  determines that the double TGT protocol should be employed for the specified target.
+GSS Init sec context() returns GSS CONTINUE NEEDED major status, and its returned output token contains a request to the service for the service's TGT.
+(If a service TGT with suitably long remaining lifetime already exists in a cache, it may be usable, obviating the need for this step.)
+The client passes the output token to the service.
+Note: this scenario illustrates a different use for the GSS CONTINUE NEEDED status return facility than for support of mutual authentication; note that both uses can coexist as successive operations within a single context establishment operation.
+(Note that current Kerberos V5 defines no intra protocol mechanism to represent such a request.)
+returns GSS CONTINUE NEEDED major status and provides the service's TGT in its output token.
+The service sends the output token to the client.
+The client passes the received token as the input token argument to a continuation of GSS Init sec context().
+GSS Init sec context() caches the received service TGT and uses it as part of a service ticket request to the Kerberos authentication server, storing the returned service ticket and session key in conjunction with the context.
+GSS Init sec context()  builds a Kerberos formatted authenticator, and returns it in output token along with GSS COMPLETE return major status.
+The client sends the output token to the service.
+Service passes the received token as the input token argument to a continuation call to GSS Accept sec context().
+GSS Accept sec context()  verifies the authenticator, provides the service with the client's authenticated name, and returns major status GSS COMPLETE.
+This example illustrates use of the GSS API in conjunction with public key mechanisms, consistent with the X.509 Directory Authentication Framework.
+call establishes a credentials structure, making the client's private key accessible for use on behalf of the client.
+The certificate validation operation determines that suitable signatures were applied by trusted authorities and that those certificates have not expired.
+GSS Init sec context()  generates a secret key for use in per message protection operations on the context, and enciphers that secret key under the service's public key.
+The enciphered secret key, along with an authenticator quantity signed with the client's private key, is included in the output token from GSS Init sec context().
+The output token also carries a certification path, consisting of a certificate chain leading from the service to the client; a variant approach would defer this path resolution to be performed by the service instead of being asserted by the client.
+The client application sends the output token to the service.
+The service passes the received token as the input token argument to GSS Accept sec context().
+GSS Accept sec context() validates the certification path, and as a result determines a certified binding between the client's distinguished name and the client's public key.
+Given that public key, GSS Accept sec context() can process the input token's authenticator quantity and verify that the client's private key was used to sign the input token.
+At this point, the client is authenticated to the service.
+The service uses its private key to decipher the enciphered secret key provided to it for per  message protection operations on the context.
+The client calls GSS Sign()  or GSS Seal() on a data message, which causes per message authentication, integrity, and (optional) confidentiality facilities to be applied to that message.
+The service uses the context's shared secret key to perform corresponding GSS Verify()  and GSS Unseal() calls.
+In order to implement the GSS API atop existing, emerging, and future security mechanisms: object identifiers must be assigned to candidate GSS API mechanisms and the name types which they support concrete data element formats must be defined for candidate mechanisms Calling applications must implement formatting conventions which will enable them to distinguish GSS API tokens from other data carried in their application protocols.
+Concrete language bindings are required for the programming environments in which the GSS API is to be employed; such bindings for the C language are available in an associated RFC. 6.
+Security Considerations Security issues are discussed throughout this memo.
+AUTHORIZATION SERVICES Consideration has been given to modifying the GSS API service interface to recognize and manipulate Privilege Attribute Certificates (PACs) as in ECMA 138, carrying authorization data as a side effect of establishing a security context, but no such modifications have been incorporated at this time.
+This appendix provides rationale for this decision and discusses compatibility alternatives between PACs and the GSS API which do not require that PACs be made visible to GSS API callers.
+Existing candidate mechanism types such as Kerberos and X.509 do not incorporate PAC manipulation features, and exclusion of such mechanisms from the set of candidates equipped to fully support the GSS API seems inappropriate.
+Inclusion (and GSS API visibility) of a feature supported by only a limited number of mechanisms could encourage the development of ostensibly portable applications which would in fact have only limited portability.
+The status quo, in which PACs are not visible across the GSS API interface, does not preclude implementations in which PACs are carried transparently, within the tokens defined and used for certain mech types, and stored within peers' credentials and context level data structures.
+While invisible to API callers, such PACs could be used by operating system or other local functions as inputs in the course of mediating access requests made by callers.
+This course of action allows dynamic selection of PAC contents, if such selection is administratively directed rather than caller directed.
+In a distributed computing environment, authentication must span different systems; the need for such authentication provides motivation for GSS API definition and usage.
+Heterogeneous systems in a network can intercommunicate, with globally authenticated names comprising the common bond between locally defined access control policies.
+Access control policies to which authentication provides inputs are often local, or specific to particular operating systems or environments.
+If the GSS API made particular authorization models visible across its service interface, its scope of application would become less general.
+The current GSS API paradigm is consistent with the precedent set by Kerberos, neither defining the interpretation of authorization related data nor enforcing access controls based on such data.
+The GSS API is a general interface, whose callers may reside inside or outside any defined TCB or NTCB boundaries.
+Given this characteristic, it appears more realistic to provide facilities which provide "value added" security services to its callers than to offer facilities which enforce restrictions on those callers.
+Authorization decisions must often be mediated below the GSS API level in a local manner against (or in spite of) applications, and cannot be selectively invoked or omitted at those applications' discretion.
+Given that the GSS API's placement prevents it from providing a comprehensive solution to the authorization issue, the value of a partial contribution specific to particular authorization models is debatable.
+This appendix specifies a mechanism independent level of encapsulating representation for the initial token of a GSS API context establishment sequence, incorporating an identifier of the mechanism type to be used on that context.
+Use of this format (with ASN.1 encoded data elements represented in BER, constrained in the interests of parsing simplicity to the Distinguished Encoding Rule (DER)
+BER subset defined in X.509, clause 8.7) is recommended to the designers of GSS API implementations based on various mechanisms, so that tokens can be interpreted unambiguously at GSS API peers.
+There is no requirement that the mechanism specific innerContextToken, innerMsgToken, and sealedUserData data elements be encoded in ASN.1 BER.
+optional top level token definitions to   frame different mechanisms GSS API DEFINITIONS ::
+OBJECT IDENTIFIER   data structure definitions
+callers must be able to distinguish among   InitialContextToken, SubsequentContextToken,   PerMsgToken, and SealedMessage data elements   based on the usage in which they occur
+delegation, etc.) indicated within   mechanism specific token [APPLICATION 0]
+IMPLICIT SEQUENCE { thisMech MechType, innerContextToken ANY DEFINED BY thisMech
+contents mechanism specific } SubsequentContextToken ::
+innerContextToken ANY   interpretation based on predecessor
+ANY END APPENDIX  C MECHANISM DESIGN CONSTRAINTS
+The following constraints on GSS API mechanism designs are adopted in response to observed caller protocol requirements, and adherence thereto is anticipated in subsequent descriptions of GSS API mechanisms to be documented in standards track Internet specifications.
+Use of the approach defined in Appendix B of this specification, applying a mechanism type tag to the InitialContextToken, is required.
+It is strongly recommended that mechanisms offering per message protection services also offer at least one of the replay detection and sequencing services, as mechanisms offering
+neither of the latter will fail to satisfy recognized requirements of certain candidate caller protocols.

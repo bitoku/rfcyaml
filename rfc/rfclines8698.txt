@@ -1,0 +1,291 @@
+Network Assisted Dynamic Adaptation (NADA):
+A Unified Congestion Control Scheme for Real Time Media Abstract
+This document describes Network Assisted Dynamic Adaptation (NADA), a novel congestion control scheme for interactive real time media applications such as video conferencing.
+In the proposed scheme, the sender regulates its sending rate, based on either implicit or explicit congestion signaling, in a unified approach.
+The scheme can benefit from Explicit Congestion Notification (ECN) markings from network nodes.
+It also maintains consistent sender behavior in the absence of such markings by reacting to queuing delays and packet losses instead.
+Introduction Interactive real time media applications introduce a unique set of challenges for congestion control.
+Unlike TCP, the mechanism used for real time media needs to adapt quickly to instantaneous bandwidth changes, accommodate fluctuations in the output of video encoder rate control, and cause low queuing delay over the network.
+An ideal scheme should also make effective use of all types of congestion signals, including packet loss, queuing delay, and explicit congestion notification (ECN)
+The requirements for the congestion control algorithm are outlined in [RMCAT CC].
+The requirements highlight that the desired congestion control scheme should 1) avoid flow starvation and attain a reasonable fair share of bandwidth when competing against other flows, 2) adapt quickly, and 3) operate in a stable manner.
+This document describes an experimental congestion control scheme called Network Assisted Dynamic Adaptation (NADA).
+The design of NADA benefits from explicit congestion control signals (e.g., ECN markings) from the network, yet also operates when only implicit congestion indicators (delay and/or loss) are available.
+Such a unified sender behavior distinguishes NADA from other congestion control schemes for real time media.
+In addition, its core congestion control algorithm is designed to guarantee stability for path round trip times (RTTs) below a prescribed bound (e.g., 250 ms with default parameter choices).
+It further supports weighted bandwidth sharing among competing video flows with different priorities.
+The signaling mechanism consists of standard Real time
+Transport Protocol (RTP) timestamp [RFC3550] and Real time Transport Control Protocol
+The definition of the desired RTCP feedback message is described in detail in [RTCP FEEDBACK] so as to support the successful operation of several congestion control schemes for real time interactive media.
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in BCP 14
+when, and only when, they appear in all capitals, as shown here.
+System Overview Figure 1 shows the end to end system for real time media transport that NADA operates in.
+Note that there also exist network nodes along the reverse (potentially uncongested) path that the RTCP feedback reports traverse.
+Those network nodes are not shown in the figure for the sake of brevity.
+Encodes raw media (audio and video) frames into a compressed bitstream that is later packetized into RTP packets.
+As discussed in [RFC8593], the actual output rate from the encoder r vout may fluctuate around the target r vin.
+Furthermore, it is possible that the encoder can only react to bit rate changes at rather coarse time intervals, e.g., once every 0.5 seconds.
+RTP sender:  Responsible for calculating the NADA reference rate based on network congestion indicators (delay, loss, or ECN marking reports from the receiver), for updating the video encoder with a new target rate r vin and for regulating the actual sending rate r send accordingly.
+The RTP sender also generates a sending timestamp for each outgoing packet.
+RTP receiver:  Responsible for measuring and estimating end to end delay (
+based on sender timestamp), packet loss (based on RTP sequence number), ECN marking ratios (based on [RFC6679]), and receiving rate (r recv) of the flow.
+It calculates the aggregated congestion signal (x curr)
+that accounts for queuing delay, ECN markings, and packet losses.
+The receiver also determines the mode for sender rate adaptation (rmode) based on whether the flow has encountered any standing non zero congestion.
+The receiver sends periodic RTCP reports back to the sender, containing values of x curr, rmode, and r recv.
+Network node with several modes of operation:
+The system can work with the default behavior of a simple drop tail queue.
+It can also benefit from advanced Active Queue Management (AQM) features such as Proportional Integral Controller Enhanced (PIE) [RFC8033], Flow Queue Controlling Queue Delay (FQ CoDel) [RFC8290], ECN marking based on Random Early Detection (RED) [RFC7567], and Pre  Congestion Notification (PCN)
+marking using a token bucket algorithm [RFC6660].
+Note that network node operation is out of scope for the design of NADA.
+Like TCP Friendly Rate Control (TFRC)
+[RFC5348], NADA is a rate based congestion control algorithm.
+In its simplest form, the sender reacts to the collection of network congestion indicators in the form of an aggregated congestion signal and operates in one of two modes:
+When the bottleneck is deemed to be underutilized, the rate increases multiplicatively with respect to the rate of previously successful transmissions.
+The rate increase multiplier (gamma) is calculated based on the observed round trip time and target feedback interval, so as to limit self  inflicted queuing delay.
+In the presence of a non zero aggregate congestion signal, the sending rate is adjusted in reaction to both its value (x curr) and its change in value (x diff).
+This section introduces the list of mathematical notations and describes the core congestion control algorithm at the sender and receiver, respectively.
+Additional details on recommended practical implementations are described in Sections 5.1 and 5.2.
+This section summarizes the list of variables and parameters used in the NADA algorithm.
+Table 2 also includes the default values for choosing the algorithm parameters to represent either a typical setting in practical applications or a setting based on theoretical and simulation studies.
+See Section 6.3 for some of the discussions on the impact of parameter values.
+Additional studies in real world settings suggested in Section 8 could gather further insight on how to choose and adapt these parameter values in practical deployment.
+Measured and filtered one way
+its previous value: x diff
+The receiver side algorithm can be outlined as below:
+On initialization: set d base    INFINITY set p loss   0
+set p mark   0 set r recv   0 set both t last and t curr as current time in milliseconds On receiving a media packet:
+obtain current timestamp t curr from system clock obtain from packet header sending time stamp t
+sent obtain one way delay measurement:
+t curr t sent update baseline delay: d base   min(d base, d fwd) update queuing delay:
+d fwd d base update packet loss ratio estimate p loss update packet marking ratio estimate p mark update measurement of receiving rate r recv
+On time to send a new feedback report (t curr t last > DELTA): calculate non linear warping of delay d tilde if packet loss exists calculate current aggregate congestion signal
+x curr determine mode of rate adaptation for sender: rmode send feedback containing values of: rmode, x curr, and r recv update t last   t curr
+In order for a delay based flow to hold its ground when competing against loss based flows (e.g., loss based TCP), it is important to distinguish between different levels of observed queuing delay.
+For instance, over wired connections, a moderate queuing delay value on the order of tens of milliseconds is likely self inflicted or induced by other delay based flows, whereas a high queuing delay value of several hundreds of milliseconds may indicate the presence of a loss  based flow that does not refrain from increased delay.
+If the last observed packet loss is within the expiration window of loss exp (measured in terms of packet counts), the estimated queuing delay follows a non linear warping: /
+This non linear warping is inspired by the delay adaptive congestion window backoff policy in [BUDZISZ AIMD CC]
+so as to "gradually nudge" the controller to operate based on loss  induced congestion signals when competing against loss based flows.
+The exact form of the non linear function has been simplified with respect to [BUDZISZ AIMD CC].
+The value of the threshold QTH should be carefully tuned for different operational environments so as to avoid potential risks of prematurely discounting the congestion signal level.
+Typically, a higher value of QTH is required in a noisier environment (e.g., over wireless connections or where the video stream encounters many time varying background competing traffic) so as to stay robust against occasional non congestion  induced delay spikes.
+Additional insights on how this value can be tuned or auto tuned should be gathered from carrying out experimental studies in different real world deployment scenarios.
+The value of loss exp is configured to self scale with the average packet loss interval loss int with a multiplier MULTILOSS: loss exp   MULTILOSS   loss int.
+Estimation of the average loss interval loss int, in turn, follows Section 5.4 of "TCP Friendly Rate Control (TFRC): Protocol Specification" [RFC5348].
+In practice, it is recommended to linearly interpolate between the warped (d tilde) and
+non warped (d queue) values of the queuing delay during the transitional period lasting for the duration of loss int.
+The aggregate congestion signal is: / p mark \^2
+Here, DMARK is prescribed a reference delay penalty associated with ECN markings at the reference marking ratio of PMRREF; DLOSS is prescribed a reference delay penalty associated with packet losses at the reference packet loss ratio of PLRREF.
+The value of DLOSS and DMARK does not depend on configurations at the network node.
+Since ECN enabled active queue management schemes typically mark a packet before dropping it, the value of DLOSS SHOULD be higher than that of DMARK.
+Furthermore, the values of DLOSS and DMARK need to be set consistently across all NADA flows sharing the same bottleneck link so that they can compete fairly.
+In the absence of packet marking and losses, the value of x curr reduces to the observed queuing delay d queue.
+In that case, the NADA algorithm operates in the regime of delay based adaptation.
+Given observed per packet delay and loss information, the receiver is also in a good position to determine whether or not the network is underutilized and then recommend the corresponding rate adaptation mode for the sender.
+The criteria for operating in accelerated ramp  up
+d fwd d base < QEPS for all previous delay samples within the observation window LOGWIN.
+Otherwise, the algorithm operates in graduate update mode.
+The sender side algorithm is outlined as follows:
+On initialization: set r ref   RMIN set rtt   0
+x prev   0 set t last and t curr as current system clock time On receiving feedback report: obtain current timestamp from system clock: t curr obtain values of rmode, x curr, and r recv from feedback report update estimation of rtt measure feedback interval: delta   t curr t
+update r ref following accelerated ramp up rules else: update r ref following gradual update rules clip rate r ref within the range of minimum rate (RMIN) and maximum rate (RMAX).
+In accelerated ramp up mode, the rate r ref is updated as follows:
+The rate increase multiplier gamma is calculated as a function of the upper bound of self inflicted queuing delay (QBOUND), round trip time (rtt), and target feedback interval (DELTA); it is bound on the filtering delay for calculating d queue (DFILT).
+It has a maximum value of GAMMA MAX.
+The rationale behind Equations (3) (4) is that the longer it takes for the sender to observe self inflicted queuing delay buildup, the more conservative the sender should be in increasing its rate and, hence, the smaller the rate increase multiplier.
+In gradual update mode, the rate r ref is updated as:
+The rate changes in proportion to the previous rate decision.
+It is affected by two terms: the offset of the aggregate congestion signal from its value at equilibrium (x offset) and its change (x diff).
+The calculation of x offset depends on the maximum rate of the flow (RMAX), its weight of priority (PRIO), as well as a reference congestion signal (XREF).
+The value of XREF is chosen so that the maximum rate of RMAX can be achieved when the observed congestion signal level is below PRIO XREF.
+At equilibrium, the aggregated congestion signal stabilizes at x curr
+This ensures that when multiple flows share the same bottleneck and observe a common value of x curr, their rates at equilibrium will be proportional to their respective priority levels (PRIO)
+and the range between minimum and maximum rate.
+Values of the minimum rate (RMIN) and maximum rate (RMAX) will be provided by the media codec, for instance, as outlined by [RMCAT CC RTP].
+In the absence of such information, the NADA sender will choose a default value of 0 for RMIN and 3 Mbps for RMAX.
+The above operations ignore many practical issues such as clock synchronization between sender and receiver, the filtering of noise in delay measurements, and base delay expiration.
+These will be addressed in Section 5.
+Practical Implementation of NADA 5.1.
+The receiver continuously monitors end to end per packet statistics in terms of delay, loss, and/or ECN marking ratios.
+It then aggregates all forms of congestion indicators into the form of an equivalent delay and periodically reports this back to the sender.
+In addition, the receiver tracks the receiving rate of the flow and includes that in the feedback message.
+Estimation of One Way Delay and Queuing Delay
+The delay estimation process in NADA follows an approach similar to that of earlier delay
+based congestion control schemes, such as Low Extra Delay Background Transport (LEDBAT)
+For experimental implementations, instead of relying on RTP timestamps and the transmission time offset RTP header extension [RFC5450], the NADA sender can generate its own timestamp based on the local system clock and embed that information in the transport packet header.
+The NADA receiver estimates the forward delay as having a constant base delay component plus a time varying queuing delay component.
+The base delay is estimated as the minimum value of one way delay observed over a relatively long period (e.g., tens of minutes), whereas the individual queuing delay value is taken to be the difference between one way delay and base delay.
+By re estimating the base delay periodically, one can avoid the potential issue of base delay expiration, whereby an earlier measured base delay value is no longer valid due to underlying route changes or a cumulative timing difference introduced by the clock rate skew between sender and receiver.
+All delay estimations are based on sender timestamps with a recommended granularity of 100 microseconds or finer.
+The individual sample values of queuing delay should be further filtered against various non congestion induced noise, such as spikes due to a processing "hiccup" at the network nodes.
+Therefore, in addition to calculating the value of queuing delay using d queue   d fwd d base, as expressed in Section 5.1, the current implementation further employs a minimum filter with a window size of 15 samples over per packet queuing delay values.
+The receiver detects packet losses via gaps in the RTP sequence numbers of received packets.
+For interactive real time media applications with stringent latency constraints (e.g., video conferencing), the receiver avoids the packet reordering delay by treating out of order packets as losses.
+The instantaneous packet loss ratio p inst is estimated as the ratio between the number of missing packets over the number of total transmitted packets within the recent observation window LOGWIN.
+The packet loss ratio p loss is obtained after exponential smoothing: p loss
+The filtered result is reported back to the sender as the observed packet loss ratio p loss.
+The estimation of the packet marking ratio p mark follows the same procedure as above.
+It is assumed that ECN marking information at the IP header can be passed to the receiving endpoint, e.g., by following the mechanism described in [RFC6679].
+It is fairly straightforward to estimate the receiving rate r recv.
+NADA maintains a recent observation window with a time span of LOGWIN and simply divides the total size of packets arriving during that window over the time span.
+The receiving rate (r recv) can be either calculated at the sender side based on the per packet feedback from the receiver or included as part of the feedback report.
+Sender Side Operation Figure 2 provides a detailed view of the NADA sender.
+Upon receipt of an RTCP feedback report from the receiver, the NADA sender calculates the reference rate r ref as specified in Section 4.3.
+It further adjusts both the target rate for the live video encoder r vin and
+the sending rate r send over the network based on the updated value of r ref and rate shaping buffer occupancy buffer len.
+The NADA sender behavior stays the same in the presence of all types of congestion indicators: delay, loss, and ECN marking.
+This unified approach allows a graceful transition of the scheme as the network shifts dynamically between light and heavy congestion levels.
+Rate Shaping Buffer Figure 2: NADA Sender Structure 5.2.1.
+The operation of the live video encoder is out of the scope of the design for the congestion control scheme in NADA.
+Instead, its behavior is treated as a black box.
+A rate shaping buffer is employed to absorb any instantaneous mismatch between the encoder rate output r vout and the regulated sending rate r send.
+Its current level of occupancy is measured in bytes and is denoted as buffer len.
+A large rate shaping buffer contributes to higher end to end delay, which may harm the performance of real time media communications.
+Therefore, the sender has a strong incentive to prevent the rate  shaping buffer from building up.
+Adjusting Video Target Rate and Sending Rate
+If the level of occupancy in the rate shaping buffer is accessible at the sender, such information can be leveraged to further adjust the target rate of the live video encoder r vin as well as the actual sending rate r send.
+The purpose of such adjustments is to mitigate the additional latencies introduced by the rate shaping buffer.
+The amount of rate adjustment can be calculated as follows:
+min(0.05 r ref, BETA S 8 buffer len FPS)
+r send   min(RMAX, r ref
+In Equations (11) and (12), the amount of adjustment is calculated as proportional to the size of the rate shaping buffer but is bounded by 5% of the reference rate r ref calculated from network congestion feedback alone.
+This ensures that the adjustment introduced by the rate shaping buffer will not counteract with the core congestion control process.
+Equations (13) and (14) indicate the influence of the rate shaping buffer.
+A large rate shaping buffer nudges the encoder target rate slightly below (and the sending rate slightly above) the reference rate r ref.
+The final video target rate (r vin) and sending rate (r send) are further bounded within the original range of [RMIN, RMAX].
+Intuitively, the amount of extra rate offset needed to completely drain the rate shaping buffer within the duration of a single video frame is given by 8 buffer len FPS, where FPS stands for the reference frame rate of the video.
+The scaling parameters BETA V and BETA S can be tuned to balance between the competing goals of maintaining a small rate shaping buffer and deviating from the reference rate point.
+Empirical observations show that the rate  shaping buffer for a responsive live video encoder typically stays empty and only occasionally holds a large frame (e.g., when an intra  frame is produced) in transit.
+Therefore, the rate adjustment introduced by this mechanism is expected to be minor.
+For instance, a rate shaping buffer of 2000 bytes will lead to a rate adjustment of 48 Kbps given the recommended scaling parameters of BETA V   0.1 and BETA S   0.1, and the reference frame rate of FPS   30.
+The following list of information is required for NADA congestion control to function properly: Recommended rate adaptation mode (rmode):  A 1 bit flag indicating whether the sender should operate in accelerated ramp up mode (rmode 0) or gradual update mode (rmode 1).
+Aggregated congestion signal (x curr):
+The most recently updated value, calculated by the receiver according to Section 4.2.
+This information can be expressed with a unit of 100 microseconds (i.e., 1/10 of a millisecond) in 15 bits.
+This allows a maximum value of x curr at approximately 3.27 seconds.
+The most recently measured receiving rate according to Section 5.1.3.
+This information is expressed with a unit of bits per second (bps) in 32 bits (unsigned int).
+This allows a maximum rate of approximately 4.3 Gbps, approximately 1000 times the streaming rate of a typical high definition (HD) video conferencing session today.
+This field can be expanded further by a few more bytes if an even higher rate needs to be specified.
+The above list of information can be accommodated by 48 bits, or 6 bytes, in total.
+They can be either included in the feedback report from the receiver or, in the case where all receiver side calculations are moved to the sender, derived from per packet information from the feedback message as defined in [RTCP FEEDBACK].
+Choosing the feedback message interval DELTA is discussed in Section 6.3.
+A target feedback interval of DELTA
+This section discusses the various design choices made by NADA, potential alternative variants of its implementation, and guidelines on how the key algorithm parameters can be chosen.
+Section 8 recommends additional experimental setups to further explore these topics.
+The current design works with relative one way delay (OWD) as the main indication of congestion.
+The value of the relative OWD is obtained by maintaining the minimum value of observed OWD over a relatively long time horizon and subtracting that out from the observed absolute OWD value.
+Such an approach cancels out the fixed difference between the sender and receiver clocks.
+It has been widely adopted by
+other delay based congestion control approaches such as [RFC6817].
+As discussed in [RFC6817], the time horizon for tracking the minimum OWD needs to be chosen with care; it must be long enough for an opportunity to observe the minimum OWD with zero standing queue along the path, and it must be sufficiently short enough to timely reflect "true" changes in minimum OWD introduced by route changes and other rare events and to mitigate the cumulative impact of clock rate skew over time.
+The potential drawback in relying on relative OWD as the congestion signal is that when multiple flows share the same bottleneck, the flow arriving late at the network experiencing a non empty queue may mistakenly consider the standing queuing delay as part of the fixed path propagation delay.
+This will lead to slightly unfair bandwidth sharing among the flows.
+Alternatively, one could move the per packet statistical handling to the sender instead and use relative round trip time (RTT) in lieu of relative OWD, assuming that per packet acknowledgments are available.
+The main drawback of an RTT based approach is the noise in the measured delay in the reverse direction.
+Note that the choice of either delay metric (relative OWD vs. RTT) involves no change in the proposed rate adaptation algorithm.
+Therefore, comparing the pros and cons regarding which delay metric to adopt can be kept as an orthogonal direction of investigation.
+Method for Delay, Loss, and Marking Ratio Estimation Like other delay based congestion control schemes, performance of NADA depends on the accuracy of its delay measurement and estimation module.
+Appendix A of [RFC6817] provides an extensive discussion on this aspect.
+The current recommended practice of applying minimum filter with a window size of 15 samples suffices in guarding against processing delay outliers observed in wired connections.
+For wireless connections with a higher packet delay variation (PDV), more sophisticated techniques on denoising, outlier rejection, and trend analysis may be needed.
+More sophisticated methods in packet loss ratio calculation, such as that adopted by [FLOYD CCR00], will likely be beneficial.
+These alternatives are part of the experiments this document proposes.
+In the gradual rate update mode, the parameter TAU indicates the upper bound of round trip time (RTT) in the feedback control loop.
+Typically, the observed feedback interval delta is close to the target feedback interval DELTA, and the relative ratio of delta/TAU versus ETA dictates the relative strength of influence from the aggregate congestion signal offset term (x offset) versus its recent change (x diff), respectively.
+These two terms are analogous to the integral and proportional terms in a proportional integral (PI) controller.
+The recommended choice of TAU
+100 ms, and ETA   2.0 corresponds to a relative ratio of 1:10 between the gains of the integral and proportional terms.
+Consequently, the rate adaptation is mostly driven by the change in the congestion signal with a long term shift towards its equilibrium value driven by the offset term.
+Finally, the scaling parameter KAPPA determines the overall speed of the adaptation and needs to strike a balance between responsiveness and stability.
+The choice of the target feedback interval DELTA needs to strike the right balance between timely feedback and low RTCP feedback message counts.
+A target feedback interval of DELTA
+100 ms is recommended, corresponding to a feedback bandwidth of 16 Kbps with 200 bytes per feedback message   approximately 1.6% overhead for a 1 Mbps flow.
+Furthermore, both simulation studies and frequency domain analysis in [IETF 95] have established that a feedback interval below 250 ms (i.e., more frequently than 4 feedback messages per second) will not break up the feedback control loop of NADA congestion control.
+In calculating the non linear warping of delay in Equation (1), the current design uses fixed values of QTH for determining whether to perform the non linear warping.
+Its value should be carefully tuned for different operational environments (e.g., over wired vs. wireless connections) so as to avoid the potential risk of prematurely discounting the congestion signal level.
+It is possible to adapt its value based on past observed patterns of queuing delay in the presence of packet losses.
+It needs to be noted that the non linear warping mechanism may lead to multiple NADA streams stuck in loss  based mode when competing against each other.
+In calculating the aggregate congestion signal
+x curr, the choice of DMARK and DLOSS influence the steady state packet loss/marking ratio experienced by the flow at a given available bandwidth.
+Higher values of DMARK and DLOSS result in lower steady state loss/marking ratios but are more susceptible to the impact of individual packet loss/marking events.
+While the value of DMARK and DLOSS are fixed and predetermined in the current design, this document also encourages further explorations of a scheme for automatically tuning these values based on desired bandwidth sharing behavior in the presence of other competing loss based flows (e.g., loss based TCP).
+Sender Based vs. Receiver Based Calculation
+In the current design, the aggregated congestion signal x curr is calculated at the receiver, keeping the sender operation completely independent of the form of actual network congestion indications (delay, loss, or marking) in use.
+Alternatively, one can shift receiver side calculations to the sender, whereby the receiver simply reports on per packet information via periodic feedback messages as defined in [RTCP FEEDBACK].
+Such an approach enables interoperability amongst senders operating on different congestion control schemes but requires slightly higher overhead in the feedback messages.
+See additional discussions in [RTCP FEEDBACK] regarding the desired format of the feedback messages and the recommended feedback intervals.
+One nice property of NADA is the consistent video endpoint behavior irrespective of network node variations.
+This facilitates gradual, incremental adoption of the scheme.
+Initially, the proposed congestion control mechanism can be implemented without any explicit support from the network and relies solely on observed relative one way delay measurements and packet loss ratios as implicit congestion signals.
+When ECN is enabled at the network nodes with RED based marking, the receiver can fold its observations of ECN markings into the calculation of the equivalent delay.
+The sender can react to these explicit congestion signals without any modification.
+Ultimately, networks equipped with proactive marking based on the level of token bucket metering can reap the additional benefits of zero standing queues and lower end to end delay and work seamlessly with existing senders and receivers.
+The NADA scheme has been implemented in both ns 2 [NS 2] and ns 3 [NS 3] simulation platforms.
+The implementation in ns 2 hosts the calculations as described in Section 4.2 at the receiver side, whereas the implementation in ns 3 hosts these receiver side calculations at the sender for the sake of interoperability.
+Extensive ns 2 simulation evaluations of an earlier draft version of this document are recorded in [ZHU PV13].
+An open source implementation of NADA as part of an ns 3 module is available at [NS3 RMCAT].
+Evaluation results of this document based on ns 3 are presented in [IETF 90] and [IETF 91] for wired test cases as documented in [RMCAT EVAL TEST].
+Evaluation results of NADA over Wi  Fi based test cases as defined in [WIRELESS TESTS] are presented in [IETF 93].
+These simulation based evaluations have shown that NADA flows can obtain their fair share of bandwidth when competing against each other.
+They typically adapt fast in reaction to the arrival and departure of other flows and can sustain a reasonable throughput when competing against loss based TCP flows.
+[IETF 90] describes the implementation and evaluation of NADA in a lab setting.
+Preliminary evaluation results of NADA in single flow and multi flow test scenarios are presented in [IETF 91].
+A reference implementation of NADA has been carried out by modifying the WebRTC module embedded in the Mozilla open source browser.
+Presentations from [IETF 103] and [IETF 105] document real world evaluations of the modified browser driven by NADA.
+The experimental setting involves remote connections with endpoints over either home or enterprise wireless networks.
+These evaluations validate the effectiveness of NADA flows in recovering quickly from throughput drops caused by intermittent delay spikes over the last hop wireless connections.
+Suggested Experiments NADA has been extensively evaluated under various test scenarios, including the collection of test cases specified by [RMCAT EVAL TEST] and the subset of Wi Fi based test cases in [WIRELESS TESTS].
+Additional evaluations have been carried out to characterize how NADA interacts with various AQM schemes such as RED, Controlling Queue Delay (CoDel), and Proportional Integral Controller Enhanced (PIE).
+Most of these evaluations have been carried out in simulators.
+A few key test cases have been evaluated in lab environments with implementations embedded in video conferencing clients.
+It is strongly recommended to carry out implementation and experimentation of NADA in real world settings.
+Such exercises will provide insights on how to choose or automatically adapt the values of the key algorithm parameters (see list in Table 2) as discussed in Section 6.
+Experiments with ECN marking capability turned on at the network for existing test cases.
+Experiments with multiple NADA streams bearing different user  specified priorities.
+Experiments with additional access technologies, especially over cellular networks such as 3G/LTE.
+Experiments with various media source contents, including audio only, audio and video, and application content sharing (e.g., slideshows).
+This document has no IANA actions.
+The rate adaptation mechanism in NADA relies on feedback from the receiver.
+As such, it is vulnerable to attacks where feedback messages are hijacked, replaced, or intentionally injected with misleading information resulting in denial of service, similar to those that can affect TCP.
+Therefore, it is RECOMMENDED that the RTCP feedback message is at least integrity checked.
+In addition, [RTCP FEEDBACK] discusses the potential risk of a receiver providing misleading congestion feedback information and the mechanisms for mitigating such risks.
+The modification of the sending rate based on the sender side rate  shaping buffer may lead to temporary excessive congestion over the network in the presence of an unresponsive video encoder.
+However, this effect can be mitigated by limiting the amount of rate modification introduced by the rate shaping buffer, bounding the size of the rate shaping buffer at the sender, and maintaining a maximum allowed sending rate by NADA.
+Appendix A.  Network Node Operations NADA can work with different network queue management schemes and does not assume any specific network node operation.
+As an example, this appendix describes three variants of queue management behavior at the network node, leading to either implicit or explicit congestion signals.
+It needs to be acknowledged that NADA has not yet been tested with non probabilistic ECN marking behaviors.
+In all three flavors described below, the network queue operates with the simple First In, First Out (FIFO) principle.
+There is no need to maintain per flow state.
+The system can scale easily with a large number of video flows and at high link capacity.
+Default Behavior of Drop Tail Queues
+In a conventional network with drop tail or RED queues, congestion is inferred from the estimation of end to end delay and/or packet loss.
+Packet drops at the queue are detected at the receiver and contribute to the calculation of the aggregated congestion signal x curr.
+No special action is required at the network node.
+, the network node randomly marks the ECN field in the IP packet header following
+the Random Early Detection (RED) algorithm [RFC7567].
+Calculation of the marking probability involves the following steps on packet arrival: 1.
+update smoothed queue size q avg as:
+calculate marking probability p as: / 0,
+Here, q lo and q hi correspond to the low and high thresholds of queue occupancy.
+The maximum marking probability is p max.
+The ECN marking events will contribute to the calculation of an equivalent delay x curr at the receiver.
+No changes are required at the sender.
+Early Marking with Virtual Queues Advanced network nodes may support random early marking based on a token bucket algorithm originally designed for Pre Congestion Notification (PCN) [RFC6660].
+The early congestion notification (ECN) bit in the IP header of packets is marked randomly.
+The marking probability is calculated based on a token bucket algorithm originally designed for PCN [RFC6660].
+The target link utilization is set as 90%; the marking probability is designed to grow linearly with the token bucket size when it varies between 1/3 and 2/3 of the full token bucket limit.
+Calculation of the marking probability involves the following steps upon packet arrival: 1.  meter packet against token bucket (r,b) 2.
+Here, the token bucket lower and upper limits are denoted by b lo and b hi, respectively.
+The parameter b indicates the size of the token bucket.
+The parameter r is chosen to be below capacity, resulting in slight underutilization of the link.
+The maximum marking probability is p max.
+The ECN marking events will contribute to the calculation of an equivalent delay x curr at the receiver.
+No changes are required at the sender.
+The virtual queuing mechanism from the PCN based marking algorithm will lead to additional benefits such as zero standing queues.
+Contributors The following individuals contributed to the implementation and evaluation of the proposed scheme and, therefore, helped to validate and substantially improve this specification.
+> of Cisco Systems implemented an early version of the NADA congestion control scheme and helped with its lab based testbed evaluations.
+Jiantao Fu <jianfu@cisco.com> of Cisco Systems
+helped with the implementation and extensive evaluation of NADA both in Mozilla web browsers and in earlier simulation based evaluation efforts.
+Stefano D'Aronco <stefano.daronco@geod.baug.ethz.ch> of ETH Zurich (previously at Ecole Polytechnique Federale de Lausanne when contributing to this work) helped with the implementation and evaluation of an early version of NADA in [NS 3].
+Charles Ganzhorn <charles.ganzhorn@gmail.com> contributed to the testbed based evaluation of NADA during an early stage of its development.

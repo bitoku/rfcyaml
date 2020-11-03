@@ -1,0 +1,199 @@
+Abstract This memo presents a technique for using the Secure Remote Password protocol as an authentication method for the Transport Layer Security protocol.
+At the time of writing TLS [TLS] uses public key certificates, pre  shared keys, or Kerberos for authentication.
+These authentication methods do not seem well suited to certain applications now being adapted to use TLS ([IMAP], for example).
+Given that many protocols are designed to use the user name and password method of authentication, being able to safely use user names and passwords provides an easier route to additional security.
+SRP ([SRP], [SRP 6]) is an authentication method that allows the use of user names and passwords over unencrypted channels without revealing the password to an eavesdropper.
+SRP also supplies a shared secret at the end of the authentication sequence that can be used to generate encryption keys.
+This document describes the use of the SRP authentication method for TLS.
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119 [REQ].
+SRP Authentication in TLS 2.1.
+The version of SRP used here is sometimes referred to as "SRP 6" [SRP 6].
+This version is a slight improvement over "SRP 3", which was described in [SRP] and [SRP RFC].
+For convenience, this document and [SRP RFC] include the details necessary to implement SRP 6; [SRP 6] is cited for informative purposes only.
+This document uses the variable names defined in [SRP 6]:
+N, g: group parameters (prime and generator)
+salt B, b: server's public and private values A
+, a: client's public and private values
+I: user name (aka "identity")
+P: password v: verifier k: SRP 6 multiplier
+The   symbol indicates string concatenation, the ^ operator is the exponentiation operation, and the % operator is the integer remainder operation.
+Conversion between integers and byte strings assumes the most significant bytes are stored first, as per [TLS] and [SRP RFC].
+In the following text, if a conversion from integer to byte string is implicit, the most significant byte in the resultant byte string MUST be non zero.
+If a conversion is explicitly specified with the operator PAD(), the integer will first be implicitly converted, then the resultant byte string will be left padded with zeros (if necessary) until its length equals the implicitly converted length of N. 2.2.
+The advent of [SRP 6] allows the SRP protocol to be implemented using the standard sequence of handshake messages defined in [TLS].
+The parameters to various messages are given in the following diagram.
+Application Data   Indicates an optional message that is not always sent.
+The user name and password strings SHALL be UTF 8
+encoded Unicode, prepared using the [SASLPREP] profile of [STRINGPREP].
+The verifier is calculated as described in Section 3 of [SRP RFC].
+We give the algorithm here for convenience.
+The verifier (v) is computed based on the salt (s), user name (I), password (P), and group parameters (N, g).
+The computation uses the [SHA1] hash algorithm:
+Changes to the Handshake Message Contents
+This section describes the changes to the TLS handshake message contents when SRP is being used for authentication.
+The definitions of the new message contents and the on the wire changes are given in Section 2.8.
+The user name is appended to the standard client hello message using the extension mechanism defined in [TLSEXT] (see Section 2.8.1).
+This user name extension is henceforth called the "SRP extension".
+The following subsections give details of its use.
+Session Resumption When a client attempts to resume a session that uses SRP authentication, the client MUST include the SRP extension in the client hello message,
+in case the server cannot or will not allow session resumption, meaning a full handshake is required.
+If the server does agree to resume an existing session, the server MUST ignore the information in the SRP extension of the client hello message, except for its inclusion in the finished message hashes.
+This is to ensure that attackers cannot replace the authenticated identity without supplying the proper authentication information.
+The client may offer SRP cipher suites in the hello message but omit the SRP extension.
+If the server would like to select an SRP cipher suite in this case, the server SHOULD return a fatal "unknown psk identity" alert (see Section 2.9) immediately after processing the client hello message.
+A client receiving this alert MAY choose to reconnect and resend the hello message, this time with the SRP extension.
+This allows the client to advertise that it supports SRP, but not have to prompt the user for his user name and password, nor expose the user name in the clear, unless necessary.
+If the server doesn't have a verifier for the user name in the SRP extension, the server MAY abort the handshake with an "unknown psk identity" alert (see Section 2.9).
+Alternatively, if the server wishes to hide the fact that this user name doesn't have a verifier, the server MAY simulate the protocol as if a verifier existed, but then reject the client's finished message with a "bad record mac" alert, as if the password was incorrect.
+To simulate the existence of an entry for each user name, the server must consistently return the same salt (s) and group (N, g)
+values for the same user name.
+For example, the server could store a secret "seed key" and then use HMAC SHA1(seed key, "salt"   user name) to generate the salts [HMAC].
+For B, the server can return a random value between 1 and N 1 inclusive.
+However, the server should take care to simulate computation delays.
+One way to do this is to generate a fake verifier using the "seed key" approach, and then proceed with the protocol as usual.
+The server MUST send a certificate if it agrees to an SRP cipher suite that requires the server to provide additional authentication in the form of a digital signature.
+See Section 2.7 for details of which cipher suites defined in this document require a server certificate to be sent.
+The server key exchange message contains the prime (N), the generator (g), and the salt value (s) read from the SRP password file based on the user name (I) received in the client hello extension.
+The server key exchange message also contains the server's public value (B).
+The server calculates this value as
+% N, where b is a random number that SHOULD be at least 256 bits in length and k
+If the server has sent a certificate message, the server key exchange message MUST be signed.
+The group parameters (N, g) sent in this message MUST have N as a safe prime (a prime of the form N 2q 1, where q is also prime).
+The integers from 1 to N 1 will form a group under multiplication % N, and g MUST be a generator of this group.
+In addition, the group parameters MUST NOT be specially chosen to allow efficient computation of discrete logarithms.
+The SRP group parameters in Appendix A satisfy the above requirements, so the client SHOULD accept any parameters from this appendix that have large enough N values to meet her security requirements.
+The client MAY accept other group parameters from the server, if the client has reason to believe that these parameters satisfy the above requirements, and the parameters have large enough N values.
+For example, if the parameters transmitted by the server match parameters on a "known good" list, the client may choose to accept them.
+See Section 3 for additional security considerations relevant to the acceptance of the group parameters.
+Group parameters that are not accepted via one of the above methods MUST be rejected with an "insufficient security" alert (see Section 2.9).
+The client MUST abort the handshake with an "illegal parameter" alert if
+The client key exchange message carries the client's public value (A).
+The client calculates this value as A   g^a % N, where a is a random number that SHOULD be at least 256 bits in length.
+The server MUST abort the handshake with an "illegal parameter" alert if A %
+The premaster secret is calculated by the client as follows:
+I, P   <read from user>
+The premaster secret is calculated by the server as follows:
+N, g, s, v   <read from password file> b   random
+The finished messages perform the same function as the client and server evidence messages (M1 and M2) specified in [SRP RFC].
+If either the client or the server calculates an incorrect premaster secret, the finished messages will fail to decrypt properly, and the other party will return a "bad record mac" alert.
+If a client application receives a "bad record mac" alert when performing an SRP handshake, it should inform the user that the entered user name and password are incorrect.
+The following cipher suites are added by this document.
+The usage of Advanced Encryption Standard (AES)
+cipher suites is as defined in [AESCIPH].
+CipherSuite TLS SRP SHA WITH 3DES EDE
+Cipher suites that do not include a digital signature algorithm identifier assume that the server is authenticated by its possession of the SRP verifier.
+Implementations conforming to this specification MUST implement the TLS SRP SHA WITH 3DES EDE CBC SHA cipher suite, SHOULD implement the TLS SRP SHA WITH AES 128 CBC SHA and TLS SRP SHA WITH AES 256 CBC SHA cipher suites, and MAY implement the remaining cipher suites.
+This section shows the structure of the messages passed during a handshake that uses SRP for authentication.
+The representation language used is the same as that used in [TLS].
+A new extension "srp", with value 12, has been added to the enumerated ExtensionType defined in [TLSEXT].
+This value MUST be used as the extension number for the SRP extension.
+The "extension data" field of the SRP extension SHALL contain: opaque srp
+; where srp I is the user name, encoded per Section 2.3.
+A new value, "srp", has been added to the enumerated KeyExchangeAlgorithm originally defined in [TLS].
+When the value of KeyExchangeAlgorithm is set to "srp", the server's SRP parameters are sent in the server key exchange message, encoded in a ServerSRPParams structure.
+If a certificate is sent to the client, the server key exchange message must be signed.
+enum { rsa, diffie hellman, srp } KeyExchangeAlgorithm; struct { select (KeyExchangeAlgorithm) { case diffie hellman: ServerDHParams params; Signature signed params; case rsa:
+When the value of KeyExchangeAlgorithm is set to "srp", the client's public value (A) is sent in the client key exchange message, encoded in a ClientSRPPublic structure.
+This document introduces four new uses of alerts:  "unknown psk identity" (115)
+this alert MAY be sent by a server that would like to select an offered SRP cipher suite, if the SRP extension is absent from the client's hello message.
+This alert is always fatal.
+See Section 2.5.1.2 for details.
+this alert MAY be sent by a server that receives an unknown user name.
+This alert is always fatal.
+See Section 2.5.1.3 for details.
+this alert MUST be sent by a client that receives unknown or untrusted (N, g) values.
+This alert is always fatal.
+See Section 2.5.3 for details.
+this alert MUST be sent by a client or server that receives a key exchange message with A %
+N   0 or B %
+This alert is always fatal.
+See Section 2.5.3 and Section 2.5.4 and for details.
+The "insufficient security" and "illegal parameter" alerts are defined in [TLS].
+The "unknown psk identity" alert is defined in [PSK].
+The checks described in Section 2.5.3 and Section 2.5.4 on the received values for A and B are CRUCIAL for security and MUST be performed.
+The private values a and b SHOULD be at least 256 bit random numbers, to give approximately 128 bits of security against certain methods of calculating discrete logarithms.
+See [TLS], Section D.1, for advice on choosing cryptographically secure random numbers.
+An attacker who could calculate discrete logarithms %
+N could compromise user passwords, and could also compromise the confidentiality and integrity of TLS sessions.
+Clients MUST ensure that the received parameter N is large enough to make calculating discrete logarithms computationally infeasible.
+An attacker may try to send a prime value N that is large enough to be secure, but that has a special form for which the attacker can more easily compute discrete logarithms (e.g., using the algorithm discussed in [TRAPDOOR]).
+If the client executes the protocol using such a prime, the client's password could be compromised.
+Because of the difficulty of checking for such primes in real time, clients SHOULD only accept group parameters that come from a trusted source, such as those listed in Appendix A, or parameters configured locally by a trusted administrator.
+If an attacker learns a user's SRP verifier (e.g., by gaining access to a server's password file), the attacker can masquerade as the real server to that user, and can also attempt a dictionary attack to recover that user's password.
+An attacker could repeatedly contact an SRP server and try to guess a legitimate user's password.
+Servers SHOULD take steps to prevent this, such as limiting the rate of authentication attempts from a particular IP address or against a particular user name.
+The client's user name is sent in the clear in the Client Hello message.
+To avoid sending the user name in the clear, the client could first open a conventional anonymous or server authenticated connection, then renegotiate an SRP authenticated connection with the handshake protected by the first connection.
+If the client receives an "unknown psk identity" alert in response to a client hello, this alert may have been inserted by an attacker.
+The client should be careful about making any decisions, or forming any conclusions, based on receiving this alert.
+It is possible to choose a (user name, password) pair such that the resulting verifier will also match other, related, (user name, password) pairs.
+Thus, anyone using verifiers should be careful not to assume that only a single (user name, password) pair matches the verifier.
+This protocol uses SHA 1 to derive several values:  u prevents an attacker who learns a user's verifier from being able to authenticate as that user (see [SRP 6]).
+k prevents an attacker who can select group parameters from being able to launch a 2 for 1 guessing attack (see [SRP 6]).
+x contains the user's password mixed with a salt.
+Cryptanalytic attacks against SHA 1 that only affect its collision  resistance do not compromise these uses.
+If attacks against SHA 1 are discovered that do compromise these uses, new cipher suites should be specified to use a different hash algorithm.
+In this situation, clients could send a Client Hello message containing new and/or old SRP cipher suites along with a single SRP extension.
+The server could then select the appropriate cipher suite based on the type of verifier it has stored for this user.
+This document defines a new TLS extension "srp" (value 12), whose value has been assigned from the TLS ExtensionType Registry defined in [TLSEXT].
+This document defines nine new cipher suites, whose values have been assigned from the TLS Ciphersuite registry defined in [TLS].
+CipherSuite TLS SRP SHA WITH 3DES EDE
+SRP Group Parameters The 1024 , 1536 , and
+2048 bit groups are taken from software developed by Tom Wu and Eugene Jhong for the Stanford SRP distribution, and subsequently proven to be prime.
+The larger primes are taken from [MODP], but generators have been calculated that are primitive roots of N, unlike the generators in [MODP].
+The 1024 bit and 1536 bit groups MUST be supported.
+The hexadecimal value for the prime is: EEAF0AB9 ADB38DD6 9C33F80A FA8FC5E8 60726187
+D674DF74 96EA81D3 383B4813 D692C6E0 E0D5D8E2 50B98BE4 8E495C1D
+82559B29 7BCF1885 C529F566 660E57EC 68EDBC3C 05726CC0
+The hexadecimal value for the prime is: 9DEF3CAF
+B939277A B1F12A86 17A47BBB DBA51DF4 99AC4C80 BEEEA961 4B19CC4D 5F4F5F55 6E27CBDE
+The generator is: 2. 3.
+The hexadecimal value for the prime is:
+CA97B43A 23FB8016 76BD207A 436C6481 F1D2B907 8717461A
+5EA77A27 75D2ECFA 032CFBDB F52FB378 61602790 04E57AE6
+The generator is: 2. 4.
+This prime is: 2^3072 2^3008 1
+} Its hexadecimal value is:
+AE9F2411 7C4B1FE6 49286651 ECE45B3D C2007CB8
+15728E5A 8AAAC42D AD33170D 04507A33 A85521AB
+A6E1E4C7 ABF5AE8C DB0933D7 1E8C94E0 4A25619D
+D98A0864 D8760273 3EC86A64 521F2B18 177B200C
+The generator is: 5. 5.
+This prime is: 2^4096 2^4032 1
+} Its hexadecimal value is:
+AE9F2411 7C4B1FE6 49286651 ECE45B3D C2007CB8
+15728E5A 8AAAC42D AD33170D 04507A33 A85521AB
+A6E1E4C7 ABF5AE8C DB0933D7 1E8C94E0 4A25619D
+D98A0864 D8760273 3EC86A64 521F2B18 177B200C
+2170481C D0069127 D5B05AA9 93B4EA98 8D8FDDC1
+This prime is: 2^6144 2^6080 1
+} Its hexadecimal value is:
+AE9F2411 7C4B1FE6 49286651 ECE45B3D C2007CB8
+15728E5A 8AAAC42D AD33170D 04507A33 A85521AB
+A6E1E4C7 ABF5AE8C DB0933D7 1E8C94E0 4A25619D
+D98A0864 D8760273 3EC86A64 521F2B18 177B200C
+2170481C D0069127 D5B05AA9 93B4EA98 8D8FDDC1
+44CE6CBA CED4BB1B DB7F1447 E6CC254B 33205151 2BD7AF42 6FB8F401
+F032EA15 D1721D03 F482D7CE 6E74FEF6 D55E702F 46980C82 B5A84031 900B1C9E
+F29BE328 06A1D58B B7C5DA76 F550AA3D 8A1FBFF0 EB19CCB1 A313D55C DA56C9EC
+0B7474D6 E694F91E 6DCC4024 FFFFFFFF FFFFFFFF
+This prime is: 2^8192 2^8128
+Its hexadecimal value is: FFFFFFFF FFFFFFFF C90FDAA2
+AE9F2411 7C4B1FE6 49286651 ECE45B3D C2007CB8
+15728E5A 8AAAC42D AD33170D 04507A33 A85521AB
+A6E1E4C7 ABF5AE8C DB0933D7 1E8C94E0 4A25619D
+D98A0864 D8760273 3EC86A64 521F2B18 177B200C
+2170481C D0069127 D5B05AA9 93B4EA98 8D8FDDC1
+44CE6CBA CED4BB1B DB7F1447 E6CC254B 33205151 2BD7AF42 6FB8F401
+F032EA15 D1721D03 F482D7CE 6E74FEF6 D55E702F 46980C82 B5A84031 900B1C9E
+F29BE328 06A1D58B B7C5DA76 F550AA3D 8A1FBFF0 EB19CCB1 A313D55C DA56C9EC
+12FEE5E4 38777CB6 A932DF8C D8BEC4D0 73B931BA 3BC832B6
+64F31CC5 0846851D F9AB4819 5DED7EA1 B1D510BD 7EE74D73 FAF36BC3
+EB879F92 4009438B 481C6CD7 889A002E D5EE382B
+The generator is: 19 (decimal).
+Appendix B.  SRP Test Vectors
+The following test vectors demonstrate calculation of the verifier and premaster secret.
+I   "alice" P   "password123" s
+<1024 bit parameters from Appendix A
+8B318885 D7D82C7F 8DEB75CE 7BD4FBAA 37089E6F
+10EB3394 3CD67FC8 8A2F39A4 BE5BEC4E C0A3212D C346D7E4 74B29EDE 8A469FFE CA686E5A

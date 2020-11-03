@@ -1,0 +1,103 @@
+Implementing the Internet Checksum in Hardware Status of This Memo
+This memo provides information for the Internet community.
+This memo does not specify an Internet standard of any kind.
+Distribution of this memo is unlimited.
+Abstract This memo presents a techniques for efficiently implementing the Internet Checksum in hardware.
+It includes PLD code for programming a single, low cost part to perform checksumming at 1.26 Gbps.
+The Internet Checksum is used in various Internet protocols to check for data corruption in headers (e.g., IP) [4] and packet bodies (e.g, UDP, TCP) [5][6].
+Efficient software implementation of this checksum has been addressed in previous RFCs [1][2][3][7].
+Efficient software implementations of the Internet Checksum algorithm are often embedded in data copying operations ([1], Section 2).
+This copy operation is increasingly being performed by dedicated direct memory access (DMA) hardware.
+As a result, DMA hardware designs are beginning to incorporate dedicated hardware to compute the Internet Checksum during the data transfer.
+This note presents the architecture of an efficient, pipelined Internet Checksum mechanism, suitable for inclusion in DMA hardware [8].
+This design can be implemented in a relatively inexpensive programmable logic device (PLD) (1995 cost of $40), and is capable of supporting 1.26 Gbps transfer rates, at 26 ns per 32 bit word.
+Appendix A provides the pseudocode for such a device.
+This design has been implemented in the PC ATOMIC host interface hardware [8].
+We believe this design is of general use to the Internet community.
+The remainder of this document is organized as follows:
+Review of the Internet Checksum One's Complement vs. Two's Complement Addition Interfaces Summary Appendix A PLD source code A Review of the Internet Checksum
+The Internet Checksum is used for detecting corruption in a block of data [1].
+It is initialized to zero, and computed as the complement of the ones complement sum of the data, taken in 16 bit units.
+A subsequent checksum of the data and checksum together should generate a zero checksum if no errors are detected.
+byte order "independence" reordered output is equivalent to reordered input 16 bit word order independence reordering 16 bit words preserves the output incremental computation deferred carries parallel summation a result of deferred carries, incremental computation, and 16 bit word order independence
+This note describes an implementation that computes two partial checksums in parallel, over the odd and even 16 bit half words of 32 bit data.
+The result is a pair of partial checksums (odd and even), which can be combined, and the result inverted to generate the true Internet Checksum.
+This technique is related to the long word parallel summation used in efficient software implementations [1].
+The Internet Checksum is composed of a ones complement lookahead adder and a bit wise inverter.
+A ones complement adder can be built either using twos complement components, or natively.
+A twos complement implementation of a ones complement adder requires either two twos complement adders, or two cycles per add.
+The sum is performed, then the high bit carry out is propagated to the carry in, and a second sum is performed.
+(ones complement addition is { 1s} and twos complement is { 2s})
+(a { 2s} b)   carry(a { 2s} b)
+e.g., halfword16 a,b; word32 c;
+The true ones complement lookahead adder recognizes that the carry  wrap of the twos complement addition is equivalent to a toroidal carry lookahead.
+Bits of a ones complement lookahead adder are all the same complexity, that of the high bit of a twos complement lookahead adder.
+Thus the ones complement sum (and thus the Internet Checksum) is bit position independent.
+We replace `ci' with the `co' expression and reduce.
+(OR terms in each row pair).
+4 bit carry lookahead 1's complement ring adder:
+A hardware implementation can use this toroidal design directly, together with conventional twos complement fast adder internal components, to perform a pipelined ones complement adder [8].
+A VLSI implementation could use any full lookahead adder, adapted to be toroidal and bit equivalent, as above.
+In our PLD implementation, we implement the adders via 2  and 3 bit full lookahead sub  components.
+The adder components are chained in a ring via carry bit registers.
+This relies on delayed carry propagation to implement a carry pipeline between the fast adder stages.
+Full lookahead adders in a toroidal pipeline
+The resulting device takes at most 5 "idle" clock periods for the carries to propagate through the accumulation pipeline.
+The above device has been installed in a VL Bus PC host interface card [8].
+It has a hardware and software interface, defined as follows.
+The Internet Checksum hardware appears as a single port 32 bit register, with clock and control signals [8]:
+initiating an add of latched input data CLR
+causes the contents of the checksum register and input latch to be zeroed.
+There is no explicit load; a CLR followed by a write of the load value to a dummy location is equivalent.
+The OE causes the register to be written to the data bus, or tri  stated.
+The CLK causes the pipeline to operate.
+If no new input data is latched to be added (via ICLK, ADD), a virtual "zero" is summed into the register, to permit the pipeline to empty.
+The ICLK (transparently) latches the value on the data bus to be latched internally, to be summed into the accumulator on the next ADD signal.
+The ADD signal causes the latched input data (ICLK) to be accumulated into the checksum pipeline.
+ADD and ICLK are commonly tied together.
+One 32 bit data value can be latched and accumulated into the pipeline adder every 26 ns clock, assuming data is stable when the ADD/ICLK signal occurs.
+The internal 32 bit register is organized as two 16 bit ones  complement sums, over the even and odd 16 bit words of the data stream.
+To compute the Internet Checksum from this quantity, ones  complement add the halves together, and invert the result.
+The device is used as a memory mapped register.
+The register is read by performing a read on its equivalent memory location.
+The device is controlled via an external memory mapped register.
+Bits in this control register clear the device (set/clear the CLR line), and enable and disable the device (set/clear the ADD line).
+The CLR line can alternatively be mapped to a memory write, e.g., such that reading the location is a non destructive read of the checksum register, and a write of any value clears the checksum register.
+The enable/disable control must be stored in an external register.
+The device is designed to operate in background during memory transfers (either DMA or programmed I
+Once enabled, all transfers across that bus are summed into the checksum register.
+The checksum is available 5 clocks after the last enabled data accumulation.
+This delay is often hidden by memory access mechanisms and bus arbitration.
+If required, "stall" instructions can be executed for the appropriate delay.
+For the following example, we assume that the device is located at CKSUMLOC.
+We assume that reading that location reads the checksum register, and writing any value to that location clears the register.
+The control register is located at CTLLOC, and the checksum enable/disable bit is CKSUMBIT, where 1 is enabled, and 0 is disabled.
+/ sum   (sum & 0xFFFF)
+This design has been implemented in the PC ATOMIC host interface hardware [8].
+We believe this design is of general use to the Internet community.
+Security Considerations Security considerations are not addressed here.
+The Internet Checksum is not intended as a security measure.
+Acknowledgements The authors would like to thank the members of the "High Performance Computing and Communications", notably Mike Carlton, and "Advanced Systems" Divisions at ISI for their assistance in the development of the hardware, and this memo.
+References [1] Braden, R., Borman, D., and Partridge, C., "Computing the Internet Checksum," Network Working Group RFC 1071, ISI, Cray Research, and BBN Labs, Sept. 1988.
+[2] Mallory, T., and Kullberg, A., "
+Incremental Updating of the Internet Checksum," Network Working Group RFC 1141, BBN Comm., Jan. 1990.
+[3] Plummer, W., "TCP Checksum Function Design," IEN 45, BBN, 1978, included as an appendix in RFC 1071.
+[4] Postel, Jon, "Internet Protocol," Network Working Group RFC  791/STD 5, ISI, Sept. 1981.
+[5] Postel, Jon, "User Datagram Protocol," Network Working Group RFC 768/STD 6, ISI, Aug. 1980.
+[6] Postel, Jon, "Transmission Control Protocol," Network Working Group RFC 793/STD 7, ISI, Sept. 1981.
+[7] Rijsinghani, A., "Computation of the Internet Checksum via Incremental Update," Network Working Group RFC 1624, Digital Equipment Corp., May 1994.
+[8] Touch, J., "PC ATOMIC", ISI Tech.
+SR 95 407, June 1995.
+Authors' Addresses Joe Touch University of Southern California/Information Sciences Institute 4676 Admiralty Way
+Marina del Rey, CA 90292 6695
+touch@isi.edu Bruce Parham University of Southern California/Information Sciences Institute 4676
+Admiralty Way Marina del Rey, CA 90292 6695
+1 310 823 6714 EMail:
+The following is the PLD source code for an AMD MACH 435 PLD.
+The MACH 435 is composed of 8 22V10 equivalent PLD blocks, connected by a configurable internal matrix.
+PC ATOMIC IP Sum Accelerator 1 clock 2  and 3 bit 26 ns version PATTERN
+ip sum REVISION 1.01 AUTHOR
+J. Touch & B. Parham COMPANY
+q[15]   dl[14]   cy[13]   dl[15]   dl[14]   cy[13]
+q[16]   dl[16]   q[17]   dl[16]   cy[31]   dl[17]   dl[16]   cy[31]   dl[17]
+q[16]   cy[31]   dl[18]   dl[17]   dl[16]   cy[31]))

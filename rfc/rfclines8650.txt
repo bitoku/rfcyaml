@@ -1,0 +1,160 @@
+Abstract This document provides a RESTCONF binding to the dynamic subscription capability of both subscribed notifications and YANG Push.
+Introduction Mechanisms to support event subscription and YANG Push are defined in [RFC8639].
+Enhancements to [RFC8639] that enable YANG datastore subscription and YANG Push are defined in [RFC8641].
+This document provides a transport specification for dynamic subscriptions over RESTCONF [RFC8040].
+Requirements for these mechanisms are captured in [RFC7923].
+The streaming of notifications that encapsulate the resulting information push is done via the mechanism described in Section 6.3 of [RFC8040].
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in BCP 14
+when, and only when, they appear in all capitals, as shown here.
+The following terms use the definitions from [RFC8639]: dynamic subscription, event stream, notification message, publisher, receiver, subscriber, and subscription.
+Other terms reused include datastore, which is defined in [RFC8342], and HTTP/2 stream, which maps to the definition of "stream" within [RFC7540], Section 2. 3.
+This section provides specifics on how to establish and maintain dynamic subscriptions over RESTCONF [RFC8040].
+Subscribing to event streams is accomplished in this way via RPCs defined within [RFC8639], Section 2.4.
+The RPCs are done via RESTCONF POSTs.
+YANG datastore subscription is accomplished via augmentations to [RFC8639] as described within [RFC8641], Section 4.4.
+As described in Section 6.3 of [RFC8040], a GET needs to be performed on a specific URI on the publisher.
+Subscribers cannot predetermine the URI against which a subscription might exist on a publisher, as the URI will only exist after the "establish subscription" RPC has been accepted.
+Therefore, the POST for the "establish subscription" RPC replaces the GET request for the "location" leaf that is used in [RFC8040] to obtain the URI.
+The subscription URI will be determined and sent as part of the response to the "establish subscription" RPC, and a subsequent GET to this URI will be done in order to start the flow of notification messages back to the subscriber.
+As specified in Section 2.4.1 of [RFC8639], a subscription does not move to the active state until the GET is received.
+Transport Connectivity For a dynamic subscription, when a RESTCONF session doesn't already exist, a new RESTCONF session is initiated from the subscriber.
+As stated in Section 2.1 of [RFC8040], a subscriber MUST establish the HTTP session over TLS [RFC8446] in order to secure the content in transit.
+Without the involvement of additional protocols, HTTP sessions by themselves do not support quick recognition of the loss of the communication path to the publisher.
+Where quick recognition of the loss of a publisher is required, a subscriber SHOULD use a TLS heartbeat [RFC6520], just from subscriber to publisher, to track HTTP session continuity.
+Loss of the heartbeat MUST result in the teardown of any subscription related TCP sessions between those endpoints.
+A subscriber can then attempt to re establish the dynamic subscription by using the procedure described in Section 3.4.
+Discovery Subscribers can learn which event streams a RESTCONF server supports by querying the "streams" container of ietf subscribed  notifications.yang in [RFC8639].
+Support for the "streams" container of ietf restconf monitoring.yang in [RFC8040] is not required.
+In the case when the RESTCONF binding specified by this document is used to convey the "streams" container from ietf restconf monitoring.yang (i.e., that feature is supported), any event streams contained therein are also expected to be present in the "streams" container of ietf restconf monitoring.yang.
+Subscribers can learn which datastores a RESTCONF server supports by following Section 2 of [RFC8527].
+3.3.  RESTCONF RPCs and HTTP Status Codes Specific HTTP response codes as defined in Section 6 of [RFC7231] will indicate the result of RESTCONF RPC requests with the publisher.
+An HTTP status code of 200 is the proper response to any successful RPC defined within [RFC8639] or [RFC8641].
+If a publisher fails to serve the RPC request for one of the reasons indicated in Section 2.4.6 of [RFC8639] or Appendix A of [RFC8641], this will be indicated by an appropriate error code, as shown below, transported in the HTTP response.
+an "error tag" node whose value is a string that corresponds to an identity associated with the error.
+This "error tag" will come from one of two places and will correspond to the error identities either within Section 2.4.6 of [RFC8639] for general subscription errors (Table 1) or within Appendix A.1 of [RFC8641] for subscription errors specific to YANG datastores (Table 2).
+an "error app tag" node whose value is a string that corresponds to an identity associated with the error, as defined in Section 2.4.6 of [RFC8639] for general subscriptions or Appendix A.1 of [RFC8641] for subscription errors specific to YANG datastores.
+The tag to use depends on the RPC for which the error occurred.
+Viable errors for different RPCs are found in Table 3.
+on change sync unsupported    operation not supported
+Each error identity will be inserted as the "error app tag" using JSON encoding following the form
+An example of such a valid encoding would be "ietf subscribed  notifications:no such subscription".
+In the case of error responses to an "establish subscription" or "modify subscription" request, there is the option to include an "error info" node.
+This node may contain hints for parameter settings that might lead to successful RPC requests in the future.
+Tables 4 and 5 show the yang data structures that may be returned.
+Table 5: Optional "error info" Node Hints for an "modify subscription" Request The yang data included within "error info
+" SHOULD NOT include the optional leaf "reason", as such a leaf would be redundant with information that is already placed within the "error app tag".
+In case of an <rpc error> as a result of a "delete subscription", a "kill subscription", or a "resync subscription" request, no "error  info" needs to be included, as the "subscription id" is the only RPC input parameter, and no hints regarding this RPC input parameters need to be provided.
+Note that "error path" [RFC8040] does not need to be included with the <rpc error> element, as subscription errors are generally associated with the choice of RPC input parameters.
+Call Flow for Server Sent Events
+The call flow for Server Sent Events (SSE) is defined in Figure 1.
+The logical connections denoted by (a) and (b) can be a TCP connection or an HTTP/2 stream (if HTTP/2 is used, multiple HTTP/2 streams can be carried in one TCP connection).
+Requests to RPCs as defined in [RFC8639] or [RFC8641] are sent on a connection indicated by (a).
+A successful "establish subscription" will result in an RPC response returned with both a subscription identifier that uniquely identifies a subscription, as well as a URI that uniquely identifies the location of subscription on the publisher (b).
+This URI is defined via the "uri" leaf in the data model in Section 7.
+An HTTP GET is then sent on a separate logical connection (b) to the URI on the publisher.
+This signals the publisher to initiate the flow of notification messages that are sent in SSE [W3C 20150203] as a response to the GET.
+There cannot be two or more simultaneous GET requests on a subscription URI:
+any GET request received while there is a current GET request on the same URI
+MUST be rejected with HTTP error code 409.
+As described in Section 6.4 of [RFC8040], RESTCONF servers SHOULD NOT send the "event" or "id" fields in the SSE event notifications.
+Dynamic Subscriptions with Server Sent Events Additional requirements for dynamic subscriptions over SSE include:
+A publisher MUST return all subscription state notifications in a separate SSE message used by the subscription to which the state change refers.
+Subscription RPCs MUST NOT use the connection currently providing notification messages for that subscription.
+In addition to an RPC response for a "modify subscription" RPC traveling over (a), a "subscription modified" state change notification MUST be sent within (b).
+This allows the receiver to know exactly when, within the stream of events, the new terms of the subscription have been applied to the notification messages.
+In addition to any required access permissions (e.g., Network Configuration Access Control Model (NACM)), the RPCs "modify  subscription", "resync subscription", and "delete subscription" SHOULD only be allowed by the same RESTCONF username [RFC8040] that invoked "establish subscription".
+Such a restriction generally serves to preserve users' privacy, but exceptions might be made for administrators that may need to modify or delete other users' subscriptions.
+The "kill subscription" RPC can be invoked by any RESTCONF username with the required administrative permissions.
+A publisher MAY terminate a subscription at any time as stated in Section 1.3 of [RFC8639].
+QoS Treatment Qos treatment for event streams is described in Section 2.3 of [RFC8639].
+Set the exclusive flag (Section 5.3.1 of [RFC7540]) to 0.
+For dynamic subscriptions with the same Differentiated Services Code Point (DSCP) value to a specific publisher, it is recommended that the subscriber sends all URI
+GET requests on a common HTTP/2 session (if HTTP/2 is used).
+Conversely, a subscriber cannot use a common HTTP/2 session for subscriptions with different DSCP values.
+Notification Messages Notification messages transported over RESTCONF will be encoded according to [RFC8040], Section 6.4. 6.
+The YANG module defined in Section 7 has one leaf that augments three nodes of [RFC8639].
+module: ietf restconf subscribed notifications augment /sn
+<CODE BEGINS> file "ietf restconf subscribed notifications@2019 11 17.yang
+" module ietf restconf subscribed notifications { yang version 1.1; namespace "urn:ietf:params:xml:
+Reshad Rahman <mailto:rrahman@cisco.com>"; description "Defines RESTCONF as a supported transport for subscribed event notifications.
+2019 IETF Trust and the persons identified as authors of the code.
+Redistribution and use in source and binary forms, with or without modification, is permitted pursuant to, and subject to the license terms contained in, the Simplified BSD License set forth in Section 4.c of the IETF Trust's Legal Provisions Relating to IETF Documents (https://trustee.ietf.org/license info).
+This version of this YANG module is part of RFC 8650; see the RFC itself for full legal notices."
+; revision 2019 11 17 { description "Initial version"; reference "RFC 8650:
+This augmentation allows RESTCONF specific parameters for a response to a publisher's subscription request."; uses uri; } augment "/sn:subscriptions/sn:subscription" { description "
+This augmentation allows RESTCONF specific parameters to be exposed for a subscription."; uses uri; } augment "/sn:subscription modified" { description "
+This augmentation allows RESTCONF specific parameters to be included as part of the notification that a subscription has been modified."
+This document registers the following namespace URI in the "ns" subregistry of the "IETF XML Registry" [RFC3688]:
+yang:ietf restconf subscribed notifications Registrant Contact:  The IESG.
+N/A; the requested URI is an XML namespace.
+This document registers the following YANG module in the "YANG Module Names" registry [RFC6020]
+yang:ietf restconf subscribed notifications Prefix:  rsn Reference:  RFC 8650 9.
+The YANG module specified in this document defines a schema for data that is designed to be accessed via network management transports such as NETCONF [RFC6241] or RESTCONF [RFC8040].
+The lowest NETCONF layer is the secure transport layer, and the mandatory to implement secure transport is Secure Shell (SSH) [RFC6242].
+The lowest RESTCONF layer is HTTPS, and the mandatory to implement secure transport is TLS [RFC8446].
+The Network Configuration Access Control Model (NACM)
+[RFC8341] provides the means to restrict access for particular NETCONF or RESTCONF users to a preconfigured subset of all available NETCONF or RESTCONF protocol operations and content.
+The one new data node introduced in this YANG module may be considered sensitive or vulnerable in some network environments.
+It is thus important to control
+read access (e.g., via get, get config, or notification) to this data node.
+These are the subtrees and data nodes and their sensitivity/vulnerability:
+Access control must be set so that only someone with proper access permissions, i.e., the same RESTCONF [RFC8040] user credentials that invoked the corresponding "establish  subscription", has the ability to access this resource.
+The subscription URI is implementation specific and is encrypted via the use of TLS.
+Therefore, even if an attacker succeeds in guessing the subscription URI, a RESTCONF username [RFC8040] with the required administrative permissions must be used to be able to access or modify that subscription.
+It is recommended that the subscription URI values not be easily predictable.
+The access permission considerations for the RPCs "modify  subscription", "resync subscription", "delete subscription", and "kill subscription" are described in Section 3.4.
+If a buggy or compromised RESTCONF subscriber sends a number of "establish subscription" requests, then these subscriptions accumulate and may use up system resources.
+In such a situation, the publisher MAY also suspend or terminate a subset of the active subscriptions from that RESTCONF subscriber in order to reclaim resources and preserve normal operation for the other subscriptions.
+This section is non normative.
+To allow easy comparison, this section mirrors the functional examples shown with NETCONF over XML within [RFC8640].
+In addition, HTTP/2 vs HTTP/1.1 headers are not shown as the contents of the JSON encoded objects are identical within.
+The subscription URI values used in the examples in this section are purely illustrative, and are not indicative of the expected usage that is described in Section 9.
+The DSCP values are only for example purposes and are all indicated in decimal since the encoding is JSON [RFC7951].
+The following figure shows two successful "establish subscription" RPC requests as per [RFC8639].
+The first request is given a subscription identifier of 22, and the second, an identifier of 23.
+OK, id#22, URI#1    GET (URI#1)
+HTTP 200 OK,notif mesg (id#22)
+Multiple Subscriptions over RESTCONF/HTTP To provide examples of the information being transported
+, example messages for interactions in Figure 2 are detailed below: POST /restconf/operations /ietf subscribed notifications:
+establish subscription" Success (b) Upon receipt of the successful response, the subscriber does a GET to the provided URI to start the flow of notification messages.
+When the publisher receives this, the subscription is moved to the active state (c).
+While not shown in Figure 2, if the publisher had not been able to fully satisfy the request, or the subscriber has no authorization to establish the subscription, the publisher would have sent an RPC error response.
+For instance, if the "dscp" value of 10 asserted by the subscriber in Figure 3 proved unacceptable, the publisher may have returned: HTTP status code 400
+The subscriber can use this information in future attempts to establish a subscription.
+An existing subscription may be modified.
+The following exchange shows a negotiation of such a modification via several exchanges between a subscriber and a publisher.
+This negotiation consists of a failed RPC modification request/response followed by a successful one.
+Figure 7: Interaction Model for Successful Subscription Modification
+If the subscription being modified in Figure 7 is a datastore subscription as per [RFC8641], the modification request made in (d) may look like that shown in Figure 8.
+As can be seen, the modifications being attempted are the application of a new XML Path Language (XPath) filter as well as the setting of a new periodic time interval.
+POST /restconf/operations /ietf subscribed notifications:
+If the publisher can satisfy both changes, the publisher sends a positive result for the RPC.
+If the publisher cannot satisfy either of the proposed changes, the publisher sends an RPC error response (e).
+The following is an example RPC error response for (e) that includes a hint.
+This hint is an alternative time period value that might have resulted in a successful modification:
+} Figure 9: "modify subscription" Failure with Hint (e) A.1.3.
+The following demonstrates deleting a subscription.
+This subscription may have been to either a stream or a datastore.
+If the publisher can satisfy the request, the publisher replies with success to the RPC request.
+If the publisher cannot satisfy the request, the publisher sends an <rpc error> element indicating the modification didn't work.
+Figure 11 shows a valid response for an existing valid subscription identifier, but that subscription identifier was created on a different transport session:
+A publisher will send subscription state notifications according to the definitions within [RFC8639].
+} } Figure 12: "subscription modified" Subscription State Notification A.2.2.
+subscription completed" Notification in JSON
+The "subscription resumed" and "replay complete" are virtually identical, with "subscription completed" simply being replaced by "subscription resumed" and "replay complete". A.2.3.
+subscription terminated" Subscription State Notification
+The "subscription suspended" is virtually identical, with "subscription terminated" simply being replaced by "subscription  suspended".
+This section provides an example that illustrates the method of filtering event record contents.
+The example is based on the YANG notification "vrrp protocol error event" as defined per the ietf  vrrp.yang module within [RFC8347].
+Event records based on this specification that are generated by the publisher might appear as: data: { data:
+} data: } Figure 15:
+Example Notification Suppose a subscriber wanted to establish a subscription that only passes instances of event records where there is a "checksum error" as part of a Virtual Router Redundancy Protocol (VRRP) protocol event.
+Also assume the publisher places such event records into the NETCONF stream.
+To get a continuous series of matching event records, the subscriber might request the application of an XPath filter against the NETCONF stream.
+An "establish subscription" RPC to meet this objective might be:
+POST /restconf/operations /ietf subscribed notifications:
+Suppose the "establish subscription" in Figure 16 was accepted.
+And suppose later a subscriber decided they wanted to broaden this subscription cover to all VRRP protocol events (i.e., not just those with a "checksum error").
+The subscriber might attempt to modify the subscription in a way that replaces the XPath filter with a subtree filter that sends all VRRP protocol events to a subscriber.
+Such a "modify subscription" RPC might look like:
+POST /restconf/operations /ietf subscribed notifications:

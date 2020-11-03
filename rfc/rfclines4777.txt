@@ -1,0 +1,417 @@
+This RFC is not a candidate for any level of Internet Standard.
+The IETF disclaims any knowledge of the fitness of this RFC for any purpose and in particular notes that the decision to publish is not based on IETF review for such things as security, congestion control, or inappropriate interaction with deployed protocols.
+The RFC Editor has chosen to publish this document at its discretion.
+Readers of this document should exercise caution in evaluating its value for implementation and deployment.
+See RFC 3932 for more information.
+Abstract This document describes the interface to the Telnet server on IBM's iSeries line of midrange business computers.
+This interface allows Telnet clients to request a Telnet terminal or printer session using specific session attributes related to device names, encryption, language support, auto sign on, response codes, session association, etc.
+These support functions are implemented primarily using the Telnet Environment option negotiation RFC 1572 to define new USERVAR variables that will be recognized by iSeries Telnet server.
+The iSeries Telnet server enables clients to negotiate both terminal and printer device names through Telnet Environment Options Negotiations [RFC1572].
+This allows Telnet servers and clients to exchange environment information using a set of standard or custom variables.
+By using a combination of both standard VARs and custom USERVARs, the iSeries Telnet server allows client Telnet to request a pre defined specific device by name.
+If no pre defined device exists, then the device will be created, with client Telnet having the option to negotiate device attributes, such as the code page, character set, keyboard type, etc.
+Since printers can now be negotiated as a device name, new terminal types have been defined to request printers.
+For example, you can now negotiate "IBM 3812 1" and "IBM 5553 B01" as valid TERMINAL TYPE options [RFC1091].
+Finally, the iSeries Telnet server will allow exchange of user profile and password information, where the password may be in either plain text or encrypted form.
+If a valid combination of profile and password is received, then the client is allowed to bypass the sign  on panel.
+The local server setting of the QRMTSIGN system value must be either  VERIFY or  SAMEPRF for the bypass of the sign on panel to succeed.
+Standard Telnet Option Negotiation Telnet server option negotiation [RFC855] typically begins with the issuance, by the server, of an invitation to engage in terminal type negotiation with the Telnet client (DO TERMINAL TYPE)
+The client and server then enter into a series of sub negotiations to determine the level of terminal support that will be used.
+After the terminal type is agreed upon, the client and server will normally negotiate a required set of additional options (EOR [RFC885], BINARY [RFC856], SGA [RFC858]) that are required to support "transparent mode" or full screen 5250/3270 block mode support.
+As soon as the required options have been negotiated, the server will suspend further negotiations and begin with initializing the actual virtual device on the iSeries.
+A typical exchange might start as follows:
+Actual bytes transmitted in the above example are shown in hex below.
+49 42 4D 2D 35 35 35 35 2D 43 30 31
+Some negotiations are symmetrical between client and server, and some are negotiated in one direction only.
+Also, it is permissible and common practice to bundle more than one response or request, or to combine a request with a response, so in practice the actual exchange may look different from what is shown above.
+In order to accommodate the new environment option negotiations, the server will bundle an environment option invitation along with the standard terminal type invitation request to the client.
+A client should either send a negative acknowledgment (WONT NEW  ENVIRON), or at some point after completing terminal type negotiations, but before completing the full set of negotiations required for 5250 transparent mode, engage in environment option sub negotiation with the server.
+A maximum of 1024 bytes of environment strings may be sent to the server.
+A recommended sequence might look like the following:
+NEW ENVIRON IAC SB NEW ENVIRON
+(do the terminal type sequence first)
+(server will continue with normal transparent mode negotiations)
+IAC WILL EOR . .
+Actual bytes transmitted in the above example are shown in hex below.
+55 53 45 52 01 4A 4F 4E
+44 45 56 4E 41
+49 42 4D 2D 35 35 35 35 2D 43 30 31
+FF F0 FF FD 19
+Telnet environment options defines 6 standard VARs: USER, JOB, ACCT, PRINTER, SYSTEMTYPE, and DISPLAY.
+The USER standard VAR will hold the value of the iSeries user profile name to be used in auto sign on requests.
+The Telnet server will make no direct use of the additional 5 VARs, nor are any of them required to be sent.
+All standard VARs and their values that are received by the Telnet server will be placed in a buffer, along with any USERVARs received (described below), and made available to a registered initialization exit program to be used for any purpose desired.
+There are some reasons you may want to send NEW ENVIRON negotiations prior to TERMINAL TYPE negotiations.
+With an iSeries Telnet server, several virtual device modes can be negotiated: 1) VTxxx device, 2) 3270 device, and 3) 5250 device (includes Network Station).
+The virtual device mode selected depends on the TERMINAL TYPE negotiated plus any other Telnet option negotiations necessary to support those modes.
+The iSeries Telnet server will create the desired virtual device at the first opportunity it thinks it has all the requested attributes needed to create the device.
+This can be as early as completion of the TERMINAL TYPE negotiations.
+For the case of Transparent mode (5250 device), the moment TERMINAL  TYPE, BINARY, and EOR options are negotiated, the Telnet server will go create the virtual device.
+Receiving any NEW ENVIRON negotiations after these option negotiations are complete will result in the NEW  ENVIRON negotiations having no effect on device attributes, as the virtual device will have already been created.
+So, for Transparent mode, NEW ENVIRON negotiations are effectively closed once EOR is negotiated, since EOR is generally the last option done.
+For other devices modes (such as VTxxx or 3270), you cannot be sure when the iSeries Telnet server thinks it has all the attributes to create the device.
+Recall that NEW ENVIRON negotiations are optional, and therefore the iSeries Telnet server need not wait for any NEW ENVIRON options prior to creating the virtual device.
+It is in the clients' best interest to send NEW ENVIRON negotiations as soon as possible, preferably before TERMINAL TYPE is negotiated.
+That way, the client can be sure that the requested attributes were received before the virtual device is created.
+Enhanced Display Emulation Support Telnet environment option USERVARs have been defined to allow a compliant Telnet client more control over the Telnet server virtual device on the iSeries and to provide information to the Telnet server about the client.
+These USERVARs allow the client Telnet to create or select a previously created virtual device.
+If the virtual device does not exist and must be created, then the USERVAR variables are used to create and initialize the device attributes.
+If the virtual device already exists, the device attributes are modified.
+The USERVARs defined to accomplish this
+Character set IBMSENDCONFREC us ascii char(3)
+y up to a maximum of 5 characters For a description of the KBDTYPE, CODEPAGE, and CHARSET parameters and their permissible values, refer to Chapter 8 in the Communications Configuration Reference [COMM CONFIG] and also to Appendix C in National Language Support [NLS SUPPORT].
+The CODEPAGE and CHARSET USERVARs must be associated with a KBDTYPE USERVAR.
+If either CODEPAGE or CHARSET are sent without KBDTYPE, they will default to system values.
+A default value for KBDTYPE can be sent to force CODEPAGE and CHARSET values to be used.
+iSeries system objects such as device names, user profiles, plain text passwords, programs, libraries, etc., are required to be specified in English uppercase.
+Therefore, where us ascii is specified for VAR or USERVAR values, it is recommended that uppercase ASCII values be sent, which will be converted to Extended Binary Coded Decimal Interchange Code (EBCDIC) by the Telnet server.
+A special case occurs for encrypted passwords (described in the next section), where both the initial password and user profile used to build the encrypted password must be EBCDIC English uppercase, in order to be properly authenticated by the Telnet server.
+The IBMASSOCPRT USERVAR is used to provide the device name of a printer that will be associated with the display device that is created.
+The device description of the printer name provided must currently exist on the Telnet server system.
+The IBMSENDCONFREC USERVAR is used by the enhanced Telnet client to inform the Telnet server that a display Startup Response Record should be sent to the client.
+This record communicates the name of the actual display device acquired.
+If the attempt is unsuccessful, the reason code will be set to provide additional information on why the attempt failed.
+In addition to the device name and reason code, the Startup Response Record will contain the name of the Telnet server system.
+For more details on the Startup Response Record, see Section 11 of this document.
+To allow password encryption, new IBMRSEED and IBMSUBSPW USERVARs will be used to exchange seed and substitute passwords information.
+IBMRSEED will carry a random seed to be used in both the Data Encryption Standard (DES) and Secure Hash Algorithm (SHA) password encryption, and IBMSUBSPW will carry the encrypted copy of the password.
+The DES encryption would use the same 7 step DES based password substitution scheme as APPC and Client Access.
+For a description of DES encryption, refer to Federal Information Processing Standards Publications (FIPS)
+[FIPS 46 2] and 81
+The SHA encryption is described in Federal Information Processing Standards Publication 180 1
+The FIPS documents can be found at the Federal Information Processing Standards Publications link: http://www.itl.nist.gov/fipspubs/by
+If encrypted password exchange is not required, plain text password exchange is permitted using the same USERVARs defined for encryption.
+For this case, the random client seed should be set either to an empty value (preferred method) or to hexadecimal zeros to indicate the password is not encrypted, but is plain text.
+It should be noted that security of plain text password exchange cannot be guaranteed unless the network is physically protected or a trusted network (such as an intranet).
+If your network is vulnerable to IP address spoofing or directly connected to the Internet, you should engage in encrypted password exchange to validate a client's identity.
+Additional VARs and USERVARs have also been defined to allow an auto sign on user greater control over their startup environment, similar to what is supported using the Open Virtual Terminal (QTVOPNVT) API [SYSTEM API].
+The standard VARs supported to accomplish this
+x up to a maximum of 10 characters
+The custom USERVARs defined to accomplish this
+128 byte hex field Substitute password IBMCURLIB
+In order to communicate the server random seed value to the client, the server will request a USERVAR name made up of a fixed part (the 8 characters "IBMRSEED") immediately followed by an 8 byte hexadecimal variable part, which is the server random seed.
+The client generates its own 8 byte random seed value and uses both seeds to encrypt the password.
+Both the encrypted password and the client random seed value are then sent to the server for authentication.
+Telnet environment option rules will need to be adhered to when transmitting the client random seed and substituted password values to the server.
+Specifically, since a typical environment string is a variable length hexadecimal field, the hexadecimal fields are required to be escaped and/or byte stuffed according to the RFC 854 [RFC854], where any single byte could be misconstrued as a Telnet IAC or other Telnet option negotiation control character.
+The client must escape and/or byte stuff any bytes that could be seen as a Telnet environment option, specifically VAR, VALUE, ESC, and USERVAR.
+If you use the IBMSENDCONFREC USERVAR, as described in Section 5 of this document, with a value of YES along with the automatic sign on USERVARs described above, you will receive a Startup Response Record that will contain a response code informing your Telnet client of the success or failure of the automatic sign on attempt.
+See Section 11 of this document for details on the Startup Response Record.
+The following illustrates the encrypted case:
+NEW ENVIRON IAC SB NEW ENVIRON SEND USERVAR "IBMRSEEDxxxxxxxx" USERVAR "IBMSUBSPW"
+In this example, "xxxxxxxx" is an 8 byte hexadecimal random server seed, "yyyyyyyy" is an 8 byte hexadecimal random client seed, and "zzzzzzzz" is an 8 byte hexadecimal encrypted password (if the DES encryption algorithm was used) or a 20 byte hexadecimal encrypted password (if the SHA encryption algorithm was used).
+If the password is not valid, then the sign on panel is not bypassed.
+If the password is expired, then the sign on panel is not bypassed.
+Actual bytes transmitted in the above example are shown in hex below, where the server seed is "7D3E488F18080404", the client seed is "4E4142334E414233", and the DES encrypted password is "DFB0402F22ABA3BA".
+The user profile used to generate the encrypted password is "44554D4D59555352" (DUMMYUSR), with a plain text password of "44554D4D595057" (DUMMYPW).
+44 55 4D 4D 59 55 53 52 03
+49 42 4D 52 53 45 45 44 01 4E
+4D 53 55 42 53 50 57 01 DF B0 40 2F 22 AB A3 BA FF    F0
+The following illustrates the plain text case:
+NEW ENVIRON IAC SB NEW ENVIRON SEND USERVAR "IBMRSEEDxxxxxxxx" USERVAR "IBMSUBSPW"
+In this example, "xxxxxxxx" is an 8 byte hexadecimal random server seed, and "yyyyyyyyyy" is a 128 byte us ascii client plain text password.
+If the password has expired, then the sign on panel is not bypassed.
+Actual bytes transmitted in the above example are shown in hex below, where the server seed is "7D3E488F18080404", the client seed is empty, and the plain text password is "44554D4D595057" (DUMMYPW).
+The user profile used is "44554D4D59555352" (DUMMYUSR).
+44 55 4D 4D 59 55 53 52 03
+49 42 4D 52 53 45 45 44 01 03 49 42
+4D 53 55 42 53 50 57 01 44    55 4D 4D 59 50 57 FF F0 5.1.
+Both APPC and Client Access use well known DES encryption algorithms to create encrypted passwords.
+A Network Station or Enhanced Client can generate compatible encrypted passwords if it follows these steps
+, details of which can be found in the Federal Information Processing Standards 46 2 [FIPS 46 2].
+Left justified user password padded to the right with '40'X to 8 bytes.
+The user's password must be left justified in an 8 byte variable and padded to the right with '40'X up to an 8 byte length.
+If the user's password is 8 bytes in length, no padding will occur.
+For computing password substitutes for passwords of length 9 and 10, see "Handling passwords of length 9 and 10" below.
+Passwords less than 1 byte or greater than 10 bytes in length are not valid.
+Please note that if password is not in EBCDIC, it must be converted to EBCDIC uppercase.
+The padded password is Exclusive OR'ed with 8 bytes of '55'X. 3)
+The entire 8 byte result is shifted 1 bit to the left; the left  most bit value is discarded, and the rightmost bit value is cleared to 0.
+This shifted result is used as key to the Data Encryption Standard (Federal Information Processing Standards 46 2
+to encipher the user identifier.
+When the user identifier is less than 8 bytes, it is left justified in an 8 byte variable and padded to the right with '40'X.
+When the user identifier is 9 or 10 bytes, it is first padded to the right with '40'X to a length of 10 bytes.
+Then bytes 9 and 10 are "folded" into bytes 1 8 using the following algorithm:
+Bit 0 is the high order bit (i.e., has value of '80'X).
+Byte 1, bits 0 and 1 are replaced with byte 1, bits 0 and 1 Exclusive OR'ed with byte 9, bits 0 and 1.
+Byte 2, bits 0 and 1 are replaced with byte 2, bits 0 and 1 Exclusive OR'ed with byte 9, bits 2 and 3.
+Byte 3, bits 0 and 1 are replaced with byte 3, bits 0 and 1 Exclusive OR'ed with byte 9, bits 4 and 5.
+Byte 4, bits 0 and 1 are replaced with byte 4, bits 0 and 1 Exclusive OR'ed with byte 9, bits 6 and 7.
+Byte 5, bits 0 and 1 are replaced with byte 5, bits 0 and 1 Exclusive OR'ed with byte 10, bits 0 and 1.
+Byte 6, bits 0 and 1 are replaced with byte 6, bits 0 and 1 Exclusive OR'ed with byte 10, bits 2 and 3.
+Byte 7, bits 0 and 1 are replaced with byte 7, bits 0 and 1 Exclusive OR'ed with byte 10, bits 4 and 5.
+Byte 8, bits 0 and 1 are replaced with byte 8, bits 0 and 1 Exclusive OR'ed with byte 10, bits 6 and 7.
+User identifiers greater than 10 bytes or less than 1 byte are not the result of this encryption ID, known as PW TOKEN in the paper.
+Increment PWSEQs and store it.
+Each LU must maintain a pair of sequence numbers for ATTACHs sent and received on each session.
+Each time an ATTACH is generated, (and password substitutes are in use on the session) the sending sequence number, PWSEQs, is incremented and saved for the next time.
+Both values are set to zero at BIND time.
+So the first use of PWSEQs has the value of 1 and increases by one with each use.
+A new field is added to the ATTACH to carry this sequence number.
+However, in certain error conditions, it is possible for the sending side to increment the sequence number, and the receiver may not increment it.
+When the sender sends a subsequent ATTACH, the receiver will detect a missing sequence.
+However the sequence number received must always be larger than the previous one, even if some are missing.
+The maximum number of consecutive missing sequence numbers allowed is 16.
+If this is exceeded, the session is unbound with a protocol violation.
+Note: The sequence number must be incremented for every ATTACH sent.
+However, the sequence number field is only required to be included in the FMH5 if a password substitute is sent (byte 4, bit 3 on).
+The current value of PWSEQs is added to RDr,
+the random value received from the partner LU on this session, yielding RDrSEQ, essentially a predictably modified value of the random value received from the partner LU at BIND time. 7)
+/ ID xor RDrSEQ,  /
+The PW TOKEN is used as a key to the DES function to generate an 8 byte value for the following string of inputs.
+The DES CBC mode Initialization Vector (IV) used is 8 bytes of '00'X. RDrSEQ: the random data value received from the partner LU plus the sequence number.
+the random data value sent to the partner LU on BIND for this session.
+A 16 byte value created by: padding the user identifier with '40'X to a length of 16 bytes.
+Exclusive OR'ing the two 8 byte halves of the padded user identifier with the RDrSEQ value.
+User ID must first be converted to EBCDIC uppercase.
+This is similar to the process used on LU LU verification as described in the Enhanced LU LU Bind Security.
+The resulting enciphered random data is the 'password substitute'.
+Handling passwords of length 9 and 10 1.
+Generate PW TOKENa by using characters 1 to 8 of the password and steps 1 4 from the previous section.
+Generate PW TOKENb by using characters 9 and 10 and steps 1 4 from the previous section.
+In this case, Padded PW from step 1 will be characters 9 and 10 padded to the right with '40'X, for a total length of 8.
+PW TOKEN   PW TOKENa xor PW TOKENb 4.
+Now compute PW SUB by performing steps 5 7 from the previous section.
+Example DES Password Substitute Calculation ID:
+(PWSEQs is a sequence number needed in the 7 step encryption, and it is always one)
+DES Encrypted Password should be: '5A58BD50E4DD9B5F'X 5.2.
+Password Substitutes A Network Station or Enhanced Client can generate SHA encrypted passwords if it follows these steps.
+1) Convert the user identifier to uppercase UNICODE format (if it is not already in this format).
+The user identifier must be left justified in a 10 byte variable and padded to the right with '40'X up to a 10 byte length prior to converting it to UNICODE.
+If the user's password is 10 bytes in length, no padding will occur.
+User identifiers of less than 1 byte or greater than 10 bytes in length are not valid.
+The user identifier will be 20 bytes in length after conversion to UNICODE, so the variable that will hold the UNICODE user identifier should have a length of 20 bytes.
+2) Ensure the password is in UNICODE format (if it is not already in this format).
+The user's password must be left justified in a 128 byte variable.
+It does not need to be padded to the right with '40'X up to a 128 byte length.
+Passwords less than 1 byte or greater than 128 bytes in length are not valid.
+The password will be 2 times its original length after conversion to UNICODE, so the maximum length of the variable that will hold the UNICODE password is 256 bytes.
+3) Create a 20 byte password token as follows:
+/  from 2 to 256 bytes  / The actual routine to be used to perform the SHA 1 processing is dependent on the programming language being used.
+For example, if using the Java language, then use the java.security class to perform the actual SHA 1 processing.
+The PW token will be used in subsequent step to actually generate the final substitute password.
+Increment PWSEQs and store it.
+5) Create the 20 byte substitute password as follows:
+The actual routine to be used to perform the SHA 1 processing is dependent on the programming language being used.
+For example, if using the Java language, then use the java.security class to perform the actual SHA 1 processing.
+Example SHA Password Substitute Calculation ID:
+(PWSEQs is a sequence number needed in the SHA encryption, and it is always one)
+SHA Encrypted Password should be: 'E7FAB5F034BEDA42E91F439DD07532A24140E3DD'X 6.
+Kerberos Services Ticket Automatic Sign
+On Support An iSeries Telnet server specific USERVAR defined below will contain the complete Generic Security Services (GSS) token for use on the iSeries.
+Enhanced Telnet clients will need to obtain the Kerberos services ticket from a Key Distribution Center (KDC).
+Implementation steps for acquiring the Kerberos services ticket will be limited to the Microsoft Security Support Provider Interface (SSPI) example below.
+For information on Kerberos services tickets, refer to your Network Authentication Service (NAS) documentation.
+16384 byte hex field Kerberos services token Several other USERVARs, as defined in Section 6, can be used along with the IBMTICKET USERVAR to allow a user greater control over their startup environment.
+The custom USERVARs defined to accomplish this
+See Section 11 for details on the Startup Response Record.
+The following Microsoft SSPI example illustrates how to get the client security token, which contains the Kerberos services ticket.
+1) Get a handle to the user's credentials:
+PSecurityFunctionTable pSSPI ; CredHandle credHandle; TimeStamp  timeStamp; ss
+PackageName SECPKG CRED OUTBOUND, //
+Mutual authentication is also requested, although it is not required and may not be performed.
+CtxtHandle newContext; unsigned long contextAttr; unsigned char token[16384] ; unsigned long tokenLen   sizeof(token);
+4) Send security token to Telnet Server (padded with escape characters).
+The following illustrates the Kerberos Token Negotiation:
+NEW ENVIRON IAC SB NEW ENVIRON SEND USERVAR "IBMRSEEDxxxxxxxx"
+If the Kerberos services token is not valid, then the sign on panel is not bypassed.
+It should be noted that for the Kerberos token a random server seed is not needed, although it will be sent by the Telnet Server.
+The complete Kerberos services token is not shown here, as the length of the token could be 16384 bytes and would make this document extremely large.
+As described in Section 6, the client must escape and/or byte stuff any Kerberos token bytes, which could be seen as a Telnet environment option [RFC1572], specifically VAR, VALUE, ESC, and USERVAR.
+03 49 42 4D 54
+49 43 48 45 54 01 DF B0 40 2F 22 AB A3 BA...
+Device Name Collision Processing Device name collision occurs when a Telnet client sends the Telnet server a virtual device name that it wants to use, but that device is already in use on the server.
+When this occurs, the Telnet server sends a request to the client asking it to try another device name.
+The environment option negotiation uses the USERVAR name of DEVNAME to communicate the virtual device name.
+The following shows how the Telnet server will request the Telnet client to send a different DEVNAME when device name collision occurs.
+IAC SE Client sends all environment variables, including DEVNAME.
+Server tries to select device
+If the device is already in use, server requests DEVNAME be sent again.
+"DEVNAME" VALUE "MYDEVICE2" IAC SE Client sends one environment variable, calculating a new value of MYDEVICE2.
+If MYDEVICE2 is different from the last request, then server tries to select device MYDEVICE2, else server disconnects client.
+If MYDEVICE2 is also in use, server will send DEVNAME request again and keep doing so until it receives a device that is not in use, or the same device name twice in row.
+Enhanced Printer Emulation Support Telnet environment option USERVARs have been defined to allow a compliant Telnet client more control over the Telnet server virtual device on the iSeries.
+These USERVARs allow the client Telnet to select a previously created virtual device or auto create a new virtual device with requested attributes.
+This makes the enhancements available to any Telnet client that chooses to support the new negotiations.
+The USERVARs defined to accomplish this
+Printer device name IBMIGCFEAT    us ascii char(6)
+1 byte hex field  Paper source 1 IBMPPRSRC2
+1 byte hex field  Paper source 2 IBMENVELOPE
+x up to a maximum of 10 characters
+The "IBM" prefix on the USERVARs denotes iSeries specific attributes.
+The DEVNAME USERVAR is used for both displays and printers.
+The IBMFONT and IBMASCII899 are used only for SBCS environments.
+For a description of most of these parameters (drop the "IBM" from the USERVAR) and their permissible values, refer to Chapter 8 in the Communications Configuration Reference [COMM CONFIG].
+The IBMIGCFEAT supports the following variable DBCS language identifiers in position 5 (positions 1 4 must be '2424'; position 6 must be '0')
+The IBMTRANSFORM and IBMASCII899 values correspond to: '1'   Yes  '0'
+No The IBMFORMFEED values correspond to: 'C'
+The IBMPPRSRC1, IBMPPRSRC2, and IBMENVELOPE custom USERVARs do not map directly to their descriptions in Chapter 8 in the Communications Configuration Reference [COMM CONFIG].
+Telnet Printer Terminal Types New Telnet options are defined for the printer pass through mode of operation.
+To enable printer pass through mode, both the client and server must agree to support at least the Transmit Binary, End Of  Record, and Terminal Type Telnet options.
+The following are new terminal types for printers: TERMINAL TYPE
+Double Byte printer IBM 3812
+An example of a typical negotiation process to establish printer pass through mode of operation is shown below.
+In this example, the server initiates the negotiation by sending the DO TERMINAL TYPE request.
+For DBCS environments, if IBMTRANSFORM is set to 1 (use Host Print Transform), then the virtual device created is 3812, not 5553.
+Therefore, IBM 3812 1 (and not IBM 5553 B01) should be negotiated for TERMINAL TYPE.
+USERVAR "DEVNAME" VALUE "PCPRINTER" USERVAR "IBMMSGQNAME" VALUE "QSYSOPR" USERVAR "IBMMSGQLIB" VALUE " LIBL" USERVAR "IBMTRANSFORM" VALUE "0" USERVAR "IBMFONT" VALUE "12" USERVAR "IBMFORMFEED" VALUE "C" USERVAR "IBMPPRSRC1" VALUE ESC '01'X
+WILL EOR Some points about the above example.
+The IBMPPRSRC1 value requires escaping the value using ESC according to Telnet environment options [RFC1572].
+The IBMPPRSRC2 does not require an ESC character since '04'X has no conflict with environment options.
+Finally, to send 'FF'X for the IBMENVELOPE value, escape the 'FF'X value by using another 'FF'X (called "doubling"), so as not to have the value interpreted as a Telnet character per the Telnet protocol specification [RFC854].
+Actual bytes transmitted in the above example are shown in hex below.
+44 45 56 4E 41
+52 49 4E 54 45 52 03 49 42 4D 4D 53
+47 51 4E 41 4D 45 01 51 53 59 53 4F
+50 52 03 49 42 4D 4D 53 47 51 4C
+49 42 01 2A 4C 49 42 4C 03
+49 42 4D 54 52 41 4E 53 46 4F 52
+30 03 49 42 4D 46 4F 4E 54 01
+31 32 03 49 42 4D 46 4F 52
+4D 50 50 52 53 52 43 31
+4D 50 50 52 53 52 43 32
+49 42 4D 45 4E 56 45 4C 4F
+Startup Response Record for Printer and Display Devices
+Once Telnet negotiation for a 5250 pass through mode is completed, the iSeries Telnet server will initiate a virtual device (printer or display) power on sequence on behalf of the Telnet client.
+The Telnet server will supply a Startup Response Record to the Telnet client with the status of the device power on sequence, indicating success or failure of the virtual device power on sequence.
+This section shows an example of two Startup Response Records.
+The source device is a type 3812 model 01 printer with the name "PCPRINTER" on the target system "TARGET".
+Figure 1 shows an example of a successful response; Figure 2 shows an example of an error response.
+Example of a Success Response Record
+The response record in Figure 1 was sent by an iSeries at Release V4R2.
+It is an example of the target sending back a successful Startup Response Record.
+Example of a success response record '0049'X
+Length pass through data, including this length field '12A0'X
+Example of an Error Response Record
+The response record in Figure 2 is one that reports an error.
+The virtual device named "PCPRINTER" is not available on the target system "TARGET" because the device is not available.
+You would normally see this error if the printer were already assigned to another Telnet session.
+Example of an error response record '0049'X
+Length pass through data, including this length field '12A0'X
+Example of a Response Record with Device Name Retry
+The Response Record can be used in conjunction with the DEVNAME Environment variable to allow client emulators to inform users of connection failures.
+In addition, this combination could be used by client emulators that accept multiple device names to try on session connections.
+The client would be able to walk through a list of possible device names and provide feedback based on the response code(s) received for each device name that was rejected.
+The following sequence shows a negotiation between the client and the server in which a named device "RFCTEST" is requested by the client.
+The device name is already assigned to an existing condition.
+The server responds with the Response Record showing an 8902 response code.
+The client could use this information to inform the user that the device name just tried was already in use.
+Following the Response Record the server would then invite the client to try another device name.
+Because the same device name was used again by the client, the server closed the session.
+Actual bytes transmitted in the above example are shown in hex below.
+44 45 56 4E 41
+52 46 43 54 45 53 54 03 49
+44 43 4F 4E 46 52 45 43 01
+49 42 4D 2D 33 31
+60 06 00 20 C0 00
+3D 00 00 F8 F9 F0 F2 D9 E2 F0 F3 F5 40 40 40 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+03 44 45 56 4E 41
+44 45 56 4E 41
+52 46 43 54 45 53 54 03 49
+44 43 4F 4E 46 52 45 43 01
+59 45 53 FF F0 10.4.
+The Start Up Response Record success response codes:
+Virtual device has less function than source device.
+Automatic sign on requested, but not allowed.
+Session still allowed; a sign on screen will be coming.
+The Start Up Response Record error response codes:
+Device not valid for session.
+Controller not valid for session.
+Start up record built incorrectly.
+Vary on or vary off failed.
+Message queue does not exist.
+Security failure on session attempt.
+Automatic configuration failed or not allowed.
+I904    Source system at incompatible release.
+Next invalid password/passphrase/token will revoke userid.
+The Start Up Response Record error response codes for Kerberos Services Token automatic sign on support:
+Kerberos principal maps to a system user profile.
+Enterprise Identity Map (EIM) configuration error.
+EIM does not map Kerberos principal to user profile.
+EIM maps Kerberos principal to multiple user profiles.
+EIM maps Kerberos principal to user profile not found on system.
+None of the requested mechanisms are supported by the local system.
+The input name is not formatted properly or is not valid.
+The received input token contains an incorrect signature.
+No credentials available or credentials valid for context init only.
+9000    Consistency checks performed on the input token failed.
+A000    Consistency checks on the cred structure failed.
+B000    Credentials are no longer valid.
+The runtime failed for reasons that are not defined at the GSS level.
+In the case where the USERVAR, DEVNAME USERVAR, IBMSENDCONFREC USERVAR, IBMSUBSPW USERVAR, and IBMRSEED USERVAR are all used together, any device errors will take precedence over automatic sign on errors.
+That is: 1) If the requested named device is not available or an error occurs when attempting to create the device on the server system, a device related return code (i.e., 8902) will be sent to the client system in the display confirmation record.
+If the requested named device is available or no errors occur when attempting to create the device on the server system, an automatic sign on return code (i.e., 0002) will be sent to the client system in the display confirmation record.
+The information in this section applies to the pass through session after the receipt of startup confirmation records is complete.
+Following is the printer header interface used by Telnet.
+Length of pass through specific header (LL)
+Layout of the printer pass through header BYTES 0 1:
+Length of structure including this field (LLLL) BYTES 2 3:
+This field contains flags that describe what type of data pass through should be expected to be found following this header.
+Generally, bits 0 2 in the first byte are mutually exclusive (that is, if one of them is set to '1'B, the rest will be set to '0'B.)
+The bits and their meanings follow.
+Printer now ready x1xx xxxx   Intervention Required
+1xxx xxxx   Error Indicator BYTE 8 BITS:
+Clear Print Buffers BYTE 10 LL:  Diagnostic information
+xxxx, then bytes 10 LL
+x1xx xxxx, then bytes 10 LL may contain: (Note 2)
+Command/parameter not valid  C9 00
+03 02 6x Machine/print/ribbon check   C9 00 03 02 8x
+1xxx xxxx, then bytes 10 LL may contain: (
+LL is the length of the structure defined in Byte 6.
+If no additional data is present, the remainder of the structure must be padded with zeroes.
+These are printer SIGNAL commands.
+Further information on these commands may be obtained from the 5494 Remote Control Unit Functions Reference guide [5494 CU].
+Refer to your iSeries printer documentation for more specific information on these data stream exceptions.
+03 02 69 multibyte control parm Cover unexpectedly open    C9 00
+These are printer negative responses.
+Further information on these commands may be obtained from the 5494 Remote Control Unit Functions Reference guide [5494 CU].
+The print data will start in byte LL 1.
+Example of a Print Record Figure 4 shows the server sending the client data with a print record.
+This is normally seen following receipt of a Success Response Record, such as the example in Figure 1.
+Server sending client data with a print record '0085'X
+Logical record length, including this byte (LLLL) '
+Length of pass through specific header (LL) '1800'X
+/ Last of chain indicators '01'X
+Zero pad header to LL specified '
+Example of a Print Complete Record Figure 5 shows the client sending the server a print complete record.
+This would normally follow receipt of a print record, such as the example in Figure 4.
+This indicates successful completion of a print request.
+000A 12A0 0102 04 0000 01
+Client sending server a print complete record '000A'X
+Logical record length, including this byte (LLLL) '
+Data flow response record (client to server) '04'X
+Length of pass through specific header (LL) '
+Example of a Null Print Record Figure 6 shows the server sending the client a null print record.
+The null print record is the last print command the server sends to the client for a print job, and it indicates to the printer that there is no more data.
+The null data byte '00'X is optional and in some cases may be omitted (in particular, this scenario occurs in DBCS print streams).
+This example would normally follow any number of print records, such as the example in Figure 4.
+This indicates successful completion of a print job.
+The client normally responds to this null print record with another print complete record, such as in Figure 5.
+Zero pad header to LL specified '00'X
+The next example shows a full print exchange between a Telnet client and server for a 526 byte spooled file.
+Selective translation of the hexadecimal streams into 1)
+Telnet negotiations and 2) ASCII/EBCDIC characters is done to aid readability.
+(IAC DO TERMINAL TYPE IAC SB NEW ENVIRON SEND USERVAR IBMRSEED xxxxxxxx VAR USERVAR IAC SE)
+(IAC SB NEW ENVIRON IS USERVAR IBMRSEED xxxxxxxx VAR USERVAR DEVNAME VALUE DUMMYPRT USERVAR IBMMSGQNAME VALUE QSYSOPR
+11 USERVAR IBMTRANSFORM VALUE 1 USERVAR IBMMFRTYPMDL VALUE
+(IAC SB TERMINAL TYPE IS IBM 3812 1 IAC SE)
+FFFD00 (IAC DO BINARY) 004912A090000560
+(73 byte startup success response record ...
+0001FFEF (10 byte print complete header)
+a 00216H   &a 00  3231364820202020
+Assistant   &a 0  3032313648204632 333D53657420696E
+(10 byte print complete header)
+(10 byte print complete header)
+0001FFEF (10 byte print complete header)
+The auto sign on feature provided by this RFC describes a way to encrypt your login password.
+However, while passwords can now be encrypted by using the IBMRSEED and IBMSUBSPW USERVAR negotiations, users should understand that only the login passwords are encrypted and not the entire Telnet session.
+Encryption of the Telnet session requires that another protocol layer, such as SSL, be added.
+The auto sign on feature supports plain text passwords, encrypted passwords, and Kerberos tokens.
+However, using plain text passwords is strongly discouraged.
+iSeries system administrators may want to configure their systems to reject plain text passwords.
+IANA Considerations IANA registered the terminal types "IBM 3812 1" and "IBM 5553 B01" as a terminal type [RFC1091].
+They are used when communicating with iSeries Telnet servers.
+This RFC relies on the 5250 Telnet Interface [RFC1205] in all examples.
+This RFC replaces 5250 Telnet Enhancements [RFC2877], adding new sections for Kerberos, SHA 1, security and IANA considerations.
+Minor corrections and additional examples were also added.
+Informative references have been removed.

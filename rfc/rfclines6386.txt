@@ -1,0 +1,2086 @@
+This document describes the VP8 compressed video data format, together with a discussion of the decoding procedure for the format.
+This document describes the VP8 compressed video data format, together with a discussion of the decoding procedure for the format.
+It is intended to be used in conjunction with, and as a guide to, the reference decoder source code provided in Attachment One (Section 20).
+If there are any conflicts between this narrative and the reference source code, the reference source code should be considered correct.
+The bitstream is defined by the reference source code and not this narrative.
+Like many modern video compression schemes, VP8 is based on decomposition of frames into square subblocks of pixels, prediction of such subblocks using previously constructed blocks, and adjustment of such predictions (as well as synthesis of unpredicted blocks) using a discrete cosine transform (hereafter abbreviated as DCT).
+In one special case, however, VP8 uses a Walsh Hadamard transform (hereafter abbreviated as WHT) instead of a DCT.
+Roughly speaking, such systems reduce datarate by exploiting the temporal and spatial coherence of most video signals.
+It is more efficient to specify the location of a visually similar portion of a prior frame than it is to specify pixel values.
+The frequency segregation provided by the DCT and WHT facilitates the exploitation of both spatial coherence in the original signal and the tolerance of the human visual system to moderate losses of fidelity in the reconstituted signal.
+VP8 augments these basic concepts with, among other things, sophisticated usage of contextual probabilities.
+The result is a significant reduction in datarate at a given quality.
+Unlike some similar schemes (the older MPEG formats, for example), VP8 specifies exact values for reconstructed pixels.
+Specifically, the specification for the DCT and WHT portions of the reconstruction does not allow for any "drift" caused by truncation of fractions.
+Rather, the algorithm is specified using fixed precision integer operations exclusively.
+This greatly facilitates the verification of the correctness of a decoder implementation and also avoids difficult to predict visual incongruities between such implementations.
+It should be remarked that, in a complete video playback system, the displayed frames may or may not be identical to the reconstructed frames.
+Many systems apply a final level of filtering (commonly referred to as postprocessing) to the reconstructed frames prior to viewing.
+Such postprocessing has no effect on the decoding and reconstruction of subsequent frames (which are predicted using the completely specified reconstructed frames) and is beyond the scope of this document.
+In practice, the nature and extent of this sort of postprocessing is dependent on both the taste of the user and on the computational facilities of the playback environment.
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119
+Format Overview VP8 works exclusively with an 8 bit YUV 4:2:0 image format.
+In this format, each 8 bit pixel in the two chroma planes (U and V) corresponds positionally to a 2x2 block of 8 bit luma pixels in the Y plane; coordinates of the upper left corner of the Y block are of course exactly twice the coordinates of the corresponding chroma pixels.
+When we refer to pixels or pixel distances without specifying a plane, we are implicitly referring to the Y plane or to the complete image, both of which have the same (full) resolution.
+As is usually the case, the pixels are simply a large array of bytes stored in rows from top to bottom, each row being stored from left to right.
+then "top to bottom" raster scan order is reflected in the layout of the compressed data as well.
+Provision has been made in the VP8 bitstream header for the support of a secondary YUV color format, in the form of a reserved bit.
+Occasionally, at very low datarates, a compression system may decide to reduce the resolution of the input signal to facilitate efficient compression.
+The VP8 data format supports this via optional upscaling of its internal reconstruction buffer prior to output (this is completely distinct from the optional postprocessing discussed earlier, which has nothing to do with decoding per se).
+This upsampling restores the video frames to their original resolution.
+In other words, the compression/decompression system can be viewed as a "black box", where the input and output are always at a given resolution.
+The compressor might decide to "cheat" and process the signal at a lower resolution.
+In that case, the decompressor needs the ability to restore the signal to its original resolution.
+Internally, VP8 decomposes each output frame into an array of macroblocks.
+A macroblock is a square array of pixels whose Y dimensions are 16x16 and whose U and V dimensions are 8x8.
+Macroblock level data in a compressed frame occurs (and must be processed) in a raster order similar to that of the pixels comprising the frame.
+Macroblocks are further decomposed into 4x4 subblocks.
+Every macroblock has 16 Y subblocks, 4 U subblocks, and 4 V subblocks.
+Any subblock level data (and processing of such data) again occurs in raster order, this time in raster order within the containing macroblock.
+As discussed in further detail below, data can be specified at the levels of both macroblocks and their subblocks.
+Pixels are always treated, at a minimum, at the level of subblocks, which may be thought of as the "atoms" of the VP8 algorithm.
+In particular, the 2x2 chroma blocks corresponding to 4x4 Y subblocks are never treated explicitly in the data format or in the algorithm specification.
+The DCT and WHT always operate at a 4x4 resolution.
+The DCT is used for the 16Y, 4U, and 4V subblocks.
+The WHT is used (with some but not all prediction modes) to encode a 4x4 array comprising the average intensities of the 16 Y subblocks of a macroblock.
+These average intensities are, up to a constant normalization factor, nothing more than the 0th DCT coefficients of the Y subblocks.
+This "higher level" WHT is a substitute for the explicit specification of those coefficients, in exactly the same way as the DCT of a subblock substitutes for the specification of the pixel values comprising the subblock.
+We consider this 4x4 array as a second order subblock called Y2, and think of a macroblock as containing 24 "real" subblocks and, sometimes, a 25th "virtual" subblock.
+This is dealt with further in Section 13.
+The frame layout used by the reference decoder may be found in the file vpx image.h
+There are only two types of frames in VP8.
+Intraframes (also called key frames and, in MPEG terminology, I frames) are decoded without reference to any other frame in a sequence; that is, the decompressor reconstructs such frames beginning from its "default" state.
+Key frames provide random access (or seeking) points in a video stream.
+Interframes (also called prediction frames and, in MPEG terminology, P frames) are encoded with reference to prior frames, specifically all prior frames up to and including the most recent key frame.
+Generally speaking, the correct decoding of an interframe depends on the correct decoding of the most recent key frame and all ensuing frames.
+Consequently, the decoding algorithm is not tolerant of dropped frames: In an environment in which frames may be dropped or corrupted, correct decoding will not be possible until a key frame is correctly received.
+In contrast to MPEG, there is no use of bidirectional prediction.
+No frame is predicted using frames temporally subsequent to it; there is no analog to an MPEG B frame.
+Secondly, VP8 augments these notions with that of alternate prediction frames, called golden frames and altref frames (alternative reference frames).
+Blocks in an interframe may be predicted using blocks in the immediately previous frame as well as the most recent golden frame or altref frame.
+Every key frame is automatically golden and altref, and any interframe may optionally replace the most recent golden or altref frame.
+Golden frames and altref frames may also be used to partially overcome the intolerance to dropped frames discussed above: If a compressor is configured to code golden frames only with reference to the prior golden frame (and key frame), then the "substream" of key and golden frames may be decoded regardless of loss of other interframes.
+Roughly speaking, the implementation requires (on the compressor side) that golden frames subsume and recode any context updates effected by the intervening interframes.
+A typical application of this approach is video conferencing, in which retransmission of a prior golden frame and/or a delay in playback until receipt of the next golden frame is preferable to a larger retransmit and/or delay until the next key frame.
+Overview of Compressed Data Format
+The input to a VP8 decoder is a sequence of compressed frames whose order matches their order in time.
+Issues such as the duration of frames, the corresponding audio, and synchronization are generally provided by the playback environment and are irrelevant to the decoding process itself; however, to aid in fast seeking, a start code is included in the header of each key frame.
+The decoder is simply presented with a sequence of compressed frames and produces a sequence of decompressed (reconstructed) YUV frames corresponding to the input sequence.
+As stated in the Introduction, the exact pixel values in the reconstructed frame are part of VP8's specification.
+This document specifies the layout of the compressed frames and gives unambiguous algorithms for the correct production of reconstructed frames.
+The first frame presented to the decompressor is of course a key frame.
+This may be followed by any number of interframes; the correct reconstruction of each frame depends on all prior frames up to the key frame.
+The next key frame restarts this process: The decompressor resets to its default initial condition upon reception of a key frame, and the decoding of a key frame (and its ensuing interframes) is completely independent of any prior decoding.
+At the highest level, every compressed frame has three or more pieces.
+It begins with an uncompressed data chunk comprising 10 bytes in the case of key frames and 3 bytes for interframes.
+This is followed by two or more blocks of compressed data (called partitions).
+These compressed data partitions begin and end on byte boundaries.
+The first compressed partition has two subsections: 1.
+Header information that applies to the frame as a whole.
+Per macroblock information specifying how each macroblock is predicted from the already reconstructed data that is available to the decompressor.
+As stated above, the macroblock level information occurs in raster  scan order.
+The rest of the partitions contain, for each block, the DCT/WHT coefficients (quantized and logically compressed) of the residue signal to be added to the predicted block values.
+It typically accounts for roughly 70% of the overall datarate.
+VP8 supports packing the compressed DCT/WHT coefficients' data from macroblock rows into separate partitions.
+If there is more than one partition for these coefficients, the sizes of the partitions   except the last partition   in bytes are also present in the bitstream right after the above first partition.
+Each of the sizes is a 3 byte data item written in little endian format.
+These sizes provide the decoder direct access to all DCT/WHT coefficient partitions, which enables parallel processing of the coefficients in a decoder.
+The separate partitioning of the prediction data and coefficient data also allows flexibility in the implementation of a decompressor: An implementation may decode and store the prediction information for the whole frame and then decode, transform, and add the residue signal to the entire frame, or it may simultaneously decode both partitions, calculating prediction information and adding in the residue signal for each block in order.
+The length field in the frame tag, which allows decoding of the second partition to begin before the first partition has been completely decoded, is necessary for the second "block at a time" decoder implementation.
+All partitions are decoded using separate instances of the boolean entropy decoder described in Section 7.
+Although some of the data represented within the partitions is conceptually "flat" (a bit is just a bit with no probabilistic expectation one way or the other), because of the way such coders work, there is never a direct correspondence between a "conceptual bit" and an actual physical bit in the compressed data partitions.
+Only in the 3  or 10 byte uncompressed chunk described above is there such a physical correspondence.
+A related matter is that seeking within a partition is not supported.
+The data must be decompressed and processed (or at least stored) in the order in which it occurs in the partition.
+While this document specifies the ordering of the partition data correctly, the details and semantics of this data are discussed in a more logical fashion to facilitate comprehension.
+For example, the frame header contains updates to many probability tables used in decoding per macroblock data.
+The per macroblock data is often described before the layouts of the probabilities and their updates, even though this is the opposite of their order in the bitstream.
+Overview of the Decoding Process A VP8 decoder needs to maintain four YUV frame buffers whose resolutions are at least equal to that of the encoded image.
+These buffers hold the current frame being reconstructed, the immediately previous reconstructed frame, the most recent golden frame, and the most recent altref frame.
+Most implementations will wish to "pad" these buffers with "invisible" pixels that extend a moderate number of pixels beyond all four edges of the visible image.
+This simplifies interframe prediction by allowing all (or most) prediction blocks   which are not guaranteed to lie within the visible area of a prior frame   to address usable image data.
+Regardless of the amount of padding chosen, the invisible rows above (or below) the image are filled with copies of the top (or bottom) row of the image; the invisible columns to the left (or right) of the image are filled with copies of the leftmost (or rightmost) visible row; and the four invisible corners are filled with copies of the corresponding visible corner pixels.
+The use of these prediction buffers (and suggested sizes for the halo) will be elaborated on in the discussion of motion vectors, interframe prediction, and sub pixel interpolation later in this document.
+As will be seen in the description of the frame header, the image dimensions are specified (and can change) with every key frame.
+These buffers (and any other data structures whose size depends on the size of the image) should be allocated (or re allocated) immediately after the dimensions are decoded.
+Leaving most of the details for later elaboration, the following is an outline of the decoding process.
+First, the frame header (the beginning of the first data partition) is decoded.
+Altering or augmenting the maintained state of the decoder, this provides the context in which the per macroblock data can be interpreted.
+The macroblock data occurs (and must be processed) in raster scan order.
+This data comes in two or more parts.
+The first (prediction or mode) part comes in the remainder of the first data partition.
+The other parts comprise the data partition(s) for the DCT/WHT coefficients of the residue signal.
+For each macroblock, the prediction data must be processed before the residue.
+Each macroblock is predicted using one (and only one) of four possible frames.
+All macroblocks in a key frame, and all intra coded macroblocks in an interframe, are predicted using the already decoded macroblocks in the current frame.
+Macroblocks in an interframe may also be predicted using the previous frame, the golden frame, or the altref frame.
+Such macroblocks are said to be inter coded.
+The purpose of prediction is to use already constructed image data to approximate the portion of the original image being reconstructed.
+The effect of any of the prediction modes is then to write a macroblock sized prediction buffer containing this approximation.
+Regardless of the prediction method, the residue DCT signal is decoded, dequantized, reverse transformed, and added to the prediction buffer to produce the (almost final) reconstruction value of the macroblock, which is stored in the correct position of the current frame buffer.
+The residue signal consists of 24
+(sixteen Y, four U, and four V) 4x4 quantized and losslessly compressed DCT transforms approximating the difference between the original macroblock in the uncompressed source and the prediction buffer.
+For most prediction modes, the 0th coefficients of the sixteen Y subblocks are expressed via a 25th WHT of the second order virtual Y2 subblock discussed above.
+Intra prediction exploits the spatial coherence of frames.
+The 16x16 luma (Y) and 8x8 chroma (UV) components are predicted independently of each other using one of four simple means of pixel propagation, starting from the already reconstructed (16 pixel long luma, 8 pixel  long chroma) row above, and column to the left of, the current macroblock.
+The four methods are: 1.
+Copying the row from above throughout the prediction buffer.
+Copying the column from the left throughout the prediction buffer.
+Copying the average value of the row and column throughout the prediction buffer.
+Extrapolation from the row and column using the (fixed) second difference (horizontal and vertical) from the upper left corner.
+Additionally, the sixteen Y subblocks may be predicted independently of each other using one of ten different modes, four of which are 4x4 analogs of those described above, augmented with six "diagonal" prediction methods.
+There are two types of predictions, one intra and one prediction (among all the modes), for which the residue signal does not use the Y2 block to encode the DC portion of the sixteen 4x4 Y subblock DCTs.
+This "independent Y subblock" mode has no effect on the 8x8 chroma prediction.
+Inter prediction exploits the temporal coherence between nearby frames.
+Except for the choice of the prediction frame itself, there is no difference between inter prediction based on the previous frame and that based on the golden frame or altref frame.
+Inter prediction is conceptually very simple.
+While, for reasons of efficiency, there are several methods of encoding the relationship between the current macroblock and corresponding sections of the prediction frame, ultimately each of the sixteen Y subblocks is related to a 4x4 subblock of the prediction frame, whose position in that frame differs from the current subblock position by a (usually small) displacement.
+These two dimensional displacements are called motion vectors.
+The motion vectors used by VP8 have quarter pixel precision.
+Prediction of a subblock using a motion vector that happens to have integer (whole number) components is very easy: The 4x4 block of pixels from the displaced block in the previous, golden, or altref frame is simply copied into the correct position of the current macroblock's prediction buffer.
+Fractional displacements are conceptually and implementationally more complex.
+They require the inference (or synthesis) of sample values that, strictly speaking, do not exist.
+This is one of the most basic problems in signal processing, and readers conversant with that subject
+will see that the approach taken by VP8 provides a good balance of robustness, accuracy, and efficiency.
+Leaving the details for the implementation discussion below, the pixel interpolation is calculated by applying a kernel filter (using reasonable precision integer math)
+three pixels on either side, both horizontally and vertically, of the pixel to be synthesized.
+The resulting 4x4 block of synthetic pixels is then copied into position exactly as in the case of integer displacements.
+Each of the eight chroma subblocks is handled similarly.
+Their motion vectors are never specified explicitly; instead, the motion vector for each chroma subblock is calculated by averaging the vectors of the four Y subblocks that occupy the same area of the frame.
+Since chroma pixels have twice the diameter (and four times the area) of luma pixels, the calculated chroma motion vectors have 1/8 pixel resolution, but the procedure for copying or generating pixels for each subblock is essentially identical to that done in the luma plane.
+After all the macroblocks have been generated (predicted and corrected with the DCT/WHT residue), a filtering step (the loop filter) is applied to the entire frame.
+The purpose of the loop filter is to reduce blocking artifacts at the boundaries between macroblocks and between subblocks of the macroblocks.
+The term "loop filter" is used because this filter is part of the "coding loop"; that is, it affects the reconstructed frame buffers that are used to predict ensuing frames.
+This is distinguished from the postprocessing filters discussed earlier, which affect only the viewed video and do not "feed into" subsequent frames.
+Next, if signaled in the data, the current frame may replace the golden frame prediction buffer and/or the altref frame buffer.
+The halos of the frame buffers are next filled as specified above.
+Finally, at least as far as decoding is concerned, the (references to) the "current" and "last" frame buffers should be exchanged in preparation for the next frame.
+Various processes may be required (or desired) before viewing the generated frame.
+As discussed in the frame dimension information below, truncation and/or upscaling of the frame may be required.
+Some playback systems may require a different frame format (RGB, YUY2, etc.).
+Finally, as mentioned in the Introduction, further postprocessing or filtering of the image prior to viewing may be desired.
+Since the primary purpose of this document is a decoding specification, the postprocessing is not specified in this document.
+While the basic ideas of prediction and correction used by VP8 are straightforward, many of the details are quite complex.
+The management of probabilities is particularly elaborate.
+Not only do the various modes of intra prediction and motion vector specification have associated probabilities, but they, together with the coding of DCT coefficients and motion vectors, often base these probabilities on a variety of contextual information (calculated from what has been decoded so far), as well as on explicit modification via the frame header.
+The "top level" of decoding and frame reconstruction is implemented in the reference decoder file dixie.c (Section 20.4).
+This concludes our summary of decoding and reconstruction; we continue by discussing the individual aspects in more depth.
+A reasonable "divide and conquer" approach to implementation of a decoder is to begin by decoding streams composed exclusively of key frames.
+After that works reliably, interframe handling can be added more easily than if complete functionality were attempted immediately.
+In accordance with this, we first discuss components needed to decode key frames (most of which are also used in the decoding of interframes) and conclude with topics exclusive to interframes.
+As the intent of this document, together with the reference decoder source code, is to specify a platform independent procedure for the decoding and reconstruction of a VP8 video stream, many (small) algorithms must be described exactly.
+Due to its near universality, terseness, ability to easily describe calculation at specific precisions, and the fact that On2's reference VP8 decoder is written in C, these algorithm fragments are written using the C programming language, augmented with a few simple definitions below.
+The standard (and best) reference for C is [Kernighan].
+Many code fragments will be presented in this document.
+Some will be nearly identical to corresponding sections of the reference decoder; others will differ.
+Roughly speaking, there are three reasons for such differences: 1.
+For reasons of efficiency, the reference decoder version may be less obvious.
+The reference decoder often uses large data structures to maintain context that need not be described or used here.
+The authors of this document felt that a different expression of the same algorithm might facilitate exposition.
+Regardless of the chosen presentation, the calculation effected by any of the algorithms described here is identical to that effected by the corresponding portion of the reference decoder.
+All VP8 decoding algorithms use integer math.
+To facilitate specification of arithmetic precision, we define the following types.
+/  While pixels themselves are 8 bit unsigned integers, pixel arithmetic often occurs at 16  or 32 bit precision and the results need to be "saturated" or clamped to an 8 bit range.
+; Pixel clamp255(int32 v) { return v < 0? 0
+/ typedef uint8 Prob;   End code block
+We occasionally need to discuss mathematical functions involving honest to goodness "infinite precision" real numbers.
+The DCT is first described via the cosine function cos; the ratio of the lengths of the circumference and diameter of a circle is denoted pi; at one point, we take a (base 1/2) logarithm, denoted log; and pow(x
+x raised to the power y.
+If x   2 and y is a small non negative integer, pow(2, y) may be expressed in C as 1 <<
+y. Finally, we sometimes need to divide signed integers by powers of two; that is, we occasionally right shift signed numbers.
+The behavior of such shifts (i.e., the propagation of the sign bit) is, perhaps surprisingly, not defined by the C language itself and is left up to individual compilers.
+Because of the utility of this frequently needed operation, it is at least arguable that it should be defined by the language (to naturally propagate the sign bit) and, at a minimum, should be correctly implemented by any reasonable compiler.
+In the interest of strict portability, we attempt to call attention to these shifts when they arise.
+As discussed in the overview above, essentially the entire VP8 data stream is encoded using a boolean entropy coder.
+An understanding of the bool decoder is critical to the implementation of a VP8 decompressor, so we discuss the bool decoder in detail.
+It is easier to comprehend the bool decoder in conjunction with the bool encoder used by the compressor to write the compressed data partitions.
+The bool encoder encodes (and the bool decoder decodes)
+one bool (zero or one boolean value) at a time.
+Its purpose is to losslessly compress a sequence of bools for which the probability of their being zero or one can be well estimated (via constant or previously coded information) at the time they are written, using identical corresponding probabilities at the time they are read.
+As the reader is probably aware, if a bool is much more likely to be zero than one (for instance), it can, on average, be faithfully encoded using much less than one bit per value.
+The bool encoder exploits this.
+In the 1940s, [Shannon] proved that there is a lower bound for the average datarate of a faithful encoding of a sequence of bools (whose probability distributions are known and are independent of each other) and also that there are encoding algorithms that approximate this lower bound as closely as one wishes.
+If we encode a sequence of bools whose probability of being zero is p (and whose probability of being 1 is 1 p), the lowest possible datarate per value is plog(p)
+(1 p)log(1 p); taking the logarithms to the base 1/2 expresses the datarate in bits/ value.
+We give two simple examples.
+At one extreme, if p   1/2, then log(p)   log(1 p)   1, and the lowest possible datarate per bool is 1/2
+1; that is, we cannot do any better than simply literally writing out bits.
+At another extreme, if p is very small, say p   1/1024, then log(p) 10, log(1 p) is roughly .0014, and the lowest possible datarate is approximately 10/1024
+.0014, roughly 1/100 of a bit per bool.
+Because most of the bools in the VP8 datastream have zero  probabilities nowhere near 1/2, the compression provided by the bool encoder is critical to the performance of VP8.
+The boolean coder used by VP8 is a variant of an arithmetic coder.
+An excellent discussion of arithmetic coding (and other lossless compression techniques) can be found in [Bell].
+Underlying Theory of Coding The basic idea used by the boolean coder is to consider the entire data stream (either of the partitions in our case) as the binary expansion of a single number x with 0 <
+The bits (or bytes) in x are of course written from high to low order, and if b[j]
+(B[j]) is the j^(th) bit (byte) in the partition, the value
+x is simply the sum (starting with j   1) of pow(2,  j)   b[j] or pow(256,  j)   B[j].
+Before the first bool is coded, all values of x are possible.
+The coding of each bool restricts the possible values of x in proportion to the probability of what is coded.
+If p1 is the probability of the first bool being zero and a zero is coded, the range of possible values of x is restricted to 0 <  x < p1.
+If a one is coded, the range becomes p1 <
+The coding continues by repeating the same idea.
+At every stage, there is an interval a <  x < b of possible values of x.
+If p is the probability of a zero being coded at this stage and a zero is coded, the interval becomes a <  x < a   (p(b a)).
+If a one is coded, the possible values of x are restricted to a   (p(b a))
+Assuming that only finitely many values are to be coded, after the encoder has received the last bool, it can write as its output any value
+x that lies in the final interval.
+VP8 simply writes the left endpoint of the final interval.
+Consequently, the output it would make if encoding were to stop at any time either increases or stays the same as each bool is encoded.
+The decoder is presented with the number x, which has only the initial restriction 0 <  x < 1.
+To decode the first bool, the decoder is given the first probability p1.
+If x < p1, a zero is decoded; if x >
+p1, a one is decoded.
+In either case, the new restriction on x
+that is, the interval of possible values of
+Decoding continues in exactly the same way: If a <  x < b is the current interval and we are to decode a bool with zero probability p, we return a zero if a <
+x < a   (p(b a)) and a one if a   (p(b a))
+In either case, the new restriction is remembered in preparation for decoding the next bool.
+The process outlined above uses real numbers of infinite precision to express the probabilities and ranges.
+It is true that, if one could actualize this process and coded a large number of bools whose supplied probabilities matched their value distributions, the datarate achieved would approach the theoretical minimum as the number of bools encoded increased.
+Unfortunately, computers operate at finite precision, and an approximation to the theoretically perfect process described above is necessary.
+Such approximation increases the datarate but, at quite moderate precision and for a wide variety of data sets, this increase is negligible.
+The only conceptual limitations are, first, that coder probabilities must be expressed at finite precision and, second, that the decoder be able to detect each individual modification to the value interval via examination of a fixed amount of input.
+As a practical matter, many of the implementation details stem from the fact that the coder can function using only a small "window" to incrementally read or write the arbitrarily precise number x. 7.2.
+Practical Algorithm Description VP8's boolean coder works with 8 bit probabilities
+The range of such p is 0 <  p <  255; the actual probability represented by p is p/256.
+Also, the coder is designed so that decoding of a bool requires no more than an 8 bit comparison, and so that the state of both the encoder and decoder can be easily represented using a small number of unsigned 16 bit integers.
+The details are most easily understood if we first describe the algorithm using bit at a time input and output.
+Aside from the ability to maintain a position in this bitstream and write/read bits, the encoder also needs the ability to add 1 to the bits already output; after writing n bits, adding 1 to the existing output is the same thing as adding pow(2,  n) to x.
+Together with the bit position, the encoder must maintain two unsigned 8 bit numbers, which we call "bottom" and "range".
+Writing w for the n bits already written and S
+for the scale of the current bit position one byte out, we have the following constraint on all future values v of w (including the final value v
+Thus, appending bottom to the already written bits w gives the left endpoint of the interval of possible values, appending bottom
+range gives the right endpoint, and range itself (scaled to the current output position) is the length of the interval.
+So that our probabilistic encodings are reasonably accurate, we do not let range vary by more than a factor of two: It stays within the bounds 128 <  range <  255.
+The process for encoding a boolean value val whose probability of being zero is prob /
+and whose probability of being one is ( 256 prob ) /
+256   with 1 <  prob <  255 is as follows.
+Using an unsigned 16 bit multiply followed by an unsigned right shift, we calculate an unsigned 8 bit split value: split
+1 <  split <  range 1.
+These bounds ensure the correctness of the decoding procedure described below.
+If the incoming boolean val to be encoded is false, we leave the left interval endpoint bottom alone and reduce range, replacing it by split.
+If the incoming val is true, we move up the left endpoint to bottom   split, propagating any carry to the already written value w (this is where we need the ability to add 1 to w), and reduce range to range split.
+Regardless of the value encoded, range has been reduced and now has the bounds 1 <  range <  254.
+If range < 128, the encoder doubles it and shifts the high order bit out of bottom to the output as it also doubles bottom, repeating this process one bit at a time until 128 <  range <  255.
+Once this is completed, the encoder is ready to accept another bool, maintaining the constraints described above.
+After encoding the last bool, the partition may be completed by appending bottom to the bitstream.
+The decoder mimics the state of the encoder.
+It maintains, together with an input bit position, two unsigned 8 bit numbers, a range identical to that maintained by the encoder and a value.
+Decoding one bool at a time, the decoder (in effect) tracks the same left interval endpoint as does the encoder and subtracts it from the remaining input.
+Appending the unread portion of the bitstream to the 8 bit value gives the difference between the actual value encoded and the known left endpoint.
+The decoder is initialized by setting range   255 and reading the first 16 input bits into value.
+The decoder maintains range and calculates split in exactly the same way as does the encoder.
+To decode a bool, it compares value to split; if value < split, the bool is zero, and range is replaced with split.
+split, the bool is one, range is replaced with range split, and value is replaced with value split.
+Again, range is doubled one bit at a time until it is at least 128.
+The value is doubled in parallel, shifting a new input bit into the bottom each time.
+Writing Value for value together with the unread input bits and Range for range extended indefinitely on the right by zeros, the condition Value < Range is maintained at all times by the decoder.
+In particular, the bits shifted out of value as it is doubled are always zero.
+The C code below gives complete implementations of the encoder and decoder described above.
+While they are logically identical to the "bit at a time" versions, they internally buffer a couple of extra bytes of the bitstream.
+This allows I/O to be done (more practically)
+a byte at a time and drastically reduces the number of carries the encoder has to propagate into the already written data.
+Another (logically equivalent) implementation may be found in the reference decoder file bool decoder.h (Section 20.2).
+/ void init bool encoder(bool encoder  e, uint8
+The arithmetic guarantees that the propagation will never go beyond the beginning of the output.
+x is always less than one.
+/ void add one to output(uint8  q) { while (
+encoder  e, Prob prob, int bool value) {
+/  split is approximately (range   prob) / 256
+and, crucially, is strictly bigger than zero and strictly smaller than range
+/  detect carry  / add one to output(e output);
+8 shifts until next output  /
+after encoding the last bool value for the partition being written
+/ void flush bool encoder(bool encoder  e)
+{ int c   e bit count;
+to top of internal buffer  / while
+"value", together with the remaining input, equals the complete encoded number x less the left endpoint of the current coding interval.
+while ( i <  2)
+range and split are identical to the corresponding values used by the encoder when this bool was written  / uint32
+literal(bool decoder  d, int num bits) {
+uint32 v   0; while (num bits )
+int32 read signed literal(bool decoder  d, int num bits) {
+At the lowest level, VP8's compressed data is simply a sequence of probabilistically encoded bools.
+Most of this data is composed of (slightly) larger semantic units fashioned from bools, which we describe here.
+We sometimes use these descriptions in C expressions within data format specifications.
+In this context, they refer to the return value of a call to an appropriate bool decoder d, reading (as always) from its current reference point.
+Return value of read bool(d, p).
+Return value of read literal(d, n).
+The last type requires elaboration.
+We often wish to encode something whose value is restricted to a small number of possibilities (the alphabet).
+This is done by representing the alphabet as the leaves of a small binary tree.
+nodes of the tree have associated probabilities p and correspond to calls to read bool(d, p).
+We think of a zero as choosing the left branch below the node and a one as choosing the right branch.
+Thus, every value (leaf) whose tree depth is x is decoded after exactly
+x calls to read bool.
+A tree representing an encoding of an alphabet of n possible values always contains n 1 non leaf nodes, regardless of its shape (this is easily seen by induction on n).
+There are many ways that a given alphabet can be so represented.
+The choice of tree has little impact on datarate but does affect decoder performance.
+The trees used by VP8 are chosen to (on average) minimize the number of calls to read bool.
+This amounts to shaping the tree so that values that are more probable have smaller tree depth than do values that are less probable.
+Readers familiar with Huffman coding will notice that, given an alphabet together with probabilities for each value, the associated Huffman tree minimizes the expected number of calls to read bool.
+Such readers will also realize that the coding method described here never results in higher datarates than does the Huffman method and, indeed, often results in much lower datarates.
+Huffman coding is, in fact, nothing more than a special case of this method in which each node probability is fixed at 128 (i.e., 1/2).
+We give a suggested implementation of a tree data structure followed by a couple of actual examples of its usage by VP8.
+It is most convenient to represent the values using small positive integers, typically an enum counting up from zero.
+The largest alphabet (used to code DCT coefficients, described in Section 13) that is tree coded by VP8 has only 12 values.
+The tree for this alphabet adds 11 interior nodes and so has a total of 23 positions.
+Thus, an 8 bit number easily accommodates both a tree position and a return value.
+A tree may then be compactly represented as an array of (pairs of) 8 bit integers.
+Each (even) array index corresponds to an interior node of the tree; the 0th index of course corresponds to the root of the tree.
+The array entries come in pairs corresponding to the left (0) and right (1) branches of the subtree below the interior node.
+We use the convention that a positive (even) branch entry is the index of a deeper interior node, while a nonpositive entry v corresponds to a leaf whose value is  v.
+The node probabilities associated to a tree coded value are stored in an array whose indices are half the indices of the corresponding tree positions.
+The length of the probability array is one less than the size of the alphabet.
+Here is C code implementing the foregoing.
+The advantages of our data structure should be noted.
+Aside from the smallness of the structure itself, the tree directed reading algorithm is essentially a single line of code.
+A tree specification is simply an array of 8 bit integers.
+/ int treed read( bool decoder   const d, /
+((i   t[ i   read bool(d, p[i>>1])])
+based decoding is implemented in the reference decoder file bool decoder.h (Section 20.2).
+As a multi part example, without getting too far into the semantics of macroblock decoding (which is of course taken up below), we look at the "mode" coding for intra predicted macroblocks.
+It so happens that, because of a difference in statistics, the Y (or luma) mode encoding uses two different trees: one for key frames and another for interframes.
+This is the only instance in VP8 of the same dataset being coded by different trees under different circumstances.
+The UV (or chroma) modes are a proper subset of the Y modes and, as such, have their own decoding tree.
+The aforementioned trees together with the implied codings as comments.
+Actual (i.e., positive) indices are always even.
+/ const tree index ymode tree [2
+/  "10" subtree: V PRED
+/  "1" subtree:  V PRED
+/  "11" subtree: H PRED   "110", TM PRED
+;   End code block   Since it greatly facilitates re use of reference code, and since there is no real reason to do otherwise, it is strongly suggested that any decoder implementation use exactly the same enumeration values and probability table layouts as those described in this document (and in the reference code) for all tree coded data in VP8.
+The uncompressed data chunk at the start of each frame and at the first part of the first data partition contains information pertaining to the frame as a whole.
+We list the fields in the order of occurrence.
+Most of the header decoding occurs in the reference decoder file dixie.c (Section 20.4).
+The uncompressed data chunk comprises a common (for key frames and interframes)
+3 byte frame tag that contains four fields, as follows:
+A 1 bit frame type (0 for key frames, 1 for interframes).
+A 3 bit version number (0 3 are defined as four different profiles with different decoding complexity; other values may be defined for future variants of the VP8 data format).
+A 1 bit show frame flag (0 when current frame is not for display, 1 when current frame is for display).
+A 19 bit field containing the size of the first data partition in bytes.
+The version number setting enables or disables certain features in the bitstream, as follows:
+The reference software also adjusts the loop filter based on version number, as per the table above.
+Version number 1 implies a "simple" loop filter, and version numbers 2 and 3 imply no loop filter.
+However, the "simple" filter setting in this context has no effect whatsoever on the decoding process, and the "no loop filter" setting only forces the reference encoder to set filter level equal to 0.
+Neither affect the decoding process.
+In decoding, the only loop filter settings that matter are those in the frame header.
+For key frames, the frame tag is followed by a further 7 bytes of uncompressed data, as follows:
+(2 bits Horizontal Scale << 14)
+The following source code segment illustrates validation of the start code and reading the width, height, and scale factors for a key frame.
+Begin code block   unsigned char  c
+Where pbi source points to the beginning of the frame.
+The following code reads the image dimension from the bitstream:
+( (unsigned short )(c 3))&0x3fff; pc horiz scale   swap2
+( (unsigned short )(c 3))>>14;
+( (unsigned short )(c 5))&0x3fff; pc vert scale    swap2
+( (unsigned short )(c 5))>>14;
+Where the swap2 macro takes care of the endian on a different platform:
+While each frame is encoded as a raster scan of 16x16 macroblocks, the frame dimensions are not necessarily evenly divisible by 16.
+In this case, write ew   16 (width & 15) and eh   16 (height & 15) for the excess width and height, respectively.
+Although they are encoded, the last ew columns and eh rows are not actually part of the image and should be discarded before final output.
+However, these "excess pixels" should be maintained in the internal reconstruction buffer used to predict ensuing frames.
+The scaling specifications for each dimension are encoded as follows.
+No upscaling (the most common case).
+Upscaling does not affect the reconstruction buffer, which should be maintained at the encoded resolution.
+Any reasonable method of upsampling (including any that may be supported by video hardware in the playback environment) may be used.
+Since scaling has no effect on decoding, we do not discuss it any further.
+As discussed in Section 5, allocation (or re allocation) of data structures (such as the reconstruction buffer) whose size depends on dimension will be triggered here.
+Color Space and Pixel Type
+1 bit pixel value clamping specification
+The color space type bit is encoded as follows:  0 YUV color space similar to the YCrCb color space defined in [ITU R BT.601]
+1 Reserved for future use
+The pixel value clamping type bit is encoded as follows:
+Decoders are required to clamp the reconstructed pixel values to between 0 and 255 (inclusive).
+1 Reconstructed pixel values are guaranteed to be between 0 and 255; no clamping is necessary.
+Information in this subsection does not appear in interframes.
+This subsection contains probability and value information for implementing segment adaptive adjustments to default decoder behavior.
+The data in this subsection is used in the decoding of the ensuing per segment information and applies to the entire frame.
+When segment adaptive adjustments are enabled, each macroblock will be assigned a segment ID.
+Macroblocks with the same segment ID belong to the same segment and have the same adaptive adjustments over default baseline values for the frame.
+The adjustments can be quantizer level or loop filter strength.
+The context for decoding this feature at the macroblock level is provided by a subsection in the frame header, which contains: 1.
+A segmentation enabled flag that enables the feature for this frame if set to 1, and disables it if set to 0.
+The following fields occur if the feature is enabled.
+L(1) indicates if the segment map is updated for the current frame (update mb segmentation map).
+L(1) indicates if the segment feature data items are updated for the current frame (update segment feature data).
+If Item 3 above (update segment feature data) is 1, the following fields occur: a.  L(1), the mode of segment feature data (segment feature mode), can be absolute value mode (0) or delta value mode (1).
+Segment feature data items are decoded segment by segment for each segment feature.
+For every data item, a one bit flag indicates whether the item is 0, or a non zero value to be decoded.
+If the value is non zero, then the value is decoded as a magnitude L(n), followed by a one bit sign (L(1)   0 for positive and 1 for negative).
+The length n can be looked up from a pre defined length table for all feature data.
+If the L(1) flag as noted in Item 2 above is set to 1, the probabilities of the decoding tree for the segment map are decoded from the bitstream.
+Each probability is decoded with a one bit flag indicating whether the probability is the default value of 255 (flag is set to 0), or an 8 bit value, L(8), from the bitstream.
+The layout and semantics supporting this feature at the macroblock level are described in Section 10.
+Loop Filter Type and Levels VP8 supports two types of loop filters having different computational complexity.
+The following bits occur in the header to support the selection of the baseline type, strength, and sharpness behavior of the loop filter used for the current frame.
+The meaning of these numbers will be further explained in Section 15.
+VP8 has a feature in the bitstream that enables adjustment of the loop filter level based on a macroblock's prediction mode and reference frame.
+The per macroblock adjustment is done through delta values against the default loop filter level for the current frame.
+This subsection contains flag and value information for implementing per macroblock loop filter level adjustment to default decoder behavior.
+The data in this section is used in the decoding of the ensuing per macroblock information and applies to the entire frame.
+L(1) is a one bit flag indicating if the macroblock loop filter adjustment is on for the current frame.
+0 means that such a feature is not supported in the current frame, and 1 means this feature is enabled for the current frame.
+Whether the adjustment is based on a reference frame or encoding mode, the adjustment of the loop filter level is done via a delta value against a baseline loop filter value.
+The delta values are updated for the current frame if an L(1) bit, mode ref lf delta update, takes the value 1.
+There are two groups of delta values: One group of delta values is for reference frame based adjustments, and the other group is for mode based adjustments.
+The number of delta values in the two groups is MAX REF LF DELTAS and MAX MODE LF DELTAS, respectively.
+For every value within the two groups, there is a one bit L(1) to indicate if the particular value is updated.
+When one is updated (1), it is transmitted as a six bit  magnitude L(6) followed by a one bit sign flag (L(1)   0 for positive and 1 for negative).
+Token Partition and Partition Data Offsets VP8 allows DCT coefficients to be packed into multiple partitions, besides the first partition with header and per macroblock prediction information, so the decoder can perform parallel decoding in an efficient manner.
+A two bit L(2) is used to indicate the number of coefficient data partitions within a compressed frame.
+The two bits are defined in the following table:
+If the number of data partitions is greater than 1, the size of each partition (except the last) is written in 3 bytes (24 bits).
+The size of the last partition is the remainder of the data not used by any of the previous partitions.
+The partitioned data are consecutive in the bitstream, so the size can also be used to calculate the offset of each partition.
+The following pseudocode illustrates how the size/offset is defined by the three bytes in the bitstream.
+All residue signals are specified via a quantized 4x4 DCT applied to the Y, U, V, or Y2 subblocks of a macroblock.
+As detailed in Section 14, before inverting the transform, each decoded coefficient is multiplied by one of six dequantization factors, the choice of which depends on the plane (Y, chroma   U or V, Y2) and coefficient position (DC   coefficient 0, AC   coefficients 1 15).
+The six values are specified using 7 bit indices into six corresponding fixed tables (the tables are given in Section 14).
+The first 7 bit index gives the dequantization table index for Y plane AC coefficients, called yac qi.
+It is always coded and acts as a baseline for the other 5 quantization indices, each of which is represented by a delta from this baseline index.
+Pseudocode for reading the indices follows:
+/  Y2 ac delta specified if flag is true  / uvdc delta
+Refresh Golden Frame and Altref Frame
+For key frames, both the golden frame and the altref frame are refreshed/ replaced by the current reconstructed frame, by default.
+Whether golden frame is refreshed (0 for no, 1 for yes).
+Whether altref frame is refreshed (0 for no, 1 for yes).
+Buffer copy flag for golden frame buffer
+Where:  0 means no buffer is copied to the golden frame  1 means last frame is copied to the golden frame  2 means alt ref frame is copied to the golden frame Similarly, when the flag for altref is 0, VP8 uses 2 bits in the bitstream to indicate which buffer is copied to alt ref frame.
+Buffer copy flag for altref frame buffer
+Where:  0 means no buffer is copied to the altref frame  1 means last frame is copied to the altref frame  2 means
+golden frame is copied to the altref frame Two bits are transmitted for ref frame sign bias for golden frame and alt ref frame, respectively.
+Sign bias flag for altref frame
+These values are used to control the sign of the motion vectors when a golden frame or an altref frame is used as the reference frame for a macroblock.
+Refresh Last Frame Buffer VP8 uses one bit, L(1), to indicate if the last frame reference buffer is refreshed using the constructed current frame.
+On a key frame, this bit is overridden, and the last frame buffer is always refreshed.
+This field contains updates to the probability tables used to decode DCT coefficients.
+For each of the probabilities in the tables, there is an L(1) flag indicating if the probability is updated for the current frame, and if the L(1) flag is set to 1, there follows an additional 8 bit value representing the new probability value.
+These tables are maintained across interframes but are of course replaced with their defaults at the beginning of every key frame.
+The layout and semantics of this field will be taken up in Section 13. 9.10.
+Remaining Frame Header Data (Non Key Frame)
+prob last   probability that an inter predicted
+Decoding of this portion of the frame header is handled in the reference decoder file dixie.c (Section 20.4).
+Decoding of this portion of the frame header is handled in the reference decoder file modemv.c (Section 20.11).
+This completes the layout of the frame header.
+The remainder of the first data partition consists of macroblock level prediction data.
+After the frame header is processed, all probabilities needed to decode the prediction and residue data are known and will not change until the next frame.
+Every macroblock may optionally override some of the default behaviors of the decoder.
+Specifically, VP8 uses segment based adjustments to support changing quantizer level and loop filter level for a macroblock.
+When the segment based adjustment feature is enabled for a frame, each macroblock within the frame is coded with a segment id.
+This effectively segments all the macroblocks in the current frame into a number of different segments.
+Macroblocks within the same segment behave exactly the same for quantizer and loop filter level adjustments.
+If both the segmentation enabled and update mb segmentation map flags in subsection B of the frame header take a value of 1, the prediction data for each (intra  or inter coded) macroblock begins with a specification of segment id for the current macroblock.
+It is decoded using this simple tree ...
+Begin code block   const tree index mb segment tree [2   (4 1)]
+combined with a 3 entry probability table, mb segment tree probs[3].
+The macroblock's segment id is used later in the decoding process to look into the segment feature data table and determine how the quantizer and loop filter levels are adjusted.
+The decoding of segment id, together with the parsing of intra prediction modes (which is taken up next), is implemented in the reference decoder file modemv.c.
+Key Frame Macroblock Prediction Records
+After specifying the features described above, the macroblock prediction record next specifies the prediction mode used for the macroblock.
+The single bool flag is decoded using prob skip false if and only if mb no skip coeff is set to 1 (see Sections 9.10 and 9.11).
+If mb no skip coeff is set to 0, then this value defaults to 0. 11.2.
+Luma Modes First comes the luma specification of type intra mbmode, coded using the kf ymode tree, as described in Section 8 and repeated here for convenience:
+Begin code block   typedef enum { DC PRED, /
+predict DC using row above and column to the left  / V PRED,
+For key frames, the Y mode is decoded using a fixed probability array as follows:
+End code block   d is of course the bool decoder being used to read the first data partition.
+If the Ymode is B PRED, it is followed by a (tree coded) mode for each of the 16 Y subblocks.
+The 10 subblock modes and their coding tree are as follows:
+Begin code block   typedef enum { B DC PRED,  /
+predict DC using row above and column to the left  / B TM PRED,
+The first four modes are smaller versions of the similarly named 16x16 modes above, albeit with slightly different numbering.
+The last six "diagonal" modes are unique to luma subblocks.
+The coding of subblock modes in key frames uses the modes already coded for the subblocks to the left of and above the subblock to select a probability array for decoding the current subblock mode.
+This is our first instance of contextual prediction, and there are several caveats associated with it: 1.
+The adjacency relationships between subblocks are based on the normal default raster placement of the subblocks.
+The adjacent subblocks need not lie in the current macroblock.
+The subblocks to the left of the left edge subblocks 0, 4, 8, and 12 are the right edge subblocks 3, 7, 11, and 15, respectively, of the (already coded) macroblock immediately to the left.
+Similarly, the subblocks above the top edge subblocks 0, 1, 2, and 3 are the bottom edge subblocks 12, 13, 14, and 15 of the already coded macroblock immediately above us.
+For macroblocks on the top row or left edge of the image, some of the predictors will be non existent.
+Such predictors are taken to have had the value B DC PRED, which, perhaps conveniently, takes the value 0 in the enumeration above.
+A simple management scheme for these contexts might maintain a row of above predictors and four left predictors.
+Before decoding the frame, the entire row is initialized to B DC PRED; before decoding each row of macroblocks, the four left predictors are also set to B DC PRED.
+After decoding a macroblock, the bottom four subblock modes are copied into the row predictor (at the current position, which then advances to be above the next macroblock), and the right four subblock modes are copied into the left predictor.
+Many macroblocks will of course be coded using a 16x16 luma prediction mode.
+For the purpose of predicting ensuing subblock modes (only), such macroblocks derive a subblock mode, constant throughout the macroblock, from the 16x16 luma mode as follows:
+DC PRED uses B DC PRED, V PRED uses B VE PRED, H PRED uses B HE PRED, and TM PRED uses B TM PRED.
+Although we discuss interframe modes in Section 16, we remark here that, while interframes do use all the intra coding modes described here and below, the subblock modes in an interframe are coded using a single constant probability array that does not depend on any context.
+The dependence of subblock mode probability on the nearby subblock mode context is most easily handled using a three dimensional constant array:
+Prob kf bmode prob [num intra bmodes] [num intra bmodes]
+The outer two dimensions of this array are indexed by the already  coded subblock modes above and to the left of the current block, respectively.
+The inner dimension is a typical tree probability list whose indices correspond to the even indices of the bmode tree above.
+The mode for the j^(th)
+Where the 4x4 Y subblock index j varies from 0 to 15 in raster order, and A and L are the modes used above and to the left of the j^(th) subblock.
+The contents of the kf bmode prob array are given at the end of this section.
+After the Y mode (and optional subblock mode) specification comes the chroma mode.
+The chroma modes are a subset of the Y modes and are coded using the uv mode tree, as described in Section 8 and repeated here for convenience:
+Begin code block   const tree index uv mode tree [2   (num uv modes 1)]
+As for the Y modes (in a key frame), the chroma modes are coded using a fixed, contextless probability table:
+This completes the description of macroblock prediction coding for key frames.
+As will be discussed in Section 16, the coding of intra modes within interframes is similar, but not identical, to that described here (and in the reference code) for prediction modes and, indeed, for all tree coded data in VP8.
+Finally, here is the fixed probability table used to decode subblock modes in key frames.
+Prob kf bmode prob [num intra bmodes] [num intra bmodes]
+Intraframe Prediction Intraframe prediction uses already coded macroblocks within the current frame to approximate the contents of the current macroblock.
+It applies to intra coded macroblocks in an interframe and to all macroblocks in a key frame.
+Relative to the current macroblock "M", the already coded macroblocks include all macroblocks above M together with the macroblocks on the same row as, and to the left of, M, though at most four of these macroblocks are actually used: the block "A" directly above M, the blocks immediately to the left and right of A, and the block immediately to the left of M. Each of the prediction modes (i.e., means of extrapolation from already calculated values) uses fairly simple arithmetic on pixel values whose positions, relative to the current position, are defined by the mode.
+The chroma (U and V) and luma (Y) predictions are independent of each other.
+The relative addressing of pixels applied to macroblocks on the upper row or left column of the frame will sometimes cause pixels outside the visible frame to be referenced.
+Usually such out of bounds pixels have an assumed value of 129 for pixels to the left of the leftmost column of the visible frame and 127 for pixels above the top row of the visible frame (including the special case of the pixel above and to the left of the top left pixel in the visible frame).
+Exceptions to this (associated to certain modes) will be noted below.
+The already coded macroblocks referenced by intra prediction have been "reconstructed", that is, have been predicted and residue  adjusted (as described in Section 14), but have not been loop  filtered.
+While it does process the edges between individual macroblocks and individual subblocks, loop filtering (described in Section 15) is applied to the frame as a whole, after all of the macroblocks have been reconstructed.
+The single bool flag is decoded using prob skip false if and only if mb no skip coeff is set to 1 (see Sections 9.10 and 9.11).
+If mb no skip coeff is set to 0, then this value defaults to 0.
+The chroma prediction is a little simpler than the luma prediction, so we treat it first.
+Each of the chroma modes treats U and V identically; that is, the U and V prediction values are calculated in parallel, using the same relative addressing and arithmetic in each of the two planes.
+The modes extrapolate prediction values using the 8 pixel row "A" lying immediately above the block (that is, the bottom chroma row of the macroblock immediately above the current macroblock) and the 8 pixel column "L" immediately to the left of the block (that is, the rightmost chroma column of the macroblock immediately to the left of the current macroblock).
+Vertical prediction (chroma mode V PRED) simply fills each 8 pixel row of the 8x8 chroma block with a copy of the "above" row (A).
+If the current macroblock lies on the top row of the frame, all 8 of the pixel values in A are assigned the value 127.
+Similarly, horizontal prediction (H PRED) fills each 8 pixel column of the 8x8 chroma block with a copy of the "left" column (L).
+If the current macroblock is in the left column of the frame, all 8 pixel values in L are assigned the value 129.
+DC prediction (DC PRED) fills the 8x8 chroma block with a single value.
+In the generic case of a macroblock lying below the top row and right of the leftmost column of the frame, this value is the average of the 16 (genuinely visible) pixels in the (union of the) above row A and
+left column L. Otherwise, if the current macroblock lies on the top row of the frame, the average of the 8 pixels in L is used; if it lies in the left column of the frame, the average of the 8 pixels in A is used.
+Note that the averages used in these exceptional cases are not the same as those that would be arrived at by using the out of bounds
+A and L values defined for V PRED and H PRED.
+In the case of the leftmost macroblock on the top row of the frame, the 8x8 block is simply filled with the constant value 128.
+For DC PRED, apart from the exceptional case of the top left macroblock, we are averaging either 16 or 8 pixel values to get a single prediction value that fills the 8x8 block.
+The rounding is done as follows:
+Because the summands are all valid pixels, no "clamp" is necessary in the calculation of DCvalue.
+The remaining "True Motion" (TM PRED)
+chroma mode gets its name from an older technique of video compression used by On2 Technologies, to which it bears some relation.
+In addition to the row "A" and column "L", TM PRED uses the pixel "P" above and to the left of the chroma block.
+The following figure gives an example of how TM PRED works:
+Where P, As, and Ls represent reconstructed pixel values from previously coded blocks, and X00 through X77 represent predicted values for the current block.
+TM PRED uses the following equation to calculate X ij:
+A j P (i, j 0, 1, 2, 3)
+The exact algorithm is as follows:
+An implementation of chroma intra prediction may be found in the reference decoder file predict.c (Section 20.14).
+Unlike DC PRED, for macroblocks on the top row or left edge, TM PRED does use the out of bounds values of 127 and 129 (respectively) defined for V PRED and H PRED.
+The prediction processes for the first four 16x16 luma modes (DC PRED, V PRED, H PRED, and TM PRED) are essentially identical to the corresponding chroma prediction processes described above, the only difference being that we are predicting a single 16x16 luma block instead of two 8x8 chroma blocks.
+Thus, the row "A" and column "L" here contain 16 pixels, the DC prediction is calculated using 16 or 32 pixels (and shf is 4 or 5), and we of course fill the entire prediction buffer, that is, 16 rows (or columns) containing 16 pixels each.
+The reference implementation of 16x16 luma prediction is also in predict.c.
+In the remaining luma mode (B PRED), each 4x4 Y subblock is independently predicted using one of ten modes (listed, along with their encodings, in Section 11).
+Also, unlike the full macroblock modes already described, some of the subblock modes use prediction pixels above and to the right of the current subblock.
+In detail, each 4x4 subblock "B" is predicted using (at most) the 4 pixel column "L" immediately to the left of B and the 8 pixel row "A" immediately above B, consisting of the 4 pixels above B followed by the 4 adjacent pixels above and to the right of B, together with the single pixel "P" immediately to the left of A (and immediately above L).
+For the purpose of subblock intra prediction, the pixels immediately to the left and right of a pixel in a subblock are the same as the pixels immediately to the left and right of the corresponding pixel in the frame buffer "F".
+Vertical offsets behave similarly: The above row A lies immediately above B in F, and the adjacent pixels in the left column L are separated by a single row in F. Because entire macroblocks (as opposed to their constituent subblocks) are reconstructed in raster scan order, for subblocks lying along the right edge (and not along the top row) of the current macroblock, the four "extra" prediction pixels in A above and to the right of B have not yet actually been constructed.
+Subblocks 7, 11, and 15 are affected.
+All three of these subblocks use the same extra pixels as does subblock 3 (at the upper right corner of the macroblock), namely the 4 pixels immediately above and to the right of subblock 3.
+For the rightmost macroblock in each macroblock row except the top row, the extra pixels shall use the same value as the pixel at position ( 1,15), which is the rightmost visible pixel on the line immediately above the macroblock row.
+For the top macroblock row, all the extra pixels assume a value of 127.
+The details of the prediction modes are most easily described in code.
+Result pixels are often averages of two or three predictor pixels.
+The following subroutines are used to calculate these averages.
+Because the arguments are valid pixels, no clamping is necessary.
+An actual implementation would probably use inline functions or macros.
+x, Pixel y, Pixel z)
+y  / Pixel avg2(Pixel x, Pixel y)
+/ Pixel avg2p(const Pixel  p) { return avg2(p[0], p[1])
+Y subblock prediction buffer  / const Pixel
+P  / intra bmode mode   /
+9 already constructed edge pixels
+P  / E[5]   A[0];  E[6]
+, 4 is rounding adjustment
+;  do { v    A[i]
+/ int j   0;  do { B[i][j]
+v;}  while ( j < 4)
+int r   3;  while (1) {
+all 4 columns   smoothed left column  / B[r][0]
+All the pixels on each line are assigned the same value; this value is (a smoothed or synthetic version of) an already constructed predictor value lying on the same line.
+For clarity, in the comments, we express the positions of these predictor pixels relative to the upper left corner of the destination array B.
+These modes are unique to subblock prediction and have no full block analogs.
+/ case B LD PRED:
+Unlike the 45 degree diagonals, here we often need to "synthesize" predictor pixels midway between two actual predictors using avg2p(p), which we think of as returning the pixel "at" p[1/2].
+(vertical right) step   (2,1) or ( 2, 1)
+/  predictor is from (5/2,  1)
+(horizontal up) step   (1, 2) or ( 1,2)
+/  predictor is from (1/2,  1)
+Not possible to follow pattern for much of the bottom row because no (nearby) already constructed pixels lie on the diagonals in question.
+implementation of subblock intra prediction may be found in predict.c (Section 20.14).
+The second data partition consists of an encoding of the quantized DCT (and WHT) coefficients of the residue signal.
+As discussed in the format overview (Section 2), for each macroblock, the residue is added to the (intra  or inter generated) prediction buffer to produce the final (except for loop filtering) reconstructed macroblock.
+VP8 works exclusively with 4x4 DCTs and WHTs, applied to the 24 (or 25 with the Y2 subblock)
+4x4 subblocks of a macroblock.
+The ordering of macroblocks within any of the "residue" partitions in general follows the same raster scan as used in the first "prediction" partition.
+For all intra  and inter prediction modes apart from B PRED (intra: whose Y subblocks are independently predicted) and SPLITMV (inter), each macroblock's residue record begins with the Y2 component of the residue, coded using a WHT.
+B PRED and SPLITMV coded macroblocks omit this WHT and specify the 0th DCT coefficient in each of the 16 Y subblocks.
+After the optional Y2 block, the residue record continues with 16 DCTs for the Y subblocks, followed by 4 DCTs for the U subblocks, ending with 4 DCTs for the V subblocks.
+The subblocks occur in the usual order.
+The DCTs and WHT are tree coded using a 12 element alphabet whose members we call "tokens".
+Except for the end of block token (which sets the remaining subblock coefficients to zero and is followed by the next block), each token (sometimes augmented with data immediately following the token) specifies the value of the single coefficient at the current (implicit) position and is followed by a token applying to the next (implicit) position.
+For all the Y and chroma subblocks, the ordering of the coefficients follows a so called zig zag order.
+DCTs begin at coefficient 1 if Y2 is present, and begin at coefficient 0 if Y2 is absent.
+The WHT for a Y2 subblock always begins at coefficient 0.
+Macroblock without Non Zero Coefficient Values
+If the flag within macroblock (MB) MODE INFO indicates that a macroblock does not have any non zero coefficients, the decoding process of DCT coefficients is skipped for the macroblock.
+Coding of Individual Coefficient Values
+The coding of coefficient tokens is the same for the DCT and WHT, and for the remainder of this section "DCT" should be taken to mean either DCT or WHT.
+All tokens (except end of block) specify either a single unsigned value or a range of unsigned values (immediately) followed by a simple probabilistic encoding of the offset of the value from the base of that range.
+Non zero values (of either type) are then followed by a flag indicating the sign of the coded value (negative if 1, positive if 0).
+Below are the tokens and decoding tree.
+range 5 6  (size 2)
+/ num dct tokens   /
+/ } dct token; const tree index coeff tree [2   (num dct tokens 1)]
+In general, all DCT coefficients are decoded using the same tree.
+However, if the preceding coefficient is a DCT 0, decoding will skip the first branch, since it is not possible for dct eob to follow a DCT 0.
+The tokens dct cat1 ...
+dct cat6 specify ranges of unsigned values, the value within the range being formed by adding an unsigned offset (whose width is 1, 2, 3, 4, 5, or 11 bits, respectively) to the base of the range, using the following algorithm and fixed probability tables.
+Begin code block   uint DCTextra(bool decoder  d, const Prob  p)
+; do { v    v   read
+If v   the unsigned value decoded using the coefficient tree, possibly augmented by the process above
+, its sign is set by simply reading a flag:
+Begin code block   if (read bool(d, 128))
+v    v;   End code block
+The probability specification for the token tree (unlike that for the "extra bits" described above) is rather involved.
+It uses three pieces of context to index a large probability table, the contents of which may be incrementally modified in the frame header.
+The full (non constant) probability table is laid out as follows.
+, the outermost dimension is indexed by the type of plane being decoded:  0 Y beginning at coefficient 1 (i.e., Y after Y2)
+1 Y2  2 U or V  3 Y beginning at coefficient 0
+(i.e., Y in the absence of Y2).
+The next dimension is selected by the position of the coefficient being decoded.
+That position, c, steps by ones up to 15, starting from zero for block types 1, 2, or 3 and starting from one for block type 0.
+The second array index is then   Begin code block
+End code block   is a fixed mapping of position to "band".
+The third dimension is the trickiest.
+Roughly speaking, it measures the "local complexity" or extent to which nearby coefficients are non zero.
+For the first coefficient (DC, unless the block type is 0), we consider the (already encoded) blocks within the same plane (Y2, Y, U, or V) above and to the left of the current block.
+The context index is then the number (0, 1, or 2) of these blocks that had at least one non zero coefficient in their residue record.
+Specifically for Y2, because macroblocks above and to the left may or may not have a Y2 block, the block above is determined by the most recent macroblock in the same column that has a Y2 block, and the block to the left is determined by the most recent macroblock in the same row that has a Y2 block.
+Beyond the first coefficient, the context index is determined by the absolute value of the most recently decoded coefficient (necessarily within the current block) and is 0 if the last coefficient was a zero, 1 if it was plus or minus one, and 2 if its absolute value exceeded one.
+Note that the intuitive meaning of this measure changes as coefficients are decoded.
+For example, prior to the first token, a zero means that the neighbors are empty, suggesting that the current block may also be empty.
+After the first token, because an end of  block token must have at least one non zero value before it, a zero means that we just decoded a zero and hence guarantees that a non zero coefficient will appear later in this block.
+However, this shift in meaning is perfectly okay because the complete context depends also on the coefficient band (and since band 0 is occupied exclusively by position 0).
+As with other contexts used by VP8, the "neighboring block" context described here needs a special definition for subblocks lying along the top row or left edge of the frame.
+These "non existent" predictors above and to the left of the image are simply taken to be empty   that is, taken to contain no non zero coefficients.
+The residue decoding of each macroblock then requires, in each of two directions (above and to the left), an aggregate coefficient predictor consisting of a single Y2 predictor, two predictors for each of U and V, and four predictors for Y.
+In accordance with the scan ordering of macroblocks, a decoder needs to maintain a single "left" aggregate predictor and a row of "above" aggregate predictors.
+Before decoding any residue, these maintained predictors may simply be cleared, in compliance with the definition of "non existent" prediction.
+After each block is decoded, the two predictors referenced by the block are replaced with the (empty or non empty) state of the block, in preparation for the later decoding of the blocks below and to the right of the block just decoded.
+The fourth, and final, dimension of the token probability array is of course indexed by (half)
+the position in the token tree structure, as are all tree probability arrays.
+The pseudocode below illustrates the decoding process.
+Note that criteria, functions, etc.
+delimited with    are either dependent on decoder architecture or are elaborated on elsewhere in this document.
+This is dependent on the plane we are currently decoding; i.e., we check only coefficients from the same plane as the current block.
+) ctx3 ; for( i   firstCoeff; i < 16;  i )
+; else if ( absValue   1 )
+While we have in fact completely described the coefficient decoding procedure, the reader will probably find it helpful to consult the reference implementation, which can be found in the file tokens.c (Section 20.16).
+As mentioned above, the token decoding probabilities may change from frame to frame.
+After detection of a key frame, they are of course set to their defaults as shown in Section 13.5; this must occur before decoding the remainder of the header, as both key frames and interframes may adjust these probabilities.
+The layout and semantics of the coefficient probability update record (Section I of the frame header) are straightforward.
+For each position in the coeff probs array there occurs a fixed probability bool indicating whether or not the corresponding probability should be updated.
+If the bool is true, there follows a P(8) replacing that probability.
+Note that updates are cumulative; that is, a probability updated on one frame is in effect for all ensuing frames until the next key frame, or until the probability is explicitly updated by another frame.
+The algorithm to effect the foregoing is simple:
+int j   0;  do { int
+do { if (read bool(d
+[t]   read literal(d, 8); }
+The (constant) update probabilities are as follows:
+Prob coeff update probs [4]
+The default token probabilities are as follows.
+const Prob default coeff probs [4]
+DCT and WHT Inversion and Macroblock Reconstruction 14.1.
+After decoding the DCTs/WHTs as described above, each (quantized) coefficient in each subblock is multiplied by one of six dequantization factors, the choice of factor depending on the plane (Y2, Y, or chroma) and position (DC   coefficient zero, AC   any other coefficient).
+If the current macroblock has overridden the quantizer level (as described in Section 10), then the six factors are looked up from two dequantization tables with appropriate scaling and clamping using the single index supplied by the override.
+Otherwise, the frame level dequantization factors (as described in Section 9.6) are used.
+In either case, the multiplies are computed and stored using 16 bit signed integers.
+The two dequantization tables, which may also be found in the reference decoder file dequant data.h (Section 20.3), are as follows.
+Lookup values from the above two tables are directly used in the DC and AC coefficients in Y1, respectively.
+For Y2 and chroma, values from the above tables undergo either scaling or clamping before the multiplies.
+Details regarding these scaling and clamping processes can be found in related lookup functions in dixie.c (Section 20.4).
+If the Y2 residue block exists (i.e., the macroblock luma mode is not SPLITMV or B PRED), it is inverted first (using the inverse WHT) and the element of the result at row i, column j is used as the 0th coefficient of the Y subblock at position (i, j), that is, the Y subblock whose index is (i   4)   j.  As discussed in Section 13, if the luma mode is B PRED or SPLITMV, the 0th Y coefficients are part of the residue signal for the subblocks themselves.
+In either case, the inverse transforms for the sixteen Y subblocks and eight chroma subblocks are computed next.
+All 24 of these inversions are independent of each other; their results may (at least conceptually) be stored in 24 separate 4x4 arrays.
+As is done by the reference decoder, an implementation may wish to represent the prediction and residue buffers as macroblock sized arrays (that is, a 16x16 Y buffer and two 8x8 chroma buffers).
+Regarding the inverse DCT implementation given below, this requires a simple adjustment to the address calculation for the resulting residue pixels.
+Implementation of the WHT Inversion
+As previously discussed (see Sections 2 and 13), for macroblocks encoded using prediction modes other than B PRED and SPLITMV, the DC values derived from the DCT transform on the 16 Y blocks are collected to construct a 25th block of a macroblock (16 Y, 4 U, 4 V constitute the 24 blocks).
+This 25th block is transformed using a Walsh Hadamard transform (WHT).
+The inputs to the inverse WHT (that is, the dequantized coefficients), the intermediate "horizontally detransformed" signal, and the completely detransformed residue signal are all stored as arrays of 16 bit signed integers.
+Following the tradition of specifying bitstream format using the decoding process, we specify the inverse WHT in the decoding process using the following C style source code:
+void vp8 short inv walsh4x4 c(short  input, short  output) {
+int i; int a1, b1, c1, d1; int a2, b2, c2, d2;
+short  ip   input; short  op   output; int temp1, temp2;
+ip[12]; b1   ip[4]   ip[8]; c1   ip[4] ip[8]; d1   ip[0] ip[12]; op[0]   a1   b1; op[4]   c1   d1; op[8]   a1 b1; op[12]  d1 c1;
+ip[2]; c1   ip[1] ip[2]; d1   ip[0] ip[3]; a2   a1   b1; b2   c1   d1; c2   a1 b1; d2   d1 c1;
+In the case that there is only one non zero DC value in input, the inverse transform can be simplified to the following:
+void vp8 short inv walsh4x4 1
+It should be noted that a conforming decoder should implement the inverse transform using exactly the same rounding to achieve bit wise matching output to the output of the process specified by the above C source code.
+The reference decoder WHT inversion may be found in the file idct add.c (Section 20.8).
+Implementation of the DCT Inversion
+All of the DCT inversions are computed in exactly the same way.
+In principle, VP8 uses a classical 2 D inverse discrete cosine transform, implemented as two passes of 1 D inverse DCT.
+The 1 D inverse DCT was calculated using a similar algorithm to what was described in [Loeffler].
+However, the paper only provided the 8 point and 16 point version of the algorithms, which was adapted by On2 to perform the 4 point 1 D DCT.
+Accurate calculation of 1 D DCT of the above algorithm requires infinite precision.
+VP8 of course can use only a finite precision approximation.
+Also, the inverse DCT used by VP8 takes care of normalization of the standard unitary transform; that is, every dequantized coefficient has roughly double the size of the corresponding unitary coefficient.
+but the highest datarates, the discrepancy between transmitted and ideal coefficients is due almost entirely to (lossy) compression and not to errors induced by finite precision arithmetic.
+The inputs to the inverse DCT (that is, the dequantized coefficients), the intermediate "horizontally detransformed" signal, and the completely detransformed residue signal are all stored as arrays of 16 bit signed integers.
+The details of the computation are as follows.
+It should also be noted that this implementation makes use of the 16 bit fixed point version of two multiplication constants: sqrt(2)
+Because the first constant is bigger than 1, to maintain the same 16 bit fixed point precision as the second one, we make use of the fact that x   a
+x   x (a 1) therefore
+/ static const int cospi8sqrt2minus1 20091
+input, short  output, int pitch) { int i; int a1, b1, c1, d1; short  ip input; short  op output; int temp1, temp2;
+op[shortpitch 0]   a1 d1; op[shortpitch 3]   a1 d1; op[shortpitch 1]   b1 c1;
+a1   ip[0] ip[2]; b1   ip[0] ip[2]; temp1
+The reference decoder DCT inversion may be found in the file idct add.c (Section 20.8).
+Summation of Predictor and Residue Finally, the prediction and residue signals are summed to form the reconstructed macroblock, which, except for loop filtering (taken up next), completes the decoding process.
+The summing procedure is fairly straightforward, having only a couple of details.
+The prediction and residue buffers are both arrays of 16 bit signed integers.
+Each individual (Y, U, and V pixel) result is calculated first as a 32 bit sum of the prediction and residue, and is then saturated to 8 bit unsigned range (using, say, the clamp255 function defined above) before being stored as an 8 bit unsigned pixel value.
+VP8 also supports a mode where the encoding of a bitstream guarantees all reconstructed pixel values between 0 and 255; compliant bitstreams of such requirements have the clamp type bit in the frame header set to 1.
+In such a case, the clamp255 function is no longer required.
+The summation process is the same, regardless of the (intra or inter) mode of prediction in effect for the macroblock.
+implementation of reconstruction may be found in the file idct add.c.
+Loop Filter Loop filtering is the last stage of frame reconstruction and the next to last stage of the decoding process.
+The loop filter is applied to the entire frame after the summation of predictor and residue signals, as described in Section 14.
+The purpose of the loop filter is to eliminate (or at least reduce) visually objectionable artifacts associated with the semi  independence of the coding of macroblocks and their constituent subblocks.
+As was discussed in Section 5, the loop filter is "integral" to decoding, in that the results of loop filtering are used in the prediction of subsequent frames.
+Consequently, a functional decoder implementation must perform loop filtering exactly as described here.
+This is distinct from any postprocessing that may be applied only to the image immediately before display; such postprocessing is entirely at the option of the implementor (and/or user) and has no effect on decoding per se.
+The baseline frame level parameters controlling the loop filter are defined in the frame header (Section 9.4) along with a mechanism for adjustment based on a macroblock's prediction mode and/or reference frame.
+The first is a flag (filter type) selecting the type of filter (normal or simple); the other two are numbers (loop filter level and sharpness level) that adjust the strength or sensitivity of the filter.
+As described in Sections 9.3 and 10, loop filter level may also be overridden on a per macroblock basis using segmentation.
+Loop filtering is one of the more computationally intensive aspects of VP8 decoding.
+This is the reason for the existence of the optional, less demanding simple filter type.
+Note carefully that loop filtering must be skipped entirely if loop filter level at either the frame header level or macroblock override level is 0.
+In no case should the loop filter be run with a value of 0; it should instead be skipped.
+We begin by discussing the aspects of loop filtering that are independent of the controlling parameters and type of filter chosen.
+Filter Geometry and Overall Procedure
+The Y, U, and V planes are processed independently and identically.
+The loop filter acts on the edges between adjacent macroblocks and on the edges between adjacent subblocks of a macroblock.
+All such edges are horizontal or vertical.
+For each pixel position on an edge, a small number (two or three) of pixels adjacent to either side of the position are examined and possibly modified.
+The displacements of these pixels are at a right angle to the edge orientation; that is, for a horizontal edge, we treat the pixels immediately above and below the edge position, and for a vertical edge, we treat the pixels immediately to the left and right of the edge.
+We call this collection of pixels associated to an edge position a segment; the length of a segment is 2, 4, 6, or 8.
+Excepting that the normal filter uses slightly different algorithms for, and either filter may apply different control parameters to, the edges between macroblocks and those between subblocks, the treatment of edges is quite uniform: All segments straddling an edge are treated identically; there is no distinction between the treatment of horizontal and vertical edges, whether between macroblocks or between subblocks.
+As a consequence, adjacent subblock edges within a macroblock may be concatenated and processed in their entirety.
+There is a single 8 pixel long vertical edge horizontally centered in each of the U and V blocks (the concatenation of upper and lower 4 pixel edges between chroma subblocks), and three 16 pixel long vertical edges at horizontal positions 1/4, 1/2, and 3/4 the width of the luma macroblock, each representing the concatenation of four 4 pixel sub edges between pairs of Y subblocks.
+The macroblocks comprising the frame are processed in the usual raster scan order.
+Each macroblock is "responsible for" the inter macroblock edges immediately above and to the left of it (but not the edges below and to the right of it), as well as the edges between its subblocks.
+For each macroblock M, there are four filtering steps, which are, (almost) in order: 1.
+If M is not on the leftmost column of macroblocks, filter across the left (vertical) inter macroblock edge of M. 2.
+Filter across the vertical subblock edges within M. 3.
+If M is not on the topmost row of macroblocks, filter across the top (horizontal) inter macroblock edge of M. 4.
+Filter across the horizontal subblock edges within M.
+We write MY, MU, and MV for the planar constituents of M, that is, the 16x16 luma block, 8x8 U block, and 8x8 V block comprising M.
+In step 1, for each of the three blocks MY, MU, and MV, we filter each of the (16 luma or 8 chroma) segments straddling the column separating the block from the block immediately to the left of it, using the inter macroblock filter and controls associated to the loop filter level and sharpness level.
+In step 4, we filter across the (three luma and one each for U and V
+) vertical subblock edges described above, this time using the inter subblock filter and controls.
+Steps 2 and 4 are skipped for macroblocks that satisfy both of the following two conditions: 1.
+Macroblock coding mode is neither B PRED nor SPLITMV; and 2.
+There is no DCT coefficient coded for the whole macroblock.
+For these macroblocks, loop filtering for edges between subblocks internal to a macroblock is effectively skipped.
+This skip strategy significantly reduces VP8 loop filtering complexity.
+Edges between macroblocks and those between subblocks are treated with different control parameters (and, in the case of the normal filter, with different algorithms).
+Except for pixel addressing, there is no distinction between the treatment of vertical and horizontal edges.
+Luma edges are always 16 pixels long, chroma edges are always 8 pixels long, and the segments straddling an edge are treated identically; this of course facilitates vector processing.
+Because many pixels belong to segments straddling two or more edges, and so will be filtered more than once, the order in which edges are processed given above must be respected by any implementation.
+Within a single edge, however, the segments straddling that edge are disjoint, and the order in which these segments are processed is immaterial.
+Before taking up the filtering algorithms themselves, we should emphasize a point already made: Even though the pixel segments associated to a macroblock are antecedent to the macroblock (that is, lie within the macroblock or in already constructed macroblocks), a macroblock must not be filtered immediately after its "reconstruction" (described in Section 14).
+Rather, the loop filter applies after all the macroblocks have been "reconstructed"
+(i.e., had their predictor summed with their residue); correct decoding is predicated on the fact that already constructed portions of the current frame referenced via intra prediction (described in Section 12) are not yet filtered.
+Simple Filter Having described the overall procedure of, and pixels affected by, the loop filter, we turn our attention to the treatment of individual segments straddling edges.
+We begin by describing the simple filter, which, as the reader might guess, is somewhat simpler than the normal filter.
+Note that the simple filter only applies to luma edges.
+Chroma edges are left unfiltered.
+Roughly speaking, the idea of loop filtering is, within limits, to reduce the difference between pixels straddling an edge.
+Differences in excess of a threshold (associated to the loop filter level) are assumed to be "natural" and are unmodified; differences below the threshold are assumed to be artifacts of quantization and the (partially) separate coding of blocks, and are reduced via the procedures described below.
+While the loop filter level is in principle arbitrary, the levels chosen by a VP8 compressor tend to be correlated to quantizer levels.
+Most of the filtering arithmetic is done using 8 bit signed operands (having a range of  128 to  127, inclusive), supplemented by 16 bit temporaries holding results of multiplies.
+Sums and other temporaries need to be "clamped" to a valid signed 8 bit range:
+Begin code block   int8 c(int v) { return (int8)
+128 : (v < 128 ?
+Since pixel values themselves are unsigned 8 bit numbers, we need to convert between signed and unsigned values:
+v <  255) to an 8 bit signed number.
+/ Pixel s2u(int v) { return (Pixel) (c(v)   128);}
+Filtering is often predicated on absolute value thresholds.
+The following function is the equivalent of the standard library function abs, whose prototype is found in the standard header file stdlib.h.
+Begin code block   int abs(int v) { return v < 0?
+An optimal implementation would probably express them in machine language, perhaps using single instruction, multiple data (SIMD) vector instructions.
+On many SIMD processors, the saturation accomplished by the above clamping function is often folded into the arithmetic instructions themselves, obviating the explicit step taken here.
+To simplify the specification of relative pixel positions, we use the word "before" to mean "immediately above" (for a vertical segment straddling a horizontal edge) or "immediately to the left of" (for a horizontal segment straddling a vertical edge), and the word "after" to mean "immediately below" or "immediately to the right of".
+Given an edge, a segment, and a limit value, the simple loop filter computes a value based on the four pixels that straddle the edge (two either side).
+If that value is below a supplied limit, then, very roughly speaking, the two pixel values are brought closer to each other, "shaving off" something like a quarter of the difference.
+The same procedure is used for all segments straddling any type of edge, regardless of the nature (inter macroblock, inter subblock, luma, or chroma) of the edge; only the limit value depends on the edge type.
+The exact procedure (for a single segment) is as follows; the subroutine common adjust is used by both the simple filter presented here and the normal filters discussed in Section 15.3.
+cint8 q0   u2s( Q0); cint8 q1   u2s( Q1);
+/  Disregarding clamping, when "use outer taps" is false, "a" is 3 (q0 p0).
+Since we are about to divide "a" by 8, in this case we end up multiplying the edge difference by 5/8.
+When "use outer taps" is true (as for the simple filter), "a" is p1 3 p0
+3 q0 q1, which can be thought of as a refinement of 2 (q0 p0), and the adjustment is something like (q0 p0)/4.
+/ int8 a   c((use outer taps?
+Although not strictly part of the C language, the right shift is assumed to propagate the sign bit.
+/  Subtract "a" from q0, "bringing it closer" to p0.
+with adjustment "b") to p0, "bringing it closer" to q0.
+The clamp of "a b", while present in the reference decoder, is superfluous; we have  16 <  a <  15 at this point.
+We make a couple of remarks about the rounding procedure above.
+When b is zero (that is, when the "fractional part" of a is not 1/2), we are (except for clamping) adding the same number to p0 as we are subtracting from q0.
+This preserves the average value of p0 and q0, but the resulting difference between p0 and q0 is always even; in particular, the smallest non zero gradation  1 is not possible here.
+When b is one, the value we add to p0 (again except for clamping) is one less than the value we are subtracting from q0.
+In this case, the resulting difference is always odd (and the small gradation  1 is possible), but the average value is reduced by 1/2, yielding, for instance, a very slight darkening in the luma plane.
+(In the very unlikely event of appreciable darkening after a large number of interframes, a compressor would of course eventually compensate for this in the selection of predictor and/or residue.)
+The derivation of the edge limit value used above, which depends on the loop filter level and sharpness level, as well as the type of edge being processed, will be taken up after we describe the normal loop filtering algorithm below.
+The normal loop filter is a refinement of the simple loop filter; all of the general discussion above applies here as well.
+In particular, the functions c, u2s, s2u, abs, and common adjust are used by both the normal and simple filters.
+As mentioned above, the normal algorithms for inter macroblock and inter subblock edges differ.
+Nonetheless, they have a great deal in common: They use similar threshold algorithms to disable the filter and to detect high internal edge variance (which influences the filtering algorithm).
+Both algorithms also use, at least conditionally, the simple filter adjustment procedure described above.
+The common thresholding algorithms are as follows.
+All functions take (among other things)
+a segment (of length at most 4
+The pixel values (or pointers) are always given in order, from the "beforemost" to the "aftermost".
+A more complex thresholding calculation is done for the group of four pixels that straddle the edge, in line with the calculation in simple segment() above.
+The subblock filter is a variant of the simple filter.
+In fact, if we have high edge variance, the adjustment is exactly as for the simple filter.
+Otherwise, the simple adjustment (without outer taps) is applied, and the two pixels one step in from the edge pixels are adjusted by roughly half the amount by which the two edge pixels are adjusted; since the edge adjustment here is essentially 3/8 the edge difference, the inner adjustment is approximately 3/16 the edge difference.
+/ uint8 edge limit, cint8  P3, cint8
+pixels before edge  / int8  Q0, int8  Q1, cint8
+cint8 q0   u2s( Q0), q1   u2s( Q1), q2   u2s( Q2), q3   u2s( Q3); if (filter yes(interior limit, edge limit, q3, q2, q1, q0, p0, p1, p2, p3))
+hev(hev threshold, p1, p0, q0, q1); cint8 a   (common adjust(hv, P1, P0, Q0, Q1)   1) >
+s2u(q1 a);  P1   s2u(p1   a)
+The inter macroblock filter has potentially wider scope.
+If the edge variance is high, it performs the simple adjustment (using the outer taps, just like the simple filter and the corresponding case of the normal subblock filter).
+If the edge variance is low, we begin with the same basic filter calculation and apply multiples of it to pixel pairs symmetric about the edge; the magnitude of adjustment decays as we move away from the edge and six of the pixels in the segment are affected.
+/  detect high edge variance
+/ uint8 edge limit, cint8  P3, int8  P2, int8  P1,
+cint8 q0   u2s( Q0), q1   u2s( Q1), q2   u2s( Q2), q3   u2s( Q3); if (filter yes(interior limit, edge limit, q3, q2, q1, q0, p0, p1, p2, p3)) {
+So this a, used to adjust the pixels adjacent to the edge, is something like 3/7 the edge difference.
+> 7);  Q0   s2u(q0 a);
+> 7);  Q1   s2u(q1 a)
+We conclude the discussion of loop filtering by showing how the thresholds supplied to the procedures above are derived from the two control parameters sharpness level (an unsigned 3 bit number having maximum value 7) and loop filter level (an unsigned 6 bit number having maximum value 63).
+While the sharpness level is constant over the frame, individual macroblocks may override the loop filter level with one of four possibilities supplied in the frame header (as described in Section 10).
+Both the simple and normal filters disable filtering if a value derived from the four pixels that straddle the edge (2 either side) exceeds a threshold / limit value.
+/ uint8 sub bedge limit
+interior limit;   End code block
+The remaining thresholds are used only by the normal filters.
+The filter disabling interior difference limit is the same for all edges (luma, chroma, inter subblock, inter macroblock) and is given by the following.
+interior limit   loop filter level; if (sharpness level) { interior limit
+2 : 1; if (interior limit > 9 sharpness level)
+interior limit   9 sharpness level; }
+Finally, we give the derivation of the high edge variance threshold, which is also the same for all edge types.
+; else if (loop filter level >  15)
+; else if (loop filter level >  15)
+We describe the layout and semantics of the prediction records for macroblocks in an interframe.
+After the feature specification (which is described in Section 10 and is identical for intraframes and interframes), there comes a Bool(prob intra), which indicates inter prediction (i.e., prediction from prior frames) when true and intra prediction (i.e., prediction from already coded portions of the current frame) when false.
+The zero probability prob intra is set by field J of the frame header.
+Intra Predicted Macroblocks For intra prediction, the layout of the prediction data is essentially the same as the layout for key frames, although the contexts used by the decoding process are slightly different.
+As discussed in Section 8, the "outer" Y mode here uses a different tree from that used in key frames, repeated here for convenience.
+/  "10" subtree:  V PRED
+/  "11" subtree:  TM PRED   "110", B PRED
+The probability table used to decode this tree is variable.
+As described in Section 11, it (along with the similarly treated UV table) can be updated by field J of the frame header.
+Similar to the coefficient decoding probabilities, such updates are cumulative and affect all ensuing frames until the next key frame or explicit update.
+The default probabilities for the Y and UV tables are:   Begin code block
+These defaults must be restored after detection of a key frame.
+Just as for key frames, if the Y mode is B PRED, there next comes an encoding of the intra bpred mode used by each of the sixteen Y subblocks.
+These encodings use the same tree as does that for key frames but, in place of the contexts used in key frames, these encodings use the single fixed probability table.
+Last comes the chroma mode, again coded using the same tree as that used for key frames, this time using the dynamic uv mode prob table described above.
+The calculation of the intra prediction buffer is identical to that described for key frames in Section 12.
+Otherwise (when the above bool is true), we are using inter prediction (which of course only happens for interframes), to which we now restrict our attention.
+The next datum is then another bool, B(prob last), selecting the reference frame.
+If 0, the reference frame is the previous frame (the last frame); if 1, another bool (prob gf) selects the reference frame between the golden frame (0) and the altref frame (1).
+The probabilities prob last and prob gf are set in field J of the frame header.
+Together with setting the reference frame, the purpose of inter mode decoding is to set a motion vector for each of the sixteen Y subblocks of the current macroblock.
+These settings then define the calculation of the inter prediction buffer (detailed in Section 18).
+While the net effect of inter mode decoding is straightforward, the implementation is somewhat complex; the (lossless) compression achieved by this method justifies the complexity.
+After the reference frame selector comes the mode (or motion vector reference) applied to the macroblock as a whole, coded using the following enumeration and tree.
+num ymodes is a convenience that allows a single variable to unambiguously hold an inter  or intra prediction mode.
+Begin code block   typedef enum { mv
+1 mv nearest } mv ref; const tree index mv ref tree [2   (num mv refs 1)]
+Mode and Motion Vector Contexts
+The probability table used to decode the mv ref, along with three reference motion vectors used by the selected mode, is calculated via a survey of the already decoded motion vectors in (up to) 3 nearby macroblocks.
+The algorithm generates a sorted list of distinct motion vectors adjacent to the search site.
+The best mv is the vector with the highest score.
+The mv nearest is the non zero vector with the highest score.
+The mv near is the non zero vector with the next highest score.
+The number of motion vectors coded using the SPLITMV mode is scored using the same weighting and is returned with the scores of the best, nearest, and near vectors.
+The three adjacent macroblocks above, left, and above left are considered in order.
+If the macroblock is intra coded, no action is taken.
+Otherwise, the motion vector is compared to other previously found motion vectors to determine if it has been seen before, and if so contributes its weight to that vector; otherwise, it enters a new vector in the list.
+The above and left vectors have twice the weight of the above left vector.
+As is the case with many contexts used by VP8, it is possible for macroblocks near the top or left edges of the image to reference blocks that are outside the visible image.
+VP8 provides a border of 1 macroblock filled with 0x0 motion vectors left of the left edge, and a border filled with 0,0 motion vectors of 1 macroblocks above the top edge.
+Much of the process is more easily described in C than in English.
+The reference code for this can be found in modemv.c (Section 20.11).
+The calculation of reference vectors, probability table, and, finally, the inter prediction mode itself is implemented as follows.
+Begin code block   typedef union {
+/ static void mv bias(MODE INFO
+mvp, int   ref frame sign bias) {
+mbmi.mv.as mv; if ( ref frame sign bias[x mbmi.ref frame] !
+ref frame sign bias[refframe] )
+void vp8 clamp mv(MV  mv, const MACROBLOCKD  xd)
+{ if ( mv col < (xd mb to left edge LEFT TOP MARGIN) )
+mv col   xd mb to left edge LEFT TOP MARGIN
+; else if ( mv col > xd mb to right edge
+xd mb to right edge
+RIGHT BOTTOM MARGIN; if ( mv row < (xd mb to top edge LEFT TOP MARGIN) ) mv row   xd mb to top edge LEFT TOP MARGIN; else if ( mv row > xd mb to bottom edge
+mv row   xd mb to bottom edge
+In the function vp8 find near mvs(), the vectors "nearest" and "near" are used by the corresponding modes.
+The vector best mv is used as a base for explicitly coded motion vectors.
+The first three entries in the return value cnt are (in order) weighted census values for "zero", "nearest", and "near" vectors.
+The final value indicates the extent to which SPLITMV was used by the neighboring macroblocks.
+The largest possible "weight" value in each case is 5.
+void vp8 find near mvs
+( MACROBLOCKD  xd, const MODE INFO  here,
+, MV  best mv, int cnt[4],
+int refframe, int   ref frame sign bias ) {
+const MODE INFO  above   here xd mode info stride; const MODE INFO
+left   here 1; const MODE INFO  aboveleft   above 1
+Process above  / if (above mbmi.ref frame !
+INTRA FRAME) { if (left mbmi.mv.as int)
+{ int mv this mv;
+this mv.as int   left mbmi.mv.as int; mv bias(left, refframe, &this mv, ref frame sign bias); if (this mv.as int !
+{ ( mv) as int
+this mv.as int;  cntx; }
+INTRA FRAME) { if (aboveleft mbmi.mv.as int)
+{ int mv this mv;
+aboveleft mbmi.mv.as int; mv bias(aboveleft, refframe, &this mv, ref frame sign bias); if (this mv.as int !
+{ ( mv) as int
+If we have three distinct MVs ...
+See if above left MV can be merged with NEAREST  / if (mv as int   near mvs[CNT NEAREST].as int)
+tmp   cnt[CNT NEAREST]; cnt[CNT NEAREST]   cnt[CNT NEAR]; cnt[CNT NEAR]
+tmp; tmp   near mvs[CNT NEAREST].as int; near mvs[CNT NEAREST].as
+int   near mvs[CNT NEAR].as int; near mvs[CNT NEAR].as
+cnt[CNT ZERO]) near mvs[CNT ZERO]   near mvs[CNT NEAREST]; /
+nearest   near mvs[CNT NEAREST].as mv;  near   near mvs[CNT
+The mv ref probability table (mv ref p) is then derived from the census as follows.
+[1]; mv ref p[2]   vp8 mode contexts [cnt[2]]
+[2]; mv ref p[3]   vp8 mode contexts [cnt[3]]
+Once mv ref p is established, the mv ref is decoded as usual.
+For the first four inter coding modes, the same motion vector is used for all the Y subblocks.
+The first three modes use an implicit motion vector.
+The remaining mode (SPLITMV) causes multiple vectors to be applied to the Y subblocks.
+It is immediately followed by a partition specification that determines how many vectors will be specified and how they will be assigned to the subblocks.
+The possible partitions, with indicated subdivisions and coding tree, are as follows.
+The partition is decoded using a fixed, constant probability table:
+After the partition come two (for mv top bottom or mv left right), four (for mv quarters), or sixteen (for MV 16) subblock inter prediction modes.
+These modes occur in the order indicated by the partition layouts (given as comments to the MVpartition enum) and are coded as follows.
+(As was done for the macroblock level modes, we offset the mode enumeration so that a single variable may unambiguously hold either an intra  or inter subblock mode.)
+Prior to decoding each subblock, a decoding tree context is chosen as illustrated in the code snippet below.
+The context is based on the immediate left and above subblock neighbors, and whether they are equal, are zero, or a combination of those.
+sub mv ref }; sub mv ref; const tree index sub mv ref tree [2
+(num sub mv ref 1)]
+Function parameters are left subblock neighbor MV and above   subblock neighbor MV  / int vp8 mvCont(MV  l,
+/ if (lea) return SUBMVREF LEFT ABOVE SAME;
+/   3  / if (aez) return SUBMVREF ABOVE ZED;
+/ const Prob sub mv ref prob [5][num
+These prediction blocks need not lie in the current macroblock and, if the current subset lies at the top or left edges of the frame, need not lie in the frame.
+In this latter case, their motion vectors are taken to be zero, as are subblock motion vectors within an intra predicted macroblock.
+Also, to ensure the correctness of prediction within this macroblock, all subblocks lying in an already decoded subset of the current macroblock must have their motion vectors set.
+ZERO4x4 uses a zero motion vector and predicts the current subset using the corresponding subset from the prediction frame.
+NEW4x4 is exactly like NEWMV except that NEW4x4 is applied only to the current subset.
+It is followed by a two dimensional motion vector offset (described in the next section) that is added to the best vector returned by the earlier call to find near mvs to form the motion vector in effect for the subset.
+Parsing of both inter prediction modes and motion vectors (described next) can be found in the reference decoder file modemv.c (Section 20.11).
+As discussed above, motion vectors appear in two places in the VP8 datastream: applied to whole macroblocks in NEWMV mode and applied to subsets of macroblocks in NEW4x4 mode.
+The format of the vectors is identical in both cases.
+Each vector has two pieces: a vertical component (row) followed by a horizontal component (column).
+The row and column use separate coding probabilities but are otherwise represented identically.
+Each component is a signed integer V representing a vertical or horizontal luma displacement of V quarter pixels (and a chroma displacement of V eighth pixels).
+The absolute value of V, if non zero, is followed by a boolean sign.
+V may take any value between  1023 and  1023, inclusive.
+The absolute value A is coded in one of two different ways according to its size.
+For 0 <  A <  7, A is tree coded, and for 8 <  A <  1023, the bits in the binary expansion of A are coded using independent boolean probabilities.
+The coding of A begins with a bool specifying which range is in effect.
+Decoding a motion vector component then requires a 19 position probability table, whose offsets, along with the procedure used to decode components, are as follows:
+8 long value bits w/independent probs
+Tree used for small absolute values (has expected correspondence).
+/ int read mvcomponent(bool decoder  d
+, const MV CONTEXT  mvc)
+Prob  ) mvc; int A   0; if (read bool(d, p [mvpis short]))
+; do { A    read bool(d, p [MVPbits   i])
+8 because it is coded long, so if A <  15, bit 3 is one and is not explicitly coded.
+/ A   treed read(d, small mvtree, p   MVPshort); return A && read bool(r, p [MVPsign]) ?
+The decoder should maintain an array of two MV CONTEXTs for decoding row and column components, respectively.
+These MV CONTEXTs should be set to their defaults every key frame.
+Each individual probability may be updated every interframe (by field J of the frame header) using a constant table of update probabilities.
+Each optional update is of the form B?
+P(7), that is, a bool followed by a 7 bit probability specification if true.
+As with other dynamic probabilities used by VP8, the updates remain in effect until the next key frame or until replaced via another update.
+In detail, the probabilities should then be managed as follows.
+Never changing table of update probabilities for each individual probability used in decoding motion vectors.
+/ const MV CONTEXT vp8 mv update
+/ MV read mv(bool decoder  d) { MV v
+/  update probs for component
+x   read literal(d, 7);  p
+while ( i < 2);
+This completes the description of the motion vector decoding procedure and, with it, the procedure for decoding interframe macroblock prediction records.
+Interframe Prediction Given an inter prediction specification for the current macroblock, that is, a reference frame together with a motion vector for each of the sixteen Y subblocks
+, we describe the calculation of the prediction buffer for the macroblock.
+Frame reconstruction is then completed via the previously described processes of residue summation (Section 14) and loop filtering (Section 15).
+The management of inter predicted subblocks and sub pixel interpolation may be found in the reference decoder file
+Bounds on, and Adjustment of, Motion Vectors
+Since each motion vector is differentially encoded from a neighboring block or macroblock and the only clamp is to ensure that the referenced motion vector represents a valid location inside a reference frame buffer, it is technically possible within the VP8 format for a block or macroblock to have arbitrarily large motion vectors, up to the size of the input image plus the extended border areas.
+For practical reasons, VP8 imposes a motion vector size range limit of  4096 to 4095 full pixels, regardless of image size (VP8 defines 14 raw bits for width and height; 16383x16383 is the maximum possible image size).
+Bitstream compliant encoders and decoders shall enforce this limit.
+Because the motion vectors applied to the chroma subblocks have 1/8 pixel resolution, the synthetic pixel calculation, outlined in Section 5 and detailed below, uses this resolution for the luma subblocks as well.
+In accordance, the stored luma motion vectors are all doubled, each component of each luma vector becoming an even integer in the range  2046 to  2046, inclusive.
+The vector applied to each chroma subblock is calculated by averaging the vectors for the 4 luma subblocks occupying the same visible area as the chroma subblock in the usual correspondence; that is, the vector for U and V block 0 is the average of the vectors for the Y subblocks { 0, 1, 4, 5}, chroma block 1 corresponds to Y blocks { 2, 3, 6, 7}, chroma block 2 to Y blocks { 8, 9, 12, 13}, and chroma block 3 to Y blocks { 10, 11, 14, 15}.
+In detail, each of the two components of the vectors for each of the chroma subblocks is calculated from the corresponding luma vector components as follows:
+Begin code block   int avg(int c1, int c2, int c3, int c4)
+Furthermore, if the version number in the frame tag specifies only full pel chroma motion vectors, then the fractional parts of both components of the vector are truncated to zero, as illustrated in the following pseudocode (assuming 3 bits of fraction for both luma and chroma vectors):
+Earlier in this document we described the vp8 clamp mv() function to limit "nearest" and "near" motion vector predictors inside specified margins within the frame boundaries.
+Additional clamping is performed for NEWMV macroblocks, for which the final motion vector is clamped again after combining the "best" predictor and the differential vector decoded from the stream.
+However, the secondary clamping is not performed for SPLITMV macroblocks, meaning that any subblock's motion vector within the SPLITMV macroblock may point outside the clamping zone.
+These non clamped vectors are also used when determining the decoding tree context for subsequent subblocks' modes in the vp8 mvCont() function.
+The prediction calculation for each subblock is then as follows.
+Temporarily disregarding the fractional part of the motion vector (that is, rounding "up" or "left" by right shifting each component 3 bits with sign propagation) and adding the origin (upper left position) of the (16x16 luma or 8x8 chroma)
+current macroblock gives us an origin in the Y, U, or V plane of the predictor frame (either the golden frame or previous frame).
+Considering that origin to be the upper left corner of a (luma or chroma) macroblock, we need to specify the relative positions of the pixels associated to that subblock, that is, any pixels that might be involved in the sub pixel interpolation processes for the subblock.
+The sub pixel interpolation is effected via two one dimensional convolutions.
+These convolutions may be thought of as operating on a two dimensional array of pixels whose origin is the subblock origin, that is the origin of the prediction macroblock described above plus the offset to the subblock.
+Because motion vectors are arbitrary, so are these "prediction subblock origins".
+The integer part of the motion vector is subsumed in the origin of the prediction subblock; the 16 (synthetic) pixels we need to construct are given by 16 offsets from the origin.
+The integer part of each of these offsets is the offset of the corresponding pixel from the subblock origin (using the vertical stride).
+To these integer parts is added a constant fractional part, which is simply the difference between the actual motion vector and its integer truncation used to calculate the origins of the prediction macroblock and subblock.
+Each component of this fractional part is an integer between 0 and 7, representing a forward displacement in eighths of a pixel.
+It is these fractional displacements that determine the filtering process.
+If they both happen to be zero (that is, we had a "whole pixel" motion vector), the prediction subblock is simply copied into the corresponding piece of the current macroblock's prediction buffer.
+As discussed in Section 14, the layout of the macroblock's prediction buffer can depend on the specifics of the reconstruction implementation chosen.
+Of course, the vertical displacement between lines of the prediction subblock is given by the stride, as are all vertical displacements used here.
+Otherwise, at least one of the fractional displacements is non zero.
+We then synthesize the missing pixels via a horizontal, followed by a vertical, one dimensional interpolation.
+The two interpolations are essentially identical.
+Each uses a (at most) six tap filter (the choice of which of course depends on the one dimensional offset).
+Thus, every calculated pixel references at most three pixels before (above or to the left of) it and at most three pixels after (below or to the right of) it.
+The horizontal interpolation must calculate two extra rows above and three extra rows below the 4x4 block, to provide enough samples for the vertical interpolation to proceed.
+Depending on the reconstruction filter type given in the version number field in the frame tag, either a bicubic or a bilinear tap set is used.
+The exact implementation of subsampling is as follows.
+Filter taps taken to 7 bit precision.
+Because DC is always passed, taps always sum to 128.
+Filter is determined by fractional displacement
+i   0; p    s   s;
+i < 6); return clamp255((a
+<  horizontal displacement <  7  / uint
+Input array "temp" is of course that computed above.
+<  vertical displacement <  7  / uint
+one vertical step   width of array   4  / final[r][c]
+We discuss briefly the rationale behind the choice of filters.
+Our approach is necessarily cursory; a genuinely accurate discussion would require a couple of books.
+Readers unfamiliar with signal processing may or may not wish to skip this.
+All digital signals are of course sampled in some fashion.
+The case where the inter sample spacing (say in time for audio samples, or space for pixels) is uniform, that is, the same at all positions, is particularly common and amenable to analysis.
+Many aspects of the treatment of such signals are best understood in the frequency domain via Fourier Analysis, particularly those aspects of the signal that are not changed by shifts in position, especially when those positional shifts are not given by a whole number of samples.
+Non integral translates of a sampled signal are a textbook example of the foregoing.
+In our case of non integral motion vectors, we wish to say what the underlying image "really is" at these pixels; although we don't have values for them, we feel that it makes sense to talk about them.
+The correctness of this feeling is predicated on the underlying signal being band limited, that is, not containing any energy in spatial frequencies that cannot be faithfully rendered at the pixel resolution at our disposal.
+In one dimension, this range of "OK" frequencies is called the Nyquist band; in our two  dimensional case of integer grid samples, this range might be termed a Nyquist rectangle.
+The finer the grid, the more we know about the image, and the wider the Nyquist rectangle.
+It turns out that, for such band limited signals, there is indeed an exact mathematical formula to produce the correct sample value at an arbitrary point.
+Unfortunately, this calculation requires the consideration of every single sample in the image, as well as needing to operate at infinite precision.
+Also, strictly speaking, all band  limited signals have infinite spatial (or temporal) extent, so
+everything we are discussing is really some sort of approximation.
+It is true that the theoretically correct subsampling procedure, as well as any approximation thereof, is always given by a translation  invariant weighted sum (or filter) similar to that used by VP8.
+It is also true that the reconstruction error made by such a filter can be simply represented as a multiplier in the frequency domain; that is, such filters simply multiply the Fourier transform of any signal to which they are applied by a fixed function associated to the filter.
+This fixed function is usually called the frequency response (or transfer function); the ideal subsampling filter has a frequency response equal to one in the Nyquist rectangle and zero everywhere else.
+Another basic fact about approximations to "truly correct" subsampling is that the wider the subrectangle (within the Nyquist rectangle) of spatial frequencies one wishes to "pass" (that is, correctly render) or, put more accurately, the closer one wishes to approximate the ideal transfer function, the more samples of the original signal must be considered by the subsampling, and the wider the calculation precision necessitated.
+The filters chosen by VP8 were chosen, within the constraints of 4 or 6 taps and 7 bit precision, to do the best possible job of handling the low spatial frequencies near the 0th DC frequency along with introducing no resonances (places where the absolute value of the frequency response exceeds one).
+The justification for the foregoing has two parts.
+First, resonances can produce extremely objectionable visible artifacts when, as often happens in actual compressed video streams, filters are applied repeatedly.
+Second, the vast majority of energy in real world images lies near DC and not at the high end.
+To get slightly more specific, the filters chosen by VP8 are the best resonance free 4  or 6 tap filters possible, where "best" describes the frequency response near the origin: The response at 0 is required to be 1, and the graph of the response at 0 is as flat as possible.
+To provide an intuitively more obvious point of reference, the "best" 2 tap filter is given by simple linear interpolation between the surrounding actual pixels.
+Finally, it should be noted that, because of the way motion vectors are calculated, the (shorter) 4 tap filters (used for odd fractional displacements) are applied in the chroma plane only.
+Human color perception is notoriously poor, especially where higher spatial frequencies are involved.
+The shorter filters are easier to understand mathematically, and the difference between them and a theoretically slightly better 6 tap filter is negligible where chroma is concerned.
+This annex presents the bitstream syntax in a tabular form.
+All the information elements have been introduced and explained in the previous sections but are collected here for a quick reference.
+Each syntax element is briefly described after the tabular representation along with a reference to the corresponding paragraph in the main document.
+The meaning of each syntax element value is not repeated here.
+The top level hierarchy of the bitstream is introduced in Section 4.
+Definition of syntax element coding types can be found in Section 8.
+The types used in the representation in this annex are:  f(n), n bit value from stream (n successive bits, not boolean encoded)  L(n), n bit number encoded as n booleans (with equal probability of being 0 or 1)
+B(p), bool with probability p of being 0  T, tree encoded value 19.1.
+The 3 byte frame tag can be parsed as follows:
+Begin code block   unsigned char  c
+pbi source; unsigned int tmp; tmp   (c[2]
+c[0]; key frame   tmp & 0x1; version
+(tmp >> 1) & 0x7; show frame
+(tmp >> 4) & 0x1;
+(tmp >> 5) & 0x7FFFF;
+Where:  key frame indicates whether the current frame is a key frame or not.
+version determines the bitstream version.
+show frame indicates whether the current frame is meant to be displayed or not.
+first part size determines the size of the first partition (control partition), excluding the uncompressed data chunk.
+The start code is a constant 3 byte pattern having value 0x9d012a.
+The latter part of the uncompressed chunk (after the start code) can be parsed as follows:
+Begin code block   unsigned char  c
+pbi source   6; unsigned int tmp; tmp   (c[1]
+c[0]; width   tmp & 0x3FFF; horizontal scale   tmp >
+c[2]; height   tmp & 0x3FFF; vertical scale
+log2 nbr of dct partitions
+Section 9.2)  segmentation enabled enables the segmentation feature for the current frame (Section 9.3)  filter type determines whether the normal or the simple loop filter is used (Sections 9.4, 15)  loop filter level controls the deblocking filter (Sections 9.4, 15)
+sharpness level controls the deblocking filter (Sections 9.4, 15)
+log2 nbr of dct partitions determines the number of separate partitions containing the DCT coefficients of the macroblocks (Section 9.5)  refresh entropy probs determines whether updated token probabilities are used only for this frame or until further update  refresh golden frame determines if the current decoded frame refreshes the golden frame (Section 9.7)  refresh alternate frame determines if the current decoded frame refreshes the alternate reference frame (Section 9.7)
+copy buffer to golden determines if the golden reference is replaced by another reference (Section 9.7)
+copy buffer to alternate determines if the alternate reference is replaced by another reference (Section 9.7)  sign bias golden controls the sign of motion vectors when the golden frame is referenced (Section 9.7)
+sign bias alternate controls the sign of motion vectors when the alternate frame is referenced
+(Section 9.7)  refresh last determines if the current decoded frame refreshes the last frame reference buffer (Section 9.8)  mb
+no skip coeff enables or disables the skipping of macroblocks containing no non zero coefficients (Section 9.10)
+prob skip false indicates the probability that the macroblock is not skipped (flag indicating skipped macroblock is false)
+prob intra indicates the probability of an intra macroblock (Section 9.10)  prob last indicates the probability that the last reference frame is used for inter prediction (Section 9.10)
+prob gf indicates the probability that the golden reference frame is used for inter prediction (Section 9.10)  intra 16x16 prob update flag indicates if the branch probabilities used in the decoding of the luma intra prediction mode are updated
+(Section 9.10)  intra 16x16 prob indicates the branch probabilities of the luma intra prediction mode decoding tree
+quantizer update indicates if the quantizer value is updated for the i^(th) segment (Section 9.3)  quantizer update value indicates the update value for the segment quantizer (Section 9.3)  quantizer update sign indicates the update sign for the segment quantizer (Section 9.3)  loop filter update indicates if the loop filter level value is updated for the i^(th) segment (Section 9.3)  lf update value indicates the update value for the loop filter level (Section 9.3)
+lf update sign indicates the update sign for the loop filter level (Section 9.3)  segment prob update indicates whether the branch probabilities used to decode the segment id in the MB header are decoded from the stream or use the default value of 255 (Section 9.3)  segment prob indicates the branch probabilities of the segment id decoding tree (Section 9.3)
+mode ref lf delta update indicates if the delta values used in an adjustment are updated in the current frame (Section 9.4)  ref frame delta update flag indicates if the adjustment delta value corresponding to a certain used reference frame is updated (Section 9.4)  delta magnitude is the absolute value of the delta value  delta sign is the sign of the delta value  mb mode delta update flag indicates if the adjustment delta value corresponding to a certain MB prediction mode is updated (Section 9.4)
+if (uv dc delta present) {
+y dc delta present indicates if the stream contains a delta value that is added to the baseline index to obtain the luma DC coefficient dequantization index (Section 9.6)  y
+dc delta magnitude is the magnitude of the delta value (Section 9.6)
+y dc delta sign is the sign of the delta value (Section 9.6)
+y2 dc delta present indicates if the stream contains a delta value that is added to the baseline index to obtain the Y2 block DC coefficient dequantization index (Section 9.6)  y2 ac delta present indicates if the stream contains a delta value that is added to the baseline index to obtain the Y2 block AC coefficient dequantization index (Section 9.6)
+uv dc delta present indicates if the stream contains a delta value that is added to the baseline index to obtain the chroma DC coefficient dequantization index (Section 9.6)  uv ac delta present indicates if the stream contains a delta value that is added to the baseline index to obtain the chroma AC coefficient dequantization index (Section 9.6)   token prob update()
+if (mv mode   SPLITMV) {
+mb skip coeff indicates whether the macroblock contains any coded coefficients or not (Section 11.1)
+inter mb indicates whether the macroblock is intra  or inter  coded (Section 16)
+mb ref frame sel1 selects the reference frame to be used; last frame (0), golden/alternate (1) (Section 16.2)  mb ref frame sel2 selects whether the golden (0) or alternate reference frame (1) is used (Section 16.2)
+mv mode determines the macroblock motion vector mode (Section 16.2)
+mv split mode gives the macroblock partitioning specification and determines the number of motion vectors used (numMvs)
+(Section 16.2)  sub mv mode determines the sub macroblock motion vector mode for macroblocks coded using the SPLITMV motion vector mode (Section 16.2)  intra y mode selects the luminance intra prediction mode (Section 16.1)  intra b mode selects the sub macroblock luminance prediction mode for macroblocks coded using B PRED mode (Section 16.1)  intra uv mode
+(!is inter mb && intra y mode !
+extra bits determines the value of the coefficient within the value range defined by the token (Section 13.2)  sign indicates the sign of the coefficient (Section 13.2) 20.
+: Reference Decoder Source Code 20.1.
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license    that can be found in the LICENSE file in the root of the source    tree.
+An additional intellectual property rights grant can be    found in the file PATENTS.
+All contributing project authors may    be found in the AUTHORS file in the root of the source tree.
+#ifndef BIT OPS H #
+define BIT OPS H /
+Evaluates to a mask with n bits set  /
+Returns len bits, with the LSB at position bit
+/ #define BITS GET(val, bit, len)
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license    that can be found in the LICENSE file in the root of the source    tree.
+An additional intellectual property rights grant can be    found in the file PATENTS.
+All contributing project authors may    be found in the AUTHORS file in the root of the source tree.
+H #define BOOL DECODER H #include <stddef.h
+/  identical to encoder's   range
+d input   start partition   2;
+/  ptr to next byte
+{ d value   0; d input   NULL;
+> 8); unsigned int  SPLIT
+/  will be 0 or 1  / if (d value >  SPLIT)
+br, int bits) { int
+int bit; for (bit   bits 1; bit >  0; bit ) {
+br, int bits) { int
+int bit; for (bit   bits 1; bit >  0; bit ) {
+; } static int bool maybe get int(struct bool decoder
+{ return bool get bit(br) ?
+bool get int(br, bits) : 0; } static int bool read
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license    that can be found in the LICENSE file in the root of the source    tree.
+An additional intellectual property rights grant can be    found in the file PATENTS.
+All contributing project authors may    be found in the AUTHORS file in the root of the source tree.
+/ static const int dc q
+,   17,   17, 18,   19,   20,   20,   21,   21,   22,   22, 23,   23,   24,   25,   25,   26,   27,   28, 29,   30,   31,   32,   33,   34,   35,   36, 37,   37,   38,   39,   40,   41,   42,   43, 44,   45,   46,   46,   47,   48,   49,   50, 51,   52,   53,   54,   55,   56,   57,   58, 59,   60,
+,   62,   63,   64,   65,   66, 67,
+69,   70,   71,   72,   73,   74, 75,   76,   76,   77,   78,   79,   80,   81, 82,   83
+,   84,   85,   86,   87,   88,   89, 91,   93,   95,   96,   98,
+100,  101,  102, 104,  106,  108,  110,  112,  114,  116,  118, 122,  124,  126,  128,  130,  132,  134,  136, 138,  140,  143,  145,  148,  151,  154,  157 }
+,   68,   70,   72,   74,   76, 78,   80,   82,   84,   86,   88,   90,   92, 94,   96,   98,
+100,  102,  104,  106,  108, 110,  112,  114,  116,  119,  122,  125,  128, 131,  134,  137,  140,  143,  146,  149,  152, 155,  158,  161,  164,  167,  170,  173,  177, 181,  185,  189,  193,  197,  201,  205,  209, 213,  217,  221,  225,  229,  234,  239,  245, 249,  254,  259,  264,  269,  274,  279,  284 };
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license    that can be found in the LICENSE file in the root of the source    tree.
+An additional intellectual property rights grant can be    found in the file PATENTS.
+All contributing project authors may    be found in the AUTHORS file in the root of the source tree.
+#include "vp8 prob data.h" #include "dequant data.h"
+k coeff entropy update probs [i][j][k][l]))
+bool get uint(bool, 8); /
+Read coefficient skip mode probability
+/ hdr coeff skip enabled   bool get bit(bool); if (hdr coeff skip enabled)
+bool get uint(bool, 8); if (bool get bit(bool)) for (i   0; i < 3
+; i ) hdr uv mode probs[i]
+bool get uint(bool, 8); for (i   0
+; i < 2; i ) for (j   0; j < MV PROB CNT; j ) if (bool get(bool, k mv entropy update probs[i][j]))
+{ int x   bool get uint(bool, 7); hdr mv probs[i][j]
+bool get bit(bool); hdr refresh arf
+bool get uint(bool, 2) :
+bool get uint(bool, 2) : 0; hdr sign bias[GOLDEN FRAME]
+: bool get bit(bool); hdr sign bias[ALTREF FRAME]
+: bool get bit(bool); hdr refresh entropy
+bool get bit(bool); hdr refresh last    key ?
+(hdr y1 dc delta q
+bool maybe get int(bool, 4)); update
+(hdr y2 dc delta q
+bool maybe get int(bool, 4)); update
+(hdr y2 ac delta q
+bool maybe get int(bool, 4)); update
+(hdr uv dc delta q
+bool maybe get int(bool, 4)); update
+(hdr uv ac delta q
+bool maybe get int(bool, 4)); hdr delta update   update; } static void decode and init token partitions(struct
+{ int i; hdr partitions
+1 << bool get uint(bool, 2); if (sz < 3
+; data    3; } else hdr partition sz[i]
+if (sz < hdr partition sz[i]) vpx internal error(&ctx error, VPX CODEC CORRUPT FRAME, "Truncated partition %d", i);
+bool maybe get int(bool, 6); for (i   0; i < BLOCK CONTEXTS; i )
+bool get bit(bool); hdr update data   bool get bit(bool); if (hdr update data)
+{ hdr abs   bool get bit(bool); for (i   0; i < MAX MB SEGMENTS; i ) hdr quant idx[i]
+bool maybe get int(bool, 7); for (i   0; i < MAX MB SEGMENTS; i ) hdr
+dequant factors dqf[MAX MB SEGMENTS])
+for (i   0; i < MAX MB SEGMENTS; i )
+; } static int clamp q(int q) { if (q < 0) return 0; else
+if (q > 127) return 127; return q; } static int dc q(int q) {
+seg, const struct vp8 quant hdr    quant hdr)
+{ int i, q; struct dequant factors  dqf   factors; for (i   0; i < (seg enabled ?
+quant hdr q index; if (seg enabled) q
+seg quant idx[i] : seg quant idx[i]; if (dqf quant idx !
+q    quant hdr delta update) { dqf factor[TOKEN BLOCK Y1][0]
+quant hdr y1 dc delta q); dqf factor[TOKEN BLOCK Y1][1]
+ac q(q); dqf factor[TOKEN BLOCK UV][0]
+quant hdr uv dc delta q);
+quant hdr uv ac delta q); dqf factor[TOKEN BLOCK Y2][0]
+dc q(q   quant hdr y2 dc delta q)   2; dqf factor[TOKEN BLOCK Y2][1]
+quant hdr y2 ac delta q)
+if (dqf factor[TOKEN BLOCK Y2][1]
+8; if (dqf factor[TOKEN BLOCK UV][0]
+132) dqf factor[TOKEN BLOCK UV][0]   132; dqf quant idx   q
+; ctx saved entropy valid   0;
+(ctx frame hdr.kf.w   15) / 16;
+decoder(&bool, data, ctx frame hdr.part0 sz)
+These get updated on keyframes   regardless of the refresh entropy setting.
+/ if (ctx frame hdr.is keyframe)
+{ ARRAY COPY(ctx entropy hdr.coeff probs, k default coeff probs); ARRAY COPY(ctx
+entropy hdr.mv probs, k default mv probs); ARRAY COPY(ctx entropy hdr.y mode probs, k default y mode probs); ARRAY COPY(ctx
+entropy hdr.uv mode probs, k default uv mode probs); }
+ctx mb cols); if (ctx loopfilter hdr.level && row) vp8 dixie loopfilter process row(ctx, row 1, 0, ctx mb cols); if ( partition
+partition   0; } if (ctx loopfilter hdr.level)
+vp8 dixie loopfilter process row( ctx, row 1, 0, ctx mb cols); ctx frame cnt ; if (!
+arf   1) { vp8 dixie release ref frame(ctx ref frames[ALTREF FRAME]); ctx ref frames[ALTREF FRAME]   vp8 dixie ref frame(ctx ref frames[LAST FRAME])
+{ vp8 dixie release ref frame(ctx ref frames[GOLDEN FRAME]);
+{ vp8 dixie release ref frame(ctx ref frames[GOLDEN FRAME]);
+return VPX CODEC CORRUPT FRAME;
+0x2a) return VPX CODEC UNSUP BITSTREAM; raw   data[6]
+kf.scale h, BITS GET(raw, 30,  2), update); hdr frame size updated
+hdr kf.h) return VPX CODEC UNSUP BITSTREAM; } return VPX CODEC OK;
+} vpx codec err t vp8 dixie decode
+{ volatile struct vp8 decoder ctx
+ctx    ctx; ctx error.error code
+; ctx error.has detail   0; if (!setjmp(ctx
+) decode frame(ctx, data, sz); return ctx  error.error code; } void vp8 dixie decode destroy(struct
+ctx) { vp8 dixie predict destroy(ctx); vp8 dixie tokens destroy(ctx); vp8 dixie modemv destroy(ctx); }
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license    that can be found in the LICENSE file in the root of the source    tree.
+An additional intellectual property rights grant can be    found in the file PATENTS.
+All contributing project authors may    be found in the AUTHORS file in the root of the source tree.
+#ifndef DIXIE H #define DIXIE H #include "vpx codec internal.h"
+#include "bool decoder.h" struct vp8 frame hdr
+[ENTROPY NODES]; enum { MV PROB
+CNT   2   8 1   10
+, B TM PRED, B VE PRED, B HE PRED,
+ZERO4X4, NEW4X4, B MODE COUNT }; enum splitmv partitioning { SPLITMV 16X8, SPLITMV 8X16, SPLITMV 8X8, SPLITMV 4X4 }; typedef short filter t[6]; typedef union mv { struct { int16 t x
+/  A "token entropy context" has 4 Y values, 2 U, 2 V, and 1 Y2
+/ typedef int token entropy ctx t[4
+ctx); void vp8 dixie decode destroy(struct
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license    that can be found in the LICENSE file in the root of the source    tree.
+An additional intellectual property rights grant can be    found in the file PATENTS.
+All contributing project authors may    be found in the AUTHORS file in the root of the source tree.
+(x)) #define p3 pixels[ 4 stride]
+#define p2 pixels[ 3 stride]
+#define p1 pixels[ 2 stride]
+#define p0 pixels[ 1 stride]
+#define q0 pixels[ 0 stride]
+#define q1 pixels[ 1 stride]
+#define q2 pixels[ 2 stride]
+#define q3 pixels[ 3 stride]
+#define static static int saturate int8(int x)
+127 : a   4) >
+p0   saturate uint8(p0   f2); q0   saturate uint8(q0 f1); if (!use outer taps) {
+This handles the case of subblock filter()
+w   saturate int8(saturate int8(p1 q1)
+filter common(src, stride, 1); else
+if (ctx segment hdr.enabled) { if (!
+ctx segment hdr.abs) filter level    ctx segment
+id]; else filter level   ctx segment
+if (filter level < 0) filter level   0; if (ctx loopfilter hdr.delta enabled)
+{ filter level    ctx loopfilter hdr.ref delta[mbi base.ref frame]; if (mbi base.ref frame   CURRENT FRAME) { if (mbi base.y mode   B PRED)
+2 : 1; if (interior limit > 9 ctx loopfilter hdr.sharpness)
+9 ctx loopfilter hdr.sharpness; } if (interior limit < 1) interior limit   1; hev threshold   (filter level >  15); if (filter level >  40)
+hev threshold ;  edge limit    filter level;
+interior limit    interior limit;  hev threshold    hev threshold;
+This conditional is actually dependent on the   number of coefficients decoded, not the skip flag as   coded in the bitstream.
+The tokens task is expected   to set 31 if there is  any  non zero data.
+/ if (mbi base.eob mask    mbi base.y mode
+mbi base.y mode   B PRED) { filter subblock v edge(y   4, stride, edge limit, interior limit, hev threshold, 2); filter subblock v edge(y
+8, stride, edge limit, interior limit, hev threshold, 2); filter subblock v edge(y
+if (mbi base.eob mask    mbi base.y mode   SPLITMV
+mbi base.y mode   B PRED)
+{ filter subblock h edge(y
+4   stride, stride, edge limit, interior limit, hev threshold, 2); filter subblock h edge(y
+8   stride, stride, edge limit, interior limit, hev threshold, 2); filter subblock h edge(y
+12   stride, stride, edge limit, interior limit, hev threshold, 2); filter subblock h edge(u
+uv stride, uv stride, edge limit, interior limit, hev threshold, 1); filter subblock h
+(stride   row   start col)   16; mbi   ctx mb info rows[row]
+This conditional is actually dependent on the   number of coefficients decoded, not the skip flag as   coded in the bitstream.
+The tokens task is expected   to set 31 if there is  any  non zero data.
+(mbi base.eob mask    mbi base.y mode   SPLITMV
+mbi base.y mode   B PRED); int mb limit
+(edge limit   2)   2   interior limit; int b limit   edge limit   2   interior limit; if (col) filter v edge simple(y, stride, mb limit); if (filter subblocks)
+{ filter v edge simple(y   4, stride, b limit); filter v edge simple(y   8, stride, b limit); filter v edge simple(y   12, stride, b limit); }
+if (row) filter h edge simple(y, stride, mb limit); if (filter subblocks) { filter h edge simple(y
+4   stride, stride, b limit);
+8   stride, stride, b limit); filter h edge simple(y
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license    that can be found in the LICENSE file in the root of the source    tree.
+An additional intellectual property rights grant can be    found in the file PATENTS.
+All contributing project authors may    be found in the AUTHORS file in the root of the source tree.
+ifndef DIXIE LOOPFILTER H #
+#endif   End code block   20.8.
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license    that can be found in the LICENSE file in the root of the source    tree.
+An additional intellectual property rights grant can be    found in the file PATENTS.
+All contributing project authors may    be found in the AUTHORS file in the root of the source tree.
+#include "idct add.h" #include <assert.h
+short  input, short  output) { int i; int a1, b1, c1, d1; int a2, b2, c2, d2; const short
+columns(const short  input, short  output) { int i; int a1, b1, c1, d1; const short  ip   input; short  op   output; int temp1, temp2;
+; b1   coeffs[0] coeffs[2]; temp1
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license    that can be found in the LICENSE file in the root of the source    tree.
+An additional intellectual property rights grant can be    found in the file PATENTS.
+All contributing project authors may    be found in the AUTHORS file in the root of the source tree.
+/ #ifndef IDCT ADD H #
+define IDCT ADD H void vp8 dixie idct add init(struct
+#endif   End code block   20.10.
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license    that can be found in the LICENSE file in the root of the source    tree.
+An additional intellectual property rights grant can be    found in the file PATENTS.
+All contributing project authors may    be found in the AUTHORS file in the root of the source tree.
+/ #ifndef VPX PORTS MEM H #define VPX PORTS MEM H #include "vpx config.h"
+&&  GNUC  #define DECLARE ALIGNED(n,typ,val)
+#warning No alignment directives known for this compiler.
+#endif #endif /  Declare an aligned array on the stack, for situations where the   stack pointer may not have the alignment we expect.
+Creates an   array with a modified name, then defines val to be a pointer, and
+aligns that pointer within the array.
+1];\ typ  val   (typ )
+/  Indicates that the usage of the specified variable has been   audited to assure that it's safe to use uninitialized.
+Silences   'may be used uninitialized' warnings on gcc.
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license    that can be found in the LICENSE file in the root of the source    tree.
+An additional intellectual property rights grant can be    found in the file PATENTS.
+All contributing project authors may    be found in the AUTHORS file in the root of the source tree.
+(raw.d.x < bounds to left) ?
+(raw.d.x > bounds to right) ?
+(raw.d.y < bounds to top) ?
+bounds to top : raw.d.y;
+(raw.d.y > bounds to bottom) ?
+; } static int read segment id(struct bool decoder  bool,
+struct vp8 segment hdr  seg)
+{ return bool get(bool, seg tree probs[0])
+if (b < 4) { switch (above base.y mode) { case DC PRED: return B DC PRED; case V PRED: return B VE PRED; case H PRED: return B HE PRED; case TM PRED: return B TM PRED
+this, const struct mb info
+left, unsigned int b) { if (!
+return B DC PRED; case V PRED: return B VE PRED; case H PRED:
+return B HE PRED; case TM PRED:
+return B TM PRED; case B PRED:
+above block mode(this, above, i); enum prediction mode
+l   left block mode(this, left, i); enum prediction mode b;
+, uv mode tree, kf uv mode probs);
+this base.y mode   y mode;
+this base.uv mode   uv mode;
+/ int y mode, uv mode;
+this base.y mode   y mode;
+this base.uv mode   uv mode;
+; this base.ref frame   CURRENT FRAME; } static int read mv
+bool, const unsigned char  mvc[MV PROB CNT])
+{ enum {IS SHORT, SIGN, SHORT, BITS   SHORT   8 1, LONG WIDTH   10}; int x   0
+; for (i   0; i < 3; i )
+x    bool get(bool, mvc[BITS   i])
+x    x; return x << 1; } static mv t above block mv(const
+left block mv(const struct mb info
+this, const struct mb info
+{ enum subblock mv ref { SUBMVREF NORMAL, SUBMVREF LEFT ZED, SUBMVREF ABOVE ZED, SUBMVREF LEFT ABOVE SAME, SUBMVREF LEFT ABOVE ZED }; int lez   !
+a.raw; enum subblock mv ref ctx
+SUBMVREF NORMAL; if (lea && lez) ctx
+SUBMVREF LEFT ABOVE ZED; else if (lea
+) ctx   SUBMVREF LEFT ABOVE SAME; else if (aez
+) ctx   SUBMVREF ABOVE ZED; else
+mv component probs t  mvc[2])
+{ mv d.y   read mv
+; } static void mv bias(const
+{ if (sign bias[mb base.ref frame] ^ sign bias[ref frame])
+Process above  / if (above base.ref frame !
+CURRENT FRAME) { if (above base.mv.raw)
+{ ( mv) raw   above base.mv.raw
+CURRENT FRAME) { if (left base.mv.raw)
+{ union mv this mv; this mv.raw
+left base.mv.raw; mv bias(left, sign bias, this base.ref frame, &this mv);
+{ union mv this mv; this mv.raw   aboveleft base.mv.raw; mv bias(aboveleft, sign bias, this base.ref frame, &this mv); if (this mv.raw !
+See if above left MV can be merged with NEAREST  / if (mv raw   near mvs[CNT NEAREST].raw)
+tmp   cnt[CNT NEAREST]; cnt[CNT NEAREST]   cnt[CNT NEAR]; cnt[CNT NEAR]
+Note that this   storage shares the same address as near mvs[CNT ZEROZERO].
+/ for (k   0; j !
+mv   left mv; break; case ABOVE4X4:
+mv   above mv; break; case ZERO4X4:
+break; case NEW4X4: read mv(bool, &mv, hdr mv probs); mv.d.x    best mv d.x; mv.d.y
+Fill the MVs for this partition  / for (; k < 16
+this split.mvs[k]   mv; mask    1 << k
+mv mv, int l, int t, int b w, int w, int h)
+{ int b, r; /
+Get distance to edge for top left pixel
+2   bool get(bool, hdr prob gf) : 1; find near mvs(this, this 1, above, ctx reference hdr.sign bias, near mvs, mv cnts);
+mv counts to probs[mv cnts[0]][0]
+mv counts to probs[mv cnts[1]][1]
+mv counts to probs[mv cnts[2]][2]
+mv counts to probs[mv cnts[3]][3]; this base.y mode   bool read tree(bool, mv ref tree, probs); this base.uv mode
+this base.y mode; this base.need mc border   0
+ctx mb cols   16; h   ctx mb rows   16
+; switch (this base.y mode) { case NEARESTMV:
+this base.mv   clamp mv(near mvs[NEAREST], bounds); break; case NEARMV:
+this base.mv   clamp mv(near mvs[NEAR], bounds); break; case ZEROMV:
+; return; //skip need mc border check case
+clamp mv(near mvs[BEST], bounds); read mv(bool, &this base.mv, hdr mv probs);
+this base.mv.d.x    clamped best mv.d.x;
+this base.mv.d.y    clamped best mv.d.y; break; case SPLITMV: { union mv
+(b>>2&2)].d.x    this split.mvs[b].d.x; chroma mv[(b>>1&1)
+(chroma mv[b].d.y >> 31); chroma mv[b].d.x /  4; chroma mv[b].d.y /  4; //note we're passing in non subsampled coordinates if (need mc border(chroma mv[b]
+x, y, 16, w, h))
+read segment id(bool, &ctx segment hdr); if (ctx entropy hdr.coeff skip enabled)
+this base.skip coeff   bool get(bool, ctx entropy hdr.coeff skip prob); if (ctx frame hdr.is keyframe) { if (!ctx segment hdr.update map)
+/  For above border row  / if (ctx frame hdr.frame size updated) { free(ctx
+ctx mb info storage   NULL; free(ctx
+; ctx mb info rows storage   NULL; }
+mbi h, sizeof( ctx mb info storage)); if (!
+ctx mb info rows storage)
+ctx mb info rows storage
+/ mbi   ctx mb info storage   1
+mbi    mbi w; } ctx mb info rows
+mb info rows storage   1; } void vp8 dixie modemv destroy(struct
+ctx mb info storage   NULL; free(ctx
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license    that can be found in the LICENSE file in the root of the source    tree.
+An additional intellectual property rights grant can be    found in the file PATENTS.
+All contributing project authors may    be found in the AUTHORS file in the root of the source tree.
+MODEMV H void vp8 dixie modemv
+ctx); void vp8 dixie modemv destroy(struct
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license    that can be found in the LICENSE file in the root of the source    tree.
+An additional intellectual property rights grant can be    found in the file PATENTS.
+All contributing project authors may    be found in the AUTHORS file in the root of the source tree.
+{  ZEROMV, 2,  NEARESTMV, 4,  NEARMV, 6,  NEWMV,  SPLITMV }; static const int submv ref
+{  LEFT4X4, 2,  ABOVE4X4, 4,  ZERO4X4,  NEW4X4 }; static const int split mv tree[6]
+{ 110, 111, 150}; static const unsigned char submv ref probs2[5][3]
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license    that can be found in the LICENSE file in the root of the source    tree.
+An additional intellectual property rights grant can be    found in the file PATENTS.
+All contributing project authors may    be found in the AUTHORS file in the root of the source tree.
+#include "idct add.h" #include "mem.h
+i < n; i ) for (j   0; j < n; j ) predict[i  stride
+Transposes the left column to the top row for later   consumption by the idct/recon stage
+> 4; break; case  4: dc
+> 3; break; } for (i   0; i < n; i ) for (j   0; j < n; j )
+dc; } static void predict ve 4x4(unsigned char
+(above[ 1]   2   above[0]   above[1]
+(above[ 2]   2   above[3]   above[4]
+> 2; for (i   1; i < 4; i ) for (j   0; j < 4; j )
+(left[ stride]   2   left[0]   left[stride]   2) >
+> 2; predict    stride; left    stride; predict[0]
+(left[ stride]   2   left[0]   left[stride]   2) >
+> 2; predict    stride; left    stride; predict[0]
+(left[ stride]   2   left[0]   left[stride]   2) >
+> 2; predict    stride; left    stride; predict[0]
+(left[ stride]   2   left[0]   left[0]   2) >
+> 2; predict    stride; predict[0]   pred1;
+> 2; predict    stride; predict[0]   pred2;
+> 2; predict    stride; predict[0]
+; } static void predict rd 4x4(unsigned char
+(above[ 1]   2   above[ 0]
+(above[ 0]   2   above[ 1]
+(above[ 1]   2   above[ 2]   above[3]
+> 2; predict    stride; predict[0]   pred4
+; predict[3]   pred2; predict    stride;
+(left[stride 2]   2   left[stride]   left[0]   2) >
+; predict[3]   pred1; predict    stride;
+left[stride 2]   left[stride]   2) >
+; } static void predict vr 4x4(unsigned char
+(above[ 1]   2   above[ 0]
+(above[ 0]   2   above[ 1]
+(above[ 1]   2   above[ 2]   above[3]
+> 2; predict    stride; predict[0]
+; predict[3]   pred2; predict    stride;
+(left[stride 2]   2   left[stride]   left[0]   2) >
+> 2; predict    stride; predict[0]   pred1;
+> 2; predict    stride; predict[0]   pred5;
+> 2; } static void predict hd
+(left[ 0]   above[ 1]   1) >
+(above[ 1]   2   above[ 0]
+(above[ 0]   2   above[ 1]
+> 2; predict    stride; predict[0]   pred4
+; predict[3]   pred1; predict    stride;
+(left[stride 2]   left[stride]   1) >
+(left[stride 2]   2   left[stride]   left[0]   2) >
+; predict[3]   pred5; predict    stride;
+(left[stride 3]   left[stride 2]   1) >
+left[stride 2]   left[stride]   2) >
+(left[stride 0]   left[stride 1]   1) >
+left[stride 1]   left[stride 2]   2) >
+(left[stride 1]   left[stride 2]   1) >
+left[stride 2]   left[stride 3]   2) >
+> 2; predict    stride; predict[0]   pred2;
+(left[stride 2]   left[stride 3]   1) >
+left[stride 3]   left[stride 3]   2) >
+> 2; predict    stride; predict[0]   pred4;
+; predict    stride; predict[0]   pred6;
+; predict[3]   pred6; } static void predict h 16x16(unsigned char  predict, int stride) {
+above right of subblocks 7, 11, and 15  / uint32 t tmp,  copy
+(recon   16 stride); stride   stride / sizeof(unsigned int); tmp    copy;
+(i & 3)   4; switch (mbi split.modes[i])
+{ case B DC PRED: predict dc nxn(b predict, stride, 4); break; case B TM PRED: predict tm 4x4(b predict, stride); break; case B VE PRED: predict ve 4x4(b predict, stride); break; case B HE PRED: predict he 4x4(b predict, stride); break; case B LD PRED: predict ld 4x4(b predict, stride); break; case B RD PRED: predict rd 4x4(b predict, stride); break; case B VR PRED: predict vr 4x4(b predict, stride); break; case B VL PRED: predict vl 4x4(b predict, stride); break; case B HD PRED:
+predict hd 4x4(b predict, stride); break; case B HU PRED:
+{ short y2[16]; int   i; vp8 dixie walsh(coeffs
+predict dc nxn(predict, stride, 16); break;
+case V PRED: predict v 16x16(predict, stride); break; case H PRED:
+if ((i & 3)   3) predict    stride
+; switch (mbi base.uv mode) { case DC PRED:
+predict dc nxn(predict u, stride, 8); predict dc nxn(predict v, stride, 8); break; case V PRED: predict v 8x8(predict u, stride); predict v 8x8(predict v, stride); break; case H PRED:
+(reference[ 1 reference stride]   filter[1])
+(reference[ 0 reference stride]   filter[2])
+(reference[ 1 reference stride]   filter[3])
+(reference[ 2 reference stride]   filter[4])
+Does this make it any
+if (!mv raw) return reference;
+mx   mv d.x & 7; my   mv d.y & 7;
+((mv d.y >> 3)   stride)
+} static mv t calculate chroma
+if (temp < 0) temp    4; else temp    4; mv.d.x   temp / 8; temp   mbi split.mvs[b].d.y
+if (y >  h) ref row
+; else if (y > 0)
+ref row    y   stride; do { int left, right   0, copy; left
+if (left > b w) left   b w; if (x   b w > w)
+b w w; if (right > b w) right   b w; copy
+b w left right; if (left) memset(dst, ref row[0], left); if (copy) memcpy(dst   left, ref row
+left, copy); if (right) memset(dst
+left   copy, ref row[w 1], right);
+(mv d.y >> 3)   stride
+; build mc border(emul block, reference 2 2   stride, stride, x 2, y 2, b w   5,
+b h   5, w, h); reference   emul block   2   stride   2;
+(mv d.y >> 3)   stride; } predict   filter block(output, reference, stride, mv, filters);
+vp8 dixie idct add(output, predict, stride, coeffs   16   b)
+; } static void predict inter emulated edge(struct
+: Move this into its own buffer.
+This only works because   we still have a border allocated.
+ctx frame strg[0].img.img data; unsigned char  reference
+w   ctx mb cols   16; h   ctx mb rows   16; output   img y; reference offset
+ctx ref frame offsets[mbi base.ref frame]; reference   output   reference offset;
+if (mbi base.y mode !
+SPLITMV) { union mv uvmv; uvmv   mbi base.mv; uvmv.d.x
+y   mb row   16; /
+>  1; for (b   0; b < 4
+; uvmv   mbi base.mv; uvmv.d.x
+chroma mv[2]   chroma mv[3]   uvmv; } else { chroma mv[0]   calculate chroma
+; chroma mv[1]   calculate chroma splitmv(mbi,  2, full pixel); chroma mv[2]   calculate chroma
+calculate chroma splitmv(mbi, 10, full pixel)
+; } reference offset   ctx ref frame
+if (mbi base.y mode !
+block(y, y   reference offset, img stride, ymv, ctx subpixel filters, coeffs, mbi, b);
+y    4; if ((b & 3)   3)
+for (i   0; i < NUM REF FRAMES
+The left column of out of frame pixels is taken to be 129,   unless we're doing DC PRED, in which case we duplicate the   above row, unless this is also row 0, in which case we use   129.
+int i; if (mode   DC PRED && row)
+{ unsigned char  above   predict stride;
+The above row of out of frame pixels is taken to be 127,   unless we're doing DC PRED, in which case we duplicate the   left col, unless this is also col 0, in which case we use   127.
+/ memset(above 1, 127, width   1);
+for above right subblock modes } void vp8 dixie predict
+ctx) { int i; unsigned char
+this frame base; if (ctx frame hdr.frame size updated) { for (i   0
+BORDER PIXELS   2; unsigned int h
+BORDER PIXELS   2; vpx img free(&ctx frame strg[i].img); ctx frame strg[i].ref cnt   0; ctx ref frames[i]
+if (!vpx img alloc(&ctx frame strg[i].img, IMG FMT I420, w, h, 16)) vpx internal error(&ctx error, VPX CODEC MEM ERROR, "Failed to allocate %dx%d" " framebuffer", w, h); vpx img set rect(&ctx frame strg[i].img, BORDER PIXELS, BORDER PIXELS,
+vp8 dixie release ref frame(ctx ref frames[CURRENT FRAME]); ctx ref frames[CURRENT FRAME]
+vp8 dixie find free ref frame(ctx frame strg);
+ref   ctx ref frames[i]; ctx ref frame offsets[i]
+No need to do this on every frame...
+/ } void vp8 dixie predict destroy(struct
+; ctx frame strg[i].ref cnt   0; ctx ref frames[i]
+ctx ref frames[CURRENT FRAME] img.stride[PLANE Y]; img.uv
+stride   ctx ref frames[CURRENT FRAME] img.stride[PLANE U]; img.y   ctx ref frames[CURRENT FRAME] img.planes[PLANE Y]; img.u   ctx ref frames[CURRENT FRAME] img.planes[PLANE U]; img.v   ctx ref frames[CURRENT FRAME] img.planes[PLANE V]; img.y
+row   start col)   16; img.u
+; mbi   ctx mb info rows[row]   start col; coeffs
+ctx tokens[row & (ctx token
+{ fixup left(img.y, 16, img.stride, row, mbi base.y mode); fixup left(img.u, 8, img.uv stride, row, mbi base.uv mode); fixup left(img.v, 8,
+img.uv stride, row, mbi base.uv mode); if (row   0)  (img.y img.stride 1)   127; } for (col   start col;
+img.uv stride, col, mbi base.uv mode); fixup above(img.v, 8,
+; coeffs    25   16; }
+if (col   ctx mb cols) {
+/  Extend the last row by four pixels for intra prediction.
+This will be propagated later by copy down.
+uint32 t  )(img.y   15   img.stride); uint32 t  val   0x01010101
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license    that can be found in the LICENSE file in the root of the source    tree.
+An additional intellectual property rights grant can be    found in the file PATENTS.
+All contributing project authors may    be found in the AUTHORS file in the root of the source tree.
+PREDICT H void vp8 dixie predict init(struct
+vp8 decoder ctx  ctx); void vp8 dixie predict destroy(struct
+; void vp8 dixie release ref frame(struct ref cnt img  rcimg); struct ref cnt img   vp8 dixie ref frame(struct ref cnt img  rcimg); struct ref cnt img   vp8 dixie find free ref frame(struct ref cnt img  frames); #endif   End code block   20.16.
+tokens.c   Begin code block   /
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license    that can be found in the LICENSE file in the root of the source    tree.
+An additional intellectual property rights grant can be    found in the file PATENTS.
+All contributing project authors may    be found in the AUTHORS file in the root of the source tree.
+> #include <string.h> #include <malloc.h> enum { EOB CONTEXT NODE, ZERO CONTEXT NODE, ONE CONTEXT NODE, LOW VAL CONTEXT NODE,
+TWO CONTEXT NODE, THREE CONTEXT NODE, HIGH LOW CONTEXT NODE, CAT ONE CONTEXT NODE, CAT THREEFOUR CONTEXT NODE,
+((n)   PREV COEFF CONTEXTS   ENTROPY NODES)
+static const unsigned int bands x[16]
+\ : value to sign)
+#define DECODE AND BRANCH IF ZERO(probability,branch) \
+goto branch; #define DECODE AND LOOP
+IF ZERO(probability,branch) \ if (!
+#define DECODE SIGN WRITE COEFF AND CHECK EXIT(val)
+v; \ goto BLOCK FINISHED;
+val    bool get(bool, extrabits[t].probs[bits count])
+left, token entropy ctx t
+tokens for this block unsigned char  type probs; //
+B PRED && mode !
+SPLITMV) { i   24; stop   24; type   1; b tokens
+Save a pointer to the coefficient probs for the current type.
+Need to repeat this whenever type changes.
+/ type probs   probs[type][0][0]; BLOCK LOOP:
+/ prob   type probs; prob    t
+prob    bands x[c]; DECODE AND BRANCH IF ZERO(prob[EOB CONTEXT NODE], BLOCK FINISHED); CHECK 0 : DECODE AND LOOP
+; DECODE AND BRANCH IF ZERO(prob[ONE CONTEXT NODE], ONE CONTEXT NODE 0 ); DECODE AND BRANCH IF ZERO(prob[LOW VAL CONTEXT NODE], LOW VAL CONTEXT NODE 0 ); DECODE AND BRANCH IF ZERO(prob[HIGH LOW CONTEXT NODE], HIGH LOW CONTEXT NODE 0 ); DECODE AND BRANCH IF ZERO(prob[CAT THREEFOUR CONTEXT NODE], CAT THREEFOUR CONTEXT NODE 0 ); DECODE AND BRANCH IF ZERO(prob[CAT FIVE CONTEXT NODE], CAT FIVE CONTEXT NODE 0 ); val   extrabits[DCT VAL CATEGORY6].min val
+CAT FIVE CONTEXT NODE 0 : val   extrabits[DCT VAL CATEGORY5].min val; DECODE EXTRABIT AND ADJUST VAL(DCT VAL CATEGORY5, 4); DECODE EXTRABIT AND ADJUST VAL(DCT VAL CATEGORY5, 3); DECODE EXTRABIT AND ADJUST VAL(DCT VAL CATEGORY5, 2); DECODE EXTRABIT AND ADJUST VAL(DCT VAL CATEGORY5, 1); DECODE EXTRABIT AND ADJUST VAL(DCT VAL CATEGORY5, 0); DECODE SIGN WRITE COEFF AND CHECK EXIT(val); CAT THREEFOUR CONTEXT NODE 0 : DECODE AND BRANCH
+IF ZERO(prob[CAT THREE CONTEXT NODE], CAT THREE CONTEXT NODE 0 ); val
+VAL CATEGORY4].min val; DECODE EXTRABIT AND ADJUST VAL(DCT VAL CATEGORY4, 3); DECODE EXTRABIT AND ADJUST VAL(DCT VAL CATEGORY4, 2); DECODE EXTRABIT AND ADJUST VAL(DCT VAL CATEGORY4, 1); DECODE EXTRABIT AND ADJUST VAL(DCT VAL CATEGORY4, 0); DECODE SIGN WRITE COEFF AND CHECK EXIT(val); CAT THREE CONTEXT NODE 0 : val   extrabits[DCT VAL CATEGORY3].min val; DECODE EXTRABIT AND ADJUST VAL(DCT VAL CATEGORY3, 2); DECODE EXTRABIT AND ADJUST VAL(DCT VAL CATEGORY3, 1); DECODE EXTRABIT AND ADJUST VAL(DCT VAL CATEGORY3, 0); DECODE SIGN WRITE COEFF AND CHECK EXIT(val); HIGH LOW CONTEXT NODE 0 :
+DECODE AND BRANCH IF ZERO(prob[CAT ONE CONTEXT NODE]
+, CAT ONE CONTEXT NODE 0 ); val
+extrabits[DCT VAL CATEGORY2].min val; DECODE EXTRABIT AND ADJUST VAL(DCT VAL CATEGORY2, 1); DECODE EXTRABIT AND ADJUST VAL(DCT VAL CATEGORY2, 0); DECODE SIGN WRITE COEFF AND CHECK EXIT(val); CAT ONE CONTEXT NODE 0 : val
+extrabits[DCT VAL CATEGORY1].min val; DECODE EXTRABIT AND ADJUST VAL(DCT VAL CATEGORY1, 0); DECODE SIGN WRITE COEFF AND CHECK EXIT(val); LOW VAL CONTEXT NODE 0 :
+IF ZERO(prob[TWO CONTEXT NODE], TWO CONTEXT NODE 0 ); DECODE AND BRANCH IF ZERO(prob[THREE CONTEXT NODE], THREE CONTEXT NODE 0 ); DECODE SIGN WRITE COEFF AND CHECK EXIT(4); THREE CONTEXT NODE 0 :
+DECODE SIGN WRITE COEFF AND CHECK
+EXIT(3); TWO CONTEXT NODE 0 :
+DECODE SIGN WRITE COEFF AND CHECK
+EXIT(2); ONE CONTEXT NODE 0 : DECODE AND APPLYSIGN(1); prob   type probs
+if (c < 15) { b tokens[zigzag[c]]
+v;  c; goto DO WHILE; } b tokens[zigzag[15]]
+t << 31; left[left context index[i]]
+b tokens    16; i ; if (i < stop)
+if (i   25) { type   0; i   0; stop   16; type probs   probs[type][0][0]; b tokens   tokens; dqf   factor[TOKEN BLOCK Y1]; goto BLOCK LOOP; } if (i   16) { type   2; type probs   probs[type][0][0]; stop   24; dqf   factor[TOKEN BLOCK UV]; goto BLOCK LOOP; } return eob mask; } static void reset row context(token
+; } static void reset mb context(token
+left, token entropy ctx t   above
+Reset the macroblock context on the left and right.
+We have   to preserve the context of the second order block if this mode   would not have updated it.
+B PRED && mode !
+token entropy ctx t   above   ctx above token entropy ctx
+sizeof(short)); if (mbi base.skip coeff) { reset mb context(left, above, mbi base.y mode); mbi base.eob mask   0; } else { struct dequant factors  dqf; dqf   ctx dequant factors    mbi base.segment id; mbi base.eob mask
+ctx token hdr.partitions; if (ctx frame hdr.frame size updated) { unsigned int i; unsigned int coeff row sz
+calloc(ctx mb cols, sizeof( ctx above token entropy ctx));
+for (i   0; i < MAX PARTITIONS; i ) free(ctx tokens[i].coeffs); free(ctx
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license    that can be found in the LICENSE file in the root of the source    tree.
+An additional intellectual property rights grant can be    found in the file PATENTS.
+All contributing project authors may    be found in the AUTHORS file in the root of the source tree.
+; void vp8 dixie tokens destroy(struct
+vp8 prob data.h   Begin code block   /
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license    that can be found in the LICENSE file in the root of the source    tree.
+An additional intellectual property rights grant can be    found in the file PATENTS.
+All contributing project authors may    be found in the AUTHORS file in the root of the source tree.
+/ static const unsigned char k coeff entropy update probs[BLOCK TYPES][COEFF BANDS]
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license    that can be found in the LICENSE file in the root of the source    tree.
+An additional intellectual property rights grant can be    found in the file PATENTS.
+All contributing project authors may    be found in the AUTHORS file in the root of the source tree.
+This file defines the private structures and data types that are   only relevant to implementing an algorithm, as opposed to using   it.
+To create a decoder algorithm class, an interface structure is put   into the global namespace:
+An application instantiates a specific decoder instance by using   vpx codec init() and a pointer to the algorithm's interface
+Once initialized, the instance is managed using other functions   from the vpx codec   family.
+/ #ifndef VPX CODEC INTERNAL H #define
+VPX CODEC INTERNAL H #include "vpx decoder.h"
+If this file is altered in any way that changes the Application   Binary Interface (ABI), this value must be bumped.
+Examples   include, but are not limited to, changing types, removing or   reassigning enums, adding/removing/rearranging fields to   structures.
+VPX CODEC INTERNAL ABI VERSION (3)
+typedef struct vpx codec alg priv  vpx codec alg priv t
+This function is called by the generic vpx codec init() wrapper   function, so plugins implementing this interface may trust the   input parameters to be properly initialized.
+] ctx   Pointer to this instance's context   \retval
+The input stream was recognized and decoder initialized.
+/ typedef vpx codec err t
+This function is called by the generic vpx codec destroy() wrapper   function, so plugins implementing this interface may trust the   input parameters to be properly initialized.
+] ctx   Pointer to this instance's context   \retval
+The input stream was recognized and decoder initialized.
+/ typedef vpx codec err t ( vpx codec destroy fn t)
+This function is   called by the generic vpx codec parse stream() wrapper function,
+so plugins implementing this interface may trust the input   parameters to be properly initialized.
+/ typedef vpx codec err t (
+vpx codec peek si fn t)
+Return information about the current stream.
+Returns information about the stream that has been parsed during   decoding.
+/ typedef vpx codec err t ( vpx codec get si fn t)
+\brief control function pointer prototype
+This function is used to exchange algorithm specific data with the   decoder instance.
+This can be used to implement features specific   to a particular algorithm.
+This function is called by the generic vpx codec control() wrapper   function, so plugins implementing this interface may trust the   input parameters to be properly initialized.
+However, this   interface does not provide type safety for the exchanged data or   assign meanings to the control codes.
+Those details should be   specified in the algorithm's header file.
+In particular, the   ctrl id parameter is guaranteed to exist in the algorithm's   control mapping table, and the data parameter may be NULL.
+The internal state data was deserialized.
+/ typedef vpx codec err t ( vpx codec control fn t)
+( vpx codec alg priv t
+This structure stores the mapping between control identifiers and   implementing functions.
+Each algorithm provides a list of these   mappings.
+This list is searched by the vpx codec control()
+wrapper function to determine which function to invoke.
+The   special value {0, NULL} is used to indicate end of list, and must   be present.
+The special value {0, <non null>} can be used as a   catch all mapping.
+id values chosen by the   algorithm \ref MUST be non zero.
+If the processing results in a   new decoded frame becoming available, #VPX CODEC CB PUT SLICE and   #VPX CODEC CB PUT FRAME events are generated as appropriate.
+This function is called by the generic vpx codec decode() wrapper   function, so plugins implementing this interface may trust the   input parameters to be properly initialized.
+/ typedef vpx codec err t ( vpx codec decode fn t)
+( vpx codec alg priv t
+The   iterator storage should be initialized to NULL to start the   iteration.
+Iteration is complete when this function returns NULL.
+The list of available frames becomes valid upon completion of the   vpx codec decode call, and remains valid until the next call to   vpx codec decode.
+/ typedef vpx image t ( vpx codec get frame fn t)
+( vpx codec alg priv t
+The iterator storage should be initialized to NULL to start the   iteration.
+Iteration is complete when this function returns NULL.
+/ typedef vpx codec err t ( vpx codec get mmap fn t)
+The memory map was accepted and stored.
+The memory map was rejected.
+/ typedef vpx codec err t ( vpx codec set mmap fn t)
+( vpx codec alg priv t
+( vpx codec get cx data fn t)
+( vpx codec alg priv t
+; typedef vpx fixed buf t
+( vpx codec get global headers fn t)(vpx codec alg priv t    ctx); typedef vpx image t
+This structure stores the mapping between usage identifiers and   configuration structures.
+Each algorithm provides a list of these   mappings.
+This list is searched by the   vpx codec enc config default() wrapper function to determine which   config to return.
+The special value { 1, {0}} is used to indicate   end of list, and must be present.
+At least one mapping must be   present, in addition to the end of list.
+All decoders \ref MUST expose a variable of this type.
+Callback function pointer / user data pair storage
+This structure is allocated by the algorithm's init function.
+It   can be extended in one of two ways.
+First, a second, algorithm   specific structure can be allocated and the priv member pointed to   it.
+Alternatively, this structure can be made the first member of   the algorithm specific structure, and the pointer casted to the   proper type.
+\ {return va arg(args, typ);}
+#undef VPX CTRL USE TYPE DEPRECATED
+define VPX CTRL USE TYPE DEPRECATED(id, typ) \ static typ id
+\ {return va arg(args, typ);}
+The following functions are intended to be used inside algorithms   as utilities for manipulating vpx codec   data structures.
+int vpx codec pkt list add(struct vpx codec pkt list
+, const struct vpx codec
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license    that can be found in the LICENSE file in the root of the source    tree.
+An additional intellectual property rights grant can be    found in the file PATENTS.
+All contributing project authors may    be found in the AUTHORS file in the root of the source tree.
+This abstraction allows applications using this decoder to easily   support multiple video formats with minimal code duplication.
+This section describes the interface common to all decoders.
+Describes the decoder algorithm interface to applications.
+This file describes the interface between an application and a   video decoder algorithm.
+If this file is altered in any way that changes the ABI, this   value must be bumped.
+Each decoder advertises the capabilities it supports as part    of its ::vpx codec iface t interface structure.
+Capabilities    are extra interfaces or functionality, and are not required    to be supported by a decoder.
+The available flags are specified by VPX CODEC CAP   defines.
+VPX CODEC CAP PUT SLICE  0x10000 /
+< Will issue put slice callbacks  /
+#define VPX CODEC CAP PUT FRAME  0x20000 /
+< Will issue put frame callbacks  /
+The available flags are specified by VPX CODEC USE   defines.
+This structure is used to query or set properties of the   decoded stream.
+Algorithms may extend this structure with   data specific to their bitstream by setting the sz member   appropriately.
+/ typedef struct vpx codec stream info { unsigned int sz;
+< Width (or 0 for unknown/default)
+< Height (or 0 for unknown/default)
+The following functions are required to be implemented for all   decoders.
+They represent the base case functionality expected   of all decoders.
+This structure is used to pass init time configuration options   to the decoder.
+/ typedef struct vpx codec dec cfg { unsigned int threads;
+< Width  / unsigned int h
+Initializes a decoder context using the given interface.
+Applications should call the vpx codec dec init convenience   macro instead of this function directly, to ensure that the   ABI version number parameter is properly initialized.
+In XMA mode (activated by setting VPX CODEC USE XMA in the   flags parameter), the storage pointed to by the cfg parameter   must be kept readable and stable until all memory maps have   been set.
+Convenience macro for vpx codec dec init ver
+define vpx codec dec init(ctx, iface, cfg, flags) \ vpx codec dec init ver(ctx, iface, cfg, flags, \ VPX DECODER ABI VERSION)
+Construction of   a decoder context is not necessary.
+Can be used to determine   if the bitstream is of the proper format, and to extract   information from the stream.
+Return information about the current stream.
+Returns information about the stream that has been parsed   during decoding.
+If the processing results   in a new decoded frame becoming available, PUT SLICE and   PUT FRAME events may be generated, as appropriate.
+Encoded   data \ref MUST be passed in DTS (decode time stamp) order.
+Frames produced will always be in PTS
+/ vpx codec err t vpx codec decode(vpx
+The   iterator storage should be initialized to NULL to start the   iteration.
+Iteration is complete when this function returns   NULL.
+The list of available frames becomes valid upon completion of   the vpx codec decode call, and remains valid until the next   call to vpx codec decode.
+ctx, vpx codec iter t  iter)
+The following functions are required to be implemented for all   decoders that advertise the VPX CODEC CAP PUT FRAME   capability.
+Calling these functions for codecs that don't   advertise this capability will result in an error code being   returned,
+This callback is invoked by the decoder to notify the   application of the availability of decoded image data.
+/ typedef void ( vpx codec put frame cb fn t)
+Register for notification of frame completion.
+Registers a given function to be called when a decoded frame   is available.
+\defgroup cap put slice Slice Based Decoding Functions
+The following functions are required to be implemented for all   decoders that advertise the VPX CODEC CAP PUT SLICE   capability.
+Calling these functions for codecs that don't   advertise this capability will result in an error code being   returned,
+This callback is invoked by the decoder to notify the   application of the availability of partially decoded image   data.
+/ typedef void ( vpx codec put slice cb fn t)
+Register for notification of slice completion.
+Registers a given function to be called when a decoded slice   is available.
+#ifdef  cplusplus } #endif #
+VPX CODEC DISABLE COMPAT #include "vpx decoder compat.h"
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license   that can be found in the LICENSE file in the root of the source   tree.
+An additional intellectual property rights grant can be   found in the file PATENTS.
+All contributing project authors may   be found in the AUTHORS file in the root of the source tree.
+This abstraction allows applications using this decoder to easily   support multiple video formats with minimal code duplication.
+This section describes the interface common to all codecs.
+\brief Provides a compatibility layer between version 1 and 2 of   this API.
+This interface has been deprecated.
+Only existing code should   make use of this interface, and therefore, it is only thinly   documented.
+COMPAT H #define VPX DECODER COMPAT H / !
+Decoder algorithm return codes  / typedef enum {
+\brief Operation completed without error  / VPX DEC
+VPX DEC ABI MISMATCH   VPX CODEC ABI MISMATCH,
+The given bitstream is not supported.
+The bitstream was unable to be parsed at the highest   level.
+The decoder is unable to proceed.
+This error \ref   SHOULD be treated as fatal to the stream.
+Encoded bitstream uses an unsupported feature
+The decoder does not implement a feature required by the   encoder.
+This return code should only be used for   features that prevent future pictures from being properly   decoded.
+This error \ref MAY be treated as fatal to the   stream or \ref
+MAY be treated as fatal to the current   Group of Pictures (GOP).
+/ VPX DEC UNSUP FEATURE
+The coded data for this stream is corrupt or   incomplete
+There was a problem decoding the current frame.
+This   return code should only be used for failures that prevent   future pictures from being properly decoded.
+This error   \ref MAY be treated as fatal to the stream or \ref
+MAY be   treated as fatal to the current GOP.
+If decoding is   continued for the current GOP, artifacts may be present.
+An application supplied parameter is not valid.
+An iterator reached the end of list.
+VPX DEC LIST END   VPX CODEC LIST END } vpx dec err t;
+Each decoder advertises the capabilities it supports as part    of its ::vpx dec iface t interface structure.
+Capabilities    are extra interfaces or functionality, and are not required    to be supported by a decoder.
+The available flags are specified by VPX DEC CAP   defines.
+/ typedef int vpx dec caps t; #define
+This structure is used to query or set properties of the   decoded stream.
+Algorithms may extend this structure with   data specific to their bitstream by setting the sz member   appropriately.
+< Width (or 0 for unknown/default)
+< Height (or 0 for unknown/default)
+Contains function pointers and other data private to the   decoder implementation.
+This structure is opaque to the   application.
+All decoders \ref MUST support this context structure fully.
+In general, this data should be considered private to the   decoder algorithm, and not be manipulated or examined by the   calling application.
+Applications may reference the 'name'   member to get a printable description of the algorithm.
+Returns a printable string containing an encoded version of   the build configuration.
+This may be useful to vpx support.
+Return the name for a given interface
+Returns a human readable string for name of the given decoder   interface.
+The returned error will be one line and   will not contain any newline characters.
+The returned error will be one line and will   not contain any newline characters.
+vpx dec error(vpx dec ctx t   ctx
+No detailed information is available.
+/ const char  vpx dec error detail(vpx
+The following functions are required to be implemented for all   decoders.
+They represent the base case functionality expected   of all decoders.
+Initializes a decoder context using the given interface.
+Applications should call the vpx dec init convenience macro   instead of this function directly, to ensure that the ABI   version number parameter is properly initialized.
+ctx    Pointer to this instance's context.
+iface  Pointer to the algorithm interface to use.
+\param[in]   ver    ABI version number.
+#define vpx dec init(ctx, iface) \ vpx dec init ver(ctx, iface, VPX DECODER ABI VERSION)
+Destroys a decoder context, freeing any associated memory   buffers.
+] ctx   Pointer to this instance's context
+/ vpx dec err t vpx
+dec destroy(vpx dec ctx t  ctx) DEPRECATED;
+Get the capabilities of an algorithm.
+Retrieves the capabilities bitfield from the algorithm's   interface.
+Construction of   a decoder context is not necessary.
+Can be used to determine   if the bitstream is of the proper format, and to extract   information from the stream.
+Return information about the current stream.
+Returns information about the stream that has been parsed   during decoding.
+vpx dec err t vpx dec get stream info
+This function is used to exchange algorithm specific data with   the decoder instance.
+This can be used to implement features   specific to a particular algorithm.
+This wrapper function dispatches the request to the helper   function associated with the given ctrl id.
+It tries to call   this function transparently, but will return #VPX DEC ERROR if   the request could not be dispatched.
+The control request was processed.
+The control request was not processed.
+\retval #VPX DEC INVALID PARAM
+The data was not valid.
+err t vpx dec control(vpx
+Encoded data \ref MUST be passed   in DTS (decode time stamp) order.
+Frames produced will always   be in PTS (presentation time stamp) order.
+err t vpx dec decode
+( vpx dec ctx t
+The   iterator storage should be initialized to NULL to start the   iteration.
+Iteration is complete when this function returns   NULL.
+The list of available frames becomes valid upon completion of   the vpx dec decode call, and remains valid until the next call   to vpx dec decode.
+\defgroup cap put frame Frame Based Decoding Functions
+The following functions are required to be implemented for all   decoders that advertise the VPX DEC CAP PUT FRAME capability.
+\brief put frame callback prototype
+This callback is invoked by the decoder to notify the   application of the availability of decoded image data.
+/ typedef void ( vpx dec put frame cb fn t)
+Register for notification of frame completion.
+Registers a given function to be called when a decoded frame   is available.
+err t vpx dec register put frame cb
+\defgroup cap put slice Slice Based Decoding Functions
+The following functions are required to be implemented for all   decoders that advertise the VPX DEC CAP PUT SLICE capability.
+\brief put slice callback prototype
+This callback is invoked by the decoder to notify the   application of the availability of partially decoded image   data.
+, const vpx image rect t
+Register for notification of slice completion.
+Registers a given function to be called when a decoded slice   is available.
+err t vpx dec register put slice cb(vpx
+\defgroup cap xma External Memory Allocation Functions
+The following functions are required to be implemented for all   decoders that advertise the VPX DEC CAP XMA capability.
+This structure is used to contain the properties of a memory   segment.
+It is populated by the decoder in the request phase,   and by the calling application once the requested allocation   has been performed.
+#define VPX DEC MEM ZERO
+/ typedef struct vpx codec mmap vpx dec mmap t; #else typedef struct vpx dec mmap { /
+The following members are set by the codec when requesting   a segment  / unsigned int
+/ } vpx dec mmap t;
+Initialize a decoder instance in external allocation
+Applications should call the vpx dec xma init convenience   macro instead of this function directly, to ensure that the   ABI version number parameter is properly initialized.
+#define vpx dec xma init(ctx, iface)
+\ vpx dec xma init ver(ctx, iface, VPX DECODER ABI VERSION)
+Iterate over the list of segments to allocate.
+Iterates over a list of the segments to allocate.
+The   iterator storage should be initialized to NULL to start the   iteration.
+Iteration is complete when this function returns   VPX DEC LIST END.
+The amount of memory needed to allocate is   dependent upon the size of the encoded stream.
+This means   that the stream info structure must be known at allocation   time.
+In cases where the stream to be decoded is not   available at allocation time, a fixed size must be requested.
+The decoder will not be able to decode streams larger than the   size used at allocation time.
+out]  iter    Iterator storage, initialized to NULL
+The memory map entry was populated.
+Segments   \ref MUST be passed in the order they are read from
+vpx dec get mem map(), but may be passed in groups of any   size.
+Segments \ref MUST be set only once.
+function \ref MUST ensure that the vpx dec mmap t::base member   is non NULL.
+then the vpx dec mmap t::dtor
+member \ref MUST be populated.
+The segment was stored in the decoder context.
+/ vpx dec err t
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license   that can be found in the LICENSE file in the root of the source   tree.
+An additional intellectual property rights grant can be   found in the file PATENTS.
+All contributing project authors may   be found in the AUTHORS file in the root of the source tree.
+> #include <string.h> #include "vpx/vpx image.h
+" static vpx image t
+/  Get sample size for this format
+{ case VPX IMG FMT RGB32: case VPX IMG FMT RGB32 LE: case VPX IMG FMT ARGB:
+case VPX IMG FMT ARGB LE: bps   32;
+break; case VPX IMG FMT RGB24: case
+break; case VPX IMG FMT RGB565: case VPX IMG FMT RGB565 LE: case VPX IMG FMT RGB555: case VPX IMG FMT RGB555 LE: case VPX IMG FMT UYVY: case
+VPX IMG FMT YUY2: case VPX IMG FMT YVYU: bps   16;
+break; case VPX IMG FMT I420: case VPX IMG FMT YV12: case VPX IMG FMT VPXI420: case VPX IMG FMT VPXYV12: bps   12; break;
+Get chroma shift values for this format
+{ case VPX IMG FMT I420: case VPX IMG FMT YV12: case VPX IMG FMT VPXI420: case VPX IMG FMT VPXYV12:
+(fmt & VPX IMG FMT PLANAR) ?
+: bps   w / 8;
+)calloc(1, sizeof(vpx image t)); if (!
+goto fail; img self allocd   1
+s; img stride[VPX PLANE U]
+image t   img, unsigned int  x, unsigned int  y, unsigned int  w, unsigned int  h)
+if (img fmt & VPX IMG FMT HAS ALPHA) { img planes[VPX PLANE ALPHA]
+(x >> img x chroma shift)
+(y >> img y chroma shift)
+img stride[VPX PLANE U]; img planes[VPX PLANE V]   data
+(x >> img x chroma shift)
+(y >> img y chroma shift)
+(x >> img x chroma shift)
+(y >> img y chroma shift)
+img stride[VPX PLANE V]; data
+> img y chroma shift)
+img stride[VPX PLANE V]; img planes[VPX PLANE U]
+(x >> img x chroma shift)
+(y >> img y chroma shift)
+: In the calculation pointer adjustment calculation, we   want the rhs to be promoted to a signed type.
+Section 6.3.1.8   of the ISO C99 standard [ISO C99] indicates that if the   adjustment parameter is unsigned, the stride parameter will be   promoted to unsigned, causing errors when the lhs is a larger   type than the rhs.
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license   that can be found in the LICENSE file in the root of the source   tree.
+An additional intellectual property rights grant can be   found in the file PATENTS.
+All contributing project authors may   be found in the AUTHORS file in the root of the source tree.
+H #define VPX IMAGE H / !
+If this file is altered in any way that changes the ABI, this   value must be bumped.
+#define VPX IMG FMT PLANAR
+#define VPX IMG FMT UV
+#define VPX IMG FMT HAS ALPHA  0x400
+List of supported image formats
+UYVY packed YUV  / VPX IMG FMT YUY2,
+< YUYV packed YUV  / VPX IMG FMT YVYU,
+#VPX IMG FMT PLANAR  /
+Use #VPX IMG FMT UV
+Use #VPX IMG FMT HAS ALPHA  /
+vpx img fmt / !
+\brief alias for enum img fmt.
+\deprecated New code should use #vpx img fmt t
+#VPX IMG FMT NONE  /
+Use #VPX IMG FMT RGB24  /
+#VPX IMG FMT RGB565  /
+#VPX IMG FMT RGB555  /
+Use #VPX IMG FMT RGB32 LE  /
+#VPX IMG FMT ARGB  /
+#VPX IMG FMT ARGB LE  /
+Use #VPX IMG FMT RGB565 LE  /
+define IMG FMT RGB565 LE
+#VPX IMG FMT RGB555 LE  /
+#define IMG FMT RGB555 LE  VPX IMG FMT RGB555 LE /
+Use #VPX IMG FMT VPXYV12  /
+#define IMG FMT VPXYV12    VPX IMG FMT
+/ typedef struct vpx image { vpx img fmt t fmt;
+< Stored image width  / unsigned int  h;
+/ unsigned int  d h;
+< subsampling order, X  / unsigned int  y chroma shift;
+< Y (Luminance) plane  /
+The following member may be set by the application to   associate data with this image.
+\brief Representation of a rectangle on a surface
+The storage for the descriptor is allocated on the heap.
+\return Returns a pointer to the initialized image descriptor.
+image t   img, vpx img fmt t fmt, unsigned int d w, unsigned int d h, unsigned int align)
+Returns a descriptor for storing an image of the given format.
+The storage for descriptor has been allocated elsewhere, and a   descriptor is desired to "wrap" that storage.
+\return Returns a pointer to the initialized image descriptor.
+Set the rectangle identifying the displayed portion of   the image
+the displayed rectangle (aka viewport) on the image
+surface to match the specified coordinates and size.
+if the requested rectangle is valid,
+/ int vpx img set rect(vpx
+image t   img, unsigned int  x, unsigned int  y, unsigned int  w, unsigned int  h)
+Adjusts the image descriptor's pointers and strides to make   the image be referenced upside down.
+Frees all allocated storage associated with an image   descriptor.
+Copyright (c) 2010, 2011, Google Inc.
+Use of this source code is governed by a BSD style license    that can be found in the LICENSE file in the root of the source    tree.
+An additional intellectual property rights grant can be    found in the file PATENTS.
+All contributing project authors may    be found in the AUTHORS file in the root of the source tree.
+VPX INTEGER H /  get ptrdiff t, size t, wchar t,
+> #if defined( MSC VER)
+typedef signed char  int8 t
+; typedef signed short int16 t; typedef signed int
+int32 t; typedef unsigned char  uint8 t
+; typedef unsigned short uint16 t; typedef unsigned int
+( MSC VER) typedef signed  int64   int64 t; typedef unsigned  int64 uint64 t; #define PRId64 "I64d"
+#endif #ifdef HAVE ARMV6 typedef unsigned int int fast16 t;
+#else typedef signed short int fast16 t; #endif typedef signed char int fast8 t; typedef unsigned char uint fast8 t; #ifndef  UINTPTR T DEFINED typedef unsigned int
+Most platforms have the C99 standard integer types.
+AUTHORS File Aaron Watry <awatry@gmail.com
+yunqingwang@google.com> Google Inc. The Mozilla Foundation The Xiph.
+LICENSE Copyright (c) 2010, 2011, Google Inc.
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:  Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+Neither the name of Google nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "
+AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+PATENTS Additional IP Rights Grant (Patents) "This implementation" means the copyrightable works distributed by Google as part of the WebM Project.
+Google hereby grants to you
+a perpetual, worldwide, non exclusive, no charge, royalty free, irrevocable (except as stated in this section) patent license to make, have made, use, offer to sell, sell, import, transfer, and otherwise run, modify and propagate the contents of this implementation of VP8, where such license applies only to those patent claims, both currently owned by Google and acquired in the future, licensable by Google that are necessarily infringed by this implementation of VP8.
+This grant does not include claims that would be infringed only as a consequence of further modification of this implementation.
+If you or your agent or exclusive licensee institute or order or agree to the institution of patent litigation against any entity (including a cross claim or counterclaim in a lawsuit) alleging that this implementation of VP8 or any code incorporated within this implementation of VP8 constitutes direct or contributory patent infringement, or inducement of patent infringement, then any patent rights granted to you under this License for this implementation of VP8 shall terminate as of the date such litigation is filed.
+A VP8 decoder should take appropriate security considerations into account, as outlined in [RFC4732] and [RFC3552].
+It is extremely important that a decoder be robust against malicious payloads.
+Malicious payloads must not cause the decoder to overrun its allocated memory or to consume inordinate resources.
+Although encoder issues are typically rarer, the same applies to an encoder.
+Malicious stream data must not cause the encoder to misbehave, as this might allow an attacker access to transcoding gateways.

@@ -1,0 +1,269 @@
+Abstract This memo describes an ONC/RPC security flavor that allows RPC protocols to access the Generic Security Services Application Programming Interface (referred to henceforth as GSS API).
+This document describes the protocol used by the RPCSEC GSS security flavor.
+Security flavors have been called authentication flavors for historical reasons.
+This memo recognizes that there are two other security services besides authentication, integrity, and privacy, and so defines a new RPCSEC GSS security flavor.
+The protocol is described using the XDR language [Srinivasan xdr].
+The reader is assumed to be familiar with ONC RPC and the security flavor mechanism [Srinivasan rpc].
+The reader is also assumed to be familiar with the GSS API framework [Linn].
+The RPCSEC GSS security flavor uses GSS API interfaces to provide security services that are independent of the underlying security mechanism.
+The ONC RPC Message Protocol
+This memo refers to the following XDR types of the ONC RPC protocol, which are described in the document entitled Remote Procedure Call Protocol Specification Version 2
+[Srinivasan rpc]: msg type reply stat auth flavor accept stat reject stat auth stat opaque auth rpc msg call body reply body accepted reply rejected reply 3.
+New auth stat Values RPCSEC GSS requires the addition of two new values to the auth stat enumerated type definition:
+/ RPCSEC GSS CREDPROBLEM   13, RPCSEC GSS CTXPROBLEM   14 }
+; The descriptions of these two new values are defined later in this memo.
+Elements of the RPCSEC GSS Security Protocol
+An RPC session based on the RPCSEC GSS security flavor consists of three phases: context creation, RPC data exchange, and context destruction.
+In the following discussion, protocol elements for these three phases are described.
+The following description of the RPCSEC GSS protocol uses some of the definitions within XDR language description of the RPC protocol.
+Context creation and destruction use control messages that are not dispatched to service procedures registered by an RPC server.
+The program and version numbers used in these control messages are the same as the RPC service's program and version numbers.
+The procedure number used is NULLPROC (zero).
+A field in the credential information (the gss proc field which is defined in the rpc gss cred t structure below) specifies whether a message is to be interpreted as a control message or a regular RPC message.
+If this field is set to RPCSEC GSS DATA, no control action is implied; in this case, it is a regular data message.
+If this field is set to any other value, a control action is implied.
+This is described in the following sections.
+Just as with normal RPC data exchange messages, the transaction identifier (the xid field in struct rpc msg), should be set to unique values on each call for context creation and context destruction.
+The following definitions are used for describing the protocol. /
+/ enum rpc gss proc t
+{ RPCSEC GSS DATA   0, RPCSEC GSS INIT   1,
+/ rpc gss service t service
+This document defines just one protocol version (RPCSEC GSS VERS 1).
+The client should assume that the server supports RPCSEC GSS VERS 1 and issue a Context Creation message (as described in the section RPCSEC GSS VERS 1, the RPC response will have a reply stat of MSG DENIED, a rejection status of AUTH ERROR, and an auth stat of AUTH REJECTED CRED.
+Before RPC data is exchanged on a session using the RPCSEC GSS flavor, a context must be set up between the client and the server.
+Context creation may involve zero or more RPC exchanges.
+The number of exchanges depends on the security mechanism.
+There is no facility in the RPCSEC GSS protocol to negotiate GSS API mechanism identifiers or QOP values.
+It is necessary that above capabilities exist so that applications have the means to conform the required set of required set of <mechanism, QOP, service> tuples
+(See the section entitled Set of GSS API Mechanisms).
+An application may negotiate <mechanism, QOP, service> selection within its protocol or via an out of band protocol.
+Hence it may be necessary for RPCSEC GSS implementations to provide programming interfaces for the specification and enforcement of <mechanism, QOP, service
+Additionally, implementations may depend on negotiation schemes constructed as pseudo mechanisms under the GSS API.
+Because such schemes are below the GSS API layer, the RPCSEC GSS protocol, as specified in this document, can make use of them.
+The first RPC request from the client to the server initiates context creation.
+Within the RPC message protocol's call body structure, rpcvers is set to 2.
+prog and vers are always those for the service being accessed.
+The proc is always set to NULLPROC (zero).
+Within the RPC message protocol's cred structure, flavor is set to RPCSEC GSS (6).
+The opaque data of the cred structure (the body field) constituting the credential encodes the rpc gss cred t structure defined previously.
+The values of the fields contained in the rpc gss cred t structure are set as follows.
+The version field is set to the version of the RPCSEC GSS protocol the client wants to use.
+The remainder of this memo documents version RPCSEC GSS VERS 1 of RPCSEC GSS, and so the version field would be set to RPCSEC GSS VERS 1.
+The gss proc field must be set to RPCSEC GSS INIT for the first creation request.
+In subsequent creation requests, the gss proc field must be set to RPCSEC GSS CONTINUE INIT.
+In a creation request, the seq num and service fields are undefined and both must be ignored by the server.
+In the first creation request, the handle field is NULL (opaque data of zero length).
+In subsequent creation requests, handle must be equal to the value returned by the server.
+The handle field serves as the identifier for the context, and will not change for the duration of the context, including responses to RPCSEC GSS CONTINUE INIT.
+The verifier field in the RPC message header is also described by the opaque auth structure.
+All creation requests have the NULL verifier (AUTH NONE flavor with zero length opaque data).
+Following the verifier are the call data (procedure specific parameters).
+Note that the proc field of the call body structure is set to NULLPROC, and thus normally there would be zero octets following the verifier.
+However, since there is no RPC data exchange during a context creation, it is safe to transfer information following the verifier.
+It is necessary to "overload" the call data in this way, rather than pack the GSS API token into the RPC header, because RPC Version 2 restricts the amount of data that can be sent in the header.
+The opaque body of the credential and verifier fields can be each at most 400 octets long, and GSS tokens can be longer than 800 octets.
+Here, gss token is the token returned by the call to  GSS API's GSS Init sec context() routine, opaquely encoded.
+The value of this field will likely be different in each creation request, if there is more than one creation request.
+If no token is returned by the call to GSS Init sec context(), the context must have been created (assuming no errors), and there will not be any more creation requests.
+When GSS Init sec context() is called, the parameters replay det req flag and sequence req flag must be turned off.
+Thus it is possible for gaps in message sequencing to occur, as well as out of order messages.
+RPC servers can be multi threaded, and thus the order in which GSS API messages are signed or wrapped can be different from the order in which the messages are verified or unwrapped, even if the requests are sent on reliable transports.
+To maximize convenience of implementation, the order in which an ONC RPC entity will verify the header and verify/unwrap the body of an RPC call or reply is left unspecified.
+The RPCSEC GSS protocol provides for protection from replay attack, yet tolerates out of order delivery or processing of messages and tolerates dropped requests.
+The response to a successful creation request has an MSG ACCEPTED response with a status of SUCCESS.
+The client must use this value in all subsequent requests whether control messages or otherwise).
+The gss major and gss minor fields contain the results of the call to GSS Accept sec context() executed by the server.
+The values for the gss major field are defined in Appendix A of this document.
+The values for the gss minor field are GSS API mechanism specific and are defined in the mechanism's specification.
+If gss major is not one of GSS S COMPLETE or GSS S CONTINUE NEEDED, the context setup has failed; in this case handle and gss token must be set to NULL by the server.
+The value of gss minor is dependent on the value of gss major and the security mechanism used.
+The gss token field contains any token returned by the GSS Accept sec context() call executed by the server.
+A token may be returned for both successful values of gss major.
+If the value is GSS S COMPLETE, it indicates that the server is not expecting any more tokens, and the RPC Data Exchange phase must begin on the subsequent request from the client.
+If the value is GSS S CONTINUE NEEDED, the server is expecting another token.
+Hence the client must send at least one more creation request (with gss proc set to RPCSEC GSS CONTINUE INIT in the request's credential) carrying the required token.
+In a successful response, the seq window field is set to the sequence window length supported by the server for this context.
+This window specifies the maximum number of client requests that may be outstanding for this context.
+The server will accept "seq window" requests at a time, and these may be out of order.
+The client may use this number to determine the number of threads that can simultaneously send requests on this context.
+If gss major is GSS S COMPLETE, the verifier's (the verf element in the response) flavor field is set to RPCSEC GSS, and the body field set to the checksum of the seq window (in network order).
+The QOP used for this checksum is 0 (zero), which is the default QOP.
+For all other values of gss major, a NULL verifier (AUTH NONE flavor with zero length opaque data) is used.
+Client Processing of Successful Context Creation Responses
+If the value of gss major in the response is
+GSS S CONTINUE NEEDED, then the client, per the GSS API specification, must invoke GSS Init sec context() using the token returned in gss token in the context creation response.
+The client must then generate a context creation request, with gss proc set to RPCSEC GSS CONTINUE INIT.
+If the value of gss major in the response is GSS S COMPLETE, and if the client's previous invocation of GSS Init sec context() returned a gss major value of GSS S CONTINUE NEEDED, then the client, per the GSS API specification, must invoke GSS Init sec context() using the token returned in gss token in the context creation response.
+If GSS Init sec context() returns GSS S COMPLETE, the context is successfully set up, and the RPC data exchange phase must begin on the subsequent request from the client.
+An MSG ACCEPTED reply (to a creation request) with an acceptance status of other than SUCCESS has a NULL verifier (flavor set to AUTH NONE, and zero length opaque data in the body field), and is formulated as usual for different status values.
+An MSG DENIED reply (to a creation request) is also formulated as usual.
+Note that MSG DENIED could be returned because the server's RPC implementation does not recognize the RPCSEC GSS security flavor.
+RFC 1831 does not specify the appropriate reply status in this instance, but common implementation practice appears to be to return a rejection status of AUTH ERROR with an auth stat of AUTH REJECTEDCRED.
+Even though two new values (RPCSEC GSS CREDPROBLEM and RPCSEC GSS CTXPROBLEM) have been defined for the auth stat type, neither of these two can be returned in responses to context creation requests.
+The auth stat new values can be used for responses to normal (data) requests.
+MSG DENIED might also be returned if the RPCSEC GSS version number in the credential is not supported on the server.
+In that case, the server returns a rejection status of AUTH ERROR, with an auth stat of AUTH REJECTED CRED.
+The data exchange phase is entered after a context has been successfully set up.
+The format of the data exchanged depends on the security service used for the request.
+Although clients can change the security service and QOP used on a per request basis, this may not be acceptable to all RPC services; some RPC services may "lock" the data exchange phase into using the QOP and service used on the first data exchange message.
+For all three modes of service (no data integrity, data integrity, data privacy), the RPC request header has the same format.
+The credential has the opaque auth structure described earlier.
+The flavor field is set to RPCSEC GSS.
+The credential body is created by XDR encoding the rpc gss
+cred t structure listed earlier into an octet stream, and then opaquely encoding this octet stream as the body field.
+Values of the fields contained in the rpc gss cred t structure are set as follows.
+The version field is set to same version value that was used to create the context, which within the scope of this memo will always be RPCSEC GSS VERS 1.
+The gss proc field is set to RPCSEC GSS DATA.
+The service field is set to indicate the desired service (one of rpc gss svc none, rpc gss svc integrity, or rpc gss svc privacy).
+The handle field is set to the context handle value received from the RPC server during context creation.
+The seq num field can start at any value below MAXSEQ, and must be incremented (by one or more) for successive requests.
+Use of sequence numbers is described in detail when server processing of the request is discussed.
+The verifier has the opaque auth structure described earlier.
+The flavor field is set to RPCSEC GSS.
+The body field is set as follows.
+The checksum of the RPC header (up to and including the credential) is computed using the GSS GetMIC() call with the desired QOP.
+This returns the checksum as an opaque octet stream and its length.
+This is encoded into the body field.
+Note that the QOP is not explicitly specified anywhere in the request.
+It is implicit in the checksum or encrypted data.
+The same QOP value as is used for the header checksum must also be used for the data (for checksumming or encrypting), unless the service used for the request is rpc gss svc none.
+If the service specified is rpc gss svc none, the data (procedure arguments) are not integrity or privacy protected.
+They are sent in exactly the same way as they would be if the AUTH NONE flavor were used (following the verifier).
+Note, however, that since the RPC header is integrity protected, the sender will still be authenticated in this case.
+RPC Request Data With Data Integrity
+A structure consisting of a sequence number followed by the procedure arguments is constructed.
+The type proc req arg t is the procedure specific XDR type describing the procedure arguments (and so is not specified here).
+The octet stream corresponding to the XDR encoded rpc gss data t structure and its length are placed in the databody integ field.
+Note that because the XDR type of databody integ is opaque, the XDR encoding of databody integ will include an initial four octet length field, followed by the XDR encoded octet stream of rpc gss data t.
+The checksum field represents the checksum of the XDR encoded octet stream corresponding to the XDR
+encoded rpc gss data t structure (note, this is not the checksum of the databody integ field).
+This is obtained using the GSS GetMIC() call, with the same QOP as was used to compute the header checksum (in the verifier).
+The GSS GetMIC() call returns the checksum as an opaque octet stream and its length.
+The checksum field of struct rpc gss integ data has an XDR type of opaque.
+Thus the checksum length from GSS GetMIC() is encoded as a four octet  length field, followed by the checksum, padded to a multiple of four octets.
+RPC Request Data With Data Privacy
+The rpc gss data t structure described earlier is constructed again in the same way as for the case of data integrity.
+Next, the GSS Wrap() call is invoked to encrypt the octet stream corresponding to the rpc gss data t structure, using the same value for QOP (argument qop req to GSS Wrap()) as was used for the header checksum (in the verifier) and conf req flag (an argument to GSS Wrap()) of TRUE.
+The GSS Wrap() call returns an opaque octet stream (representing the encrypted rpc gss data t structure) and its length, and this is encoded as the databody priv field.
+Since databody priv has an XDR type of opaque, the length returned by GSS Wrap() is encoded as the four octet length, followed by the encrypted octet stream (padded to a multiple of four octets).
+Server Processing of RPC Data Requests 5.3.3.1.
+the sequence number (seq num) specified in the credential (more on this follows)
+The gss proc field in the credential must be set to RPCSEC GSS DATA for data requests (otherwise, the message will be interpreted as a control message).
+The server maintains a window of "seq window" sequence numbers, starting with the last sequence number seen and extending backwards.
+If a sequence number higher than the last number seen is received (AND if GSS VerifyMIC() on the header checksum from the verifier returns GSS S COMPLETE), the window is moved forward to the new sequence number.
+If the last sequence number seen is N, the server is prepared to receive requests with sequence numbers in the range N through (N seq window   1), both inclusive.
+If the sequence number received falls below this range, it is silently discarded.
+If the sequence number is within this range, and the server has not seen it, the request is accepted, and the server turns on a bit to "remember" that this sequence number has been seen.
+If the server determines that it has already seen a sequence number within the window, the request is silently discarded.
+The server should select a seq window value based on the number requests it expects to process simultaneously.
+For example, in a threaded implementation seq window might be equal to the number of server threads.
+There are no known security issues with selecting a large window.
+The primary issue is how much space the server is willing to allocate to keep track of requests received within the window.
+The reason for discarding requests silently is that the server is unable to determine if the duplicate or out of range request was due to a sequencing problem in the client, network, or the operating system, or due to some quirk in routing, or a replay attack by an intruder.
+Discarding the request allows the client to recover after timing out, if indeed the duplication was unintentional or well intended.
+Note that a consequence of the silent discard is that clients may increment the seq num by more than one.
+The effect of this is that the window will move forward more quickly.
+It is not believed that there is any benefit to doing this.
+Note that the sequence number algorithm requires that the client increment the sequence number even if it is retrying a request with the same RPC transaction identifier.
+It is not infrequent for clients to get into a situation where they send two or more attempts and a slow server sends the reply for the first attempt.
+With RPCSEC GSS, each request and reply will have a unique sequence number.
+If the client wishes to improve turn around time on the RPC call, it can cache the RPCSEC GSS sequence number of each request it sends.
+Then when it receives a response with a matching RPC transaction identifier, it can compute the checksum of each sequence number in the cache to try to match the checksum in the reply's verifier.
+The data is decoded according to the service specified in the credential.
+In the case of integrity or privacy, the server ensures that the QOP value is acceptable, and that it is the same as that used for the header checksum in the verifier.
+Also, in the case of integrity or privacy, the server will reject the message (with a reply status of MSG ACCEPTED, and an acceptance status of GARBAGE ARGS) if the sequence number embedded in the request body is different from the sequence number in the credential.
+An MSG ACCEPTED reply to a request in the data exchange phase will have the verifier's (the verf element in the response) flavor field set to RPCSEC GSS, and the body field set to the checksum (the output of GSS GetMIC()) of the sequence number (in network order) of the corresponding request.
+The QOP used is the same as the QOP used for the corresponding request.
+If the status of the reply is not SUCCESS, the rest of the message is formatted as usual.
+If the status of the message is SUCCESS, the format of the rest of the message depends on the service specified in the corresponding request message.
+Basically, what follows the verifier in this case are the procedure results, formatted in different ways depending on the requested service.
+If no data integrity was requested, the procedure results are formatted as for the AUTH NONE security flavor.
+If data integrity was requested, the results are encoded in exactly the same way as the procedure arguments were in the corresponding request.
+See the section 'RPC Request Data With Data Integrity.'
+The only difference is that the structure representing the procedure's result proc res arg t must be substituted in place of the request argument structure proc req arg t.
+The QOP used for the checksum must be the same as that used for constructing the reply verifier.
+If data privacy was requested, the results are encoded in exactly the same way as the procedure arguments were in the corresponding request.
+See the section 'RPC Request Data With Data Privacy.'
+The QOP used for  encryption must be the same as that used for constructing the reply verifier.
+An MSG DENIED reply (to a data request) is formulated as usual.
+Two new values (RPCSEC GSS CREDPROBLEM and RPCSEC GSS CTXPROBLEM) have been defined for the auth stat type.
+When the reason for denial of the request is a reject stat of AUTH ERROR, one of the two new auth stat values could be returned in addition to the existing values.
+These two new values have special significance from the existing reasons for denial of a request.
+The server maintains a list of contexts for the clients that are currently in session with it.
+Normally, a context is destroyed when the client ends the session corresponding to it.
+However, due to resource constraints, the server may destroy a context prematurely (on an LRU basis, or if the server machine is rebooted, for example).
+In this case, when a client request comes in, there may not be a context corresponding to its handle.
+The server rejects the request, with the reason RPCSEC GSS CREDPROBLEM in this case.
+Upon receiving this error, the client must refresh the context that is, reestablish it after destroying the old one and try the request again.
+This error is also returned if the context handle matches that of a different context that was allocated after the client's context was destroyed (this will be detected by a failure in verifying the header checksum).
+If the GSS VerifyMIC() call on the header checksum (contained in the verifier) fails to return GSS S COMPLETE, the server rejects the request and returns an auth stat of RPCSEC GSS CREDPROBLEM.
+When the client's sequence number exceeds the maximum the server will allow, the server will reject the request with the reason RPCSEC GSS CTXPROBLEM.
+Also, if security credentials become stale while in use (due to ticket expiry in the case of the Kerberos V5 mechanism, for example), the failures which result cause the RPCSEC GSS CTXPROBLEM reason to be returned.
+In these cases also, the client must refresh the context, and retry the request.
+For other errors, retrying will not rectify the problem and the client must not refresh the context until the problem causing the client request to be denied is rectified.
+If the version field in the credential does not match the version of RPCSEC GSS that was used when the context was created, the AUTH BADCRED value is returned.
+If there is a problem with the credential, such a bad length, illegal control procedure, or an illegal service, the appropriate auth stat status is AUTH BADCRED.
+Other errors can be returned as appropriate.
+Mapping of GSS API Errors to Server Responses During the data exchange phase, the server may invoke GSS GetMIC(), GSS VerifyMIC(), GSS Unwrap(), and GSS Wrap().
+If any of these routines fail to return GSS S COMPLETE, then various unsuccessful responses can be returned.
+The are described as follows for each of the aforementioned four interfaces.
+When GSS GetMIC() is called to generate the verifier in the response, a failure results in an RPC response with a reply status of MSG DENIED, reject status of AUTH ERROR and an auth status of RPCSEC GSS CTXPROBLEM.
+When GSS GetMIC() is called to sign the call results (service is rpc gss svc integrity), a failure results in no RPC response being sent.
+Since ONC RPC server applications will typically control when a response is sent, the failure indication will be returned to the server application and it can take appropriate action (such as logging the error).
+VerifyMIC() is called to verify the verifier in request, a failure results in an RPC response with a reply status of MSG DENIED, reject status of AUTH ERROR and an auth status of RPCSEC GSS CREDPROBLEM.
+When GSS VerifyMIC() is called to verify the call arguments (service is rpc gss svc integrity), a failure results in an RPC response with a reply status of MSG ACCEPTED, and an acceptance status of GARBAGE ARGS.
+When GSS Unwrap() is called to decrypt the call arguments (service is rpc gss svc privacy), a failure results in an RPC response with a reply status of MSG ACCEPTED, and an acceptance status of GARBAGE ARGS.
+When GSS Wrap() is called to encrypt the call results (service is rpc gss svc privacy), a failure results in no RPC response being sent.
+Since ONC RPC server applications will typically control when a response is sent, the failure indication will be returned to the application and it can take appropriate action (such as logging the error).
+Context Destruction When the client is done using the session, it must send a control message informing the server that it no longer requires the context.
+This message is formulated just like a data request packet, with the following differences:  the credential has gss proc set to RPCSEC GSS DESTROY, the procedure specified in the header is NULLPROC, and there are no procedure arguments.
+The sequence number in the request must be valid, and the header checksum in the verifier must be valid, for the server to accept the message.
+The server sends a response as it would to a data request.
+The client and server must then destroy the context for the session.
+If the request to destroy the context fails for some reason, the client need not take any special action.
+The server must be prepared to deal with situations where clients never inform the server that they no longer are in session and so don't need the server to maintain a context.
+An LRU mechanism or an aging mechanism should be employed by the server to clean up in such cases.
+Set of GSS API Mechanisms RPCSEC GSS is effectively a "pass through" to the GSS API layer, and as such it is inappropriate for the RPCSEC GSS specification to enumerate a minimum set of required security mechanisms and/or quality of protections.
+If an application protocol specification references RPCSEC GSS, the protocol specification must list a mandatory set of { mechanism, QOP, service } triples, such that an implementation cannot claim conformance to the protocol specification unless it implements the set of triples.
+Within each triple, mechanism is a GSS API security mechanism, QOP is a valid quality of protection within the mechanism, and service is either rpc gss svc integrity or rpc gss svc privacy.
+For example, a network filing protocol built on RPC that depends on RPCSEC GSS for security, might require that Kerberos V5 with the default QOP using the rpc gss svc integrity service be supported by implementations conforming to the network filing protocol specification.
+The reader will note that for the privacy option, only the call arguments and results are encrypted.
+Information about the application in the form of RPC program number, program version number, and program procedure number is transmitted in the clear.
+Encrypting these fields in the RPC call header would have changed the size and format of the call header.
+This would have required revising the RPC protocol which was beyond the scope of this proposal.
+Storing the encrypted numbers in the credential would have obviated a protocol change, but would have introduced more overloading of fields and would have made implementations of RPC more complex.
+Even if the fields were encrypted somehow, in most cases an attacker can determine the program number and version number by examining the destination address of the request and querying the rpcbind service on the destination host [Srinivasan bind].
+In any case, even by not encrypting the three numbers, RPCSEC GSS still improves the state of security over what existing RPC services have had available previously.
+Implementors of new RPC services that are concerned about this risk may opt to design in a "sub procedure" field that is included in the service specific call arguments.
+Sequence Numbers Above the Window
+An attacker cannot coax the server into raising the sequence number beyond the range the legitimate client is aware of (and thus engineer a denial of server attack) without constructing an RPC request that will pass the header checksum.
+If the cost of verifying the header checksum is sufficiently large (depending on the speed of the processor doing the checksum and the cost of checksum algorithm), it is possible to envision a denial of service attack (vandalism, in the form of wasting processing resources) whereby the attacker sends requests that are above the window.
+The simplest method might be for the attacker to monitor the network traffic and then choose a sequence number that is far above the current sequence number.
+Then the attacker can send bogus requests using the above window sequence number.
+Sequence Numbers Within or Below the Window
+If the attacker sends requests that are within or below the window, then even if the header checksum is successfully verified, the server will silently discard the requests because the server assumes it has already processed the request.
+In this case, a server can optimize by skipping the header checksum verification if the sequence number is below the window, or if it is within the window, not attempt the checksum verification if the sequence number has already been seen.
+This proposal does not address attacks where an attacker can block or steal messages without being detected by the server.
+To implement such protection would be tantamount to assuming a state in the RPC service.
+RPCSEC GSS does not worsen this situation.
+Appendix A. GSS API Major Status Codes
+The GSS API definition [Linn] does not include numerical values for the various GSS API major status codes.
+It is expected that this will be addressed in future RFC.
+Until then, this appendix defines the values for each GSS API major status code listed in the GSS API definition.
+If in the future, the GSS API definition defines values for the codes that are different than what follows, then implementors of RPCSEC GSS will be obliged to map them into the values defined below.
+If in the future, the GSS API definition defines additional status codes not defined below, then the RPCSEC GSS definition will subsume those additional values.
+Here are the definitions of each GSS S   major status that the implementor of RPCSEC GSS can expect in the gss major major field of rpc gss init res.
+These definitions are not in RPC description language form.
+The numbers are in base 16 (hexadecimal):
+GSS S CALL INACCESSIBLE READ    0x01000000
+Note that the GSS API major status is split into three fields as follows:
+If the resulting major status has a non zero Calling Error and/or a non zero Routine Error, then the applicable GSS API operation has failed.
+For purposes of RPCSEC GSS, this means that the GSS Accept sec context() call executed by the server has failed.
+If the major status is equal GSS S COMPLETE, then this indicates the absence of any Errors or Supplementary Info.
+The meanings of most of the GSS S   status are defined in the GSS API definition, which the exceptions of: GSS S BAD MIC
+This code has the same meaning as GSS S BAD SIG.
+GSS S CALL INACCESSIBLE READ
+A required input parameter could not be read.
+GSS S CALL INACCESSIBLE WRITE
+A required input parameter could not be written.
+GSS S CALL BAD STRUCTURE

@@ -1,0 +1,71 @@
+Abstract This document clarifies the RTP specification regarding the use of different clock rates in an RTP session.
+It also provides guidance on how legacy RTP implementations that use multiple clock rates can interoperate with RTP implementations that use the algorithm described in this document.
+The clock rate is a parameter of the payload format as identified in RTP and RTCP (RTP Control Protocol) by the payload type value.
+It is often defined as being the same as the sampling rate but that is not always the case (see, for example, the G722 and MPA audio codecs [RFC3551]).
+An RTP sender can switch between different payloads during the lifetime of an RTP session and because clock rates are defined by payload format, it is possible that the clock rate will also vary during an RTP session.
+[RFC3550] lists using multiple clock rates as one of the reasons to not use different payloads on the same Synchronization Source (SSRC).
+Unfortunately, this advice has not always been followed and some RTP implementations change the payload in the same SSRC, even if the different payloads use different clock rates.
+This creates three problems:  The method used to calculate the RTP timestamp field in an RTP packet is underspecified.
+When the same SSRC is used for different clock rates, it is difficult to know what clock rate was used for the RTP timestamp field in an RTCP Sender Report (SR) packet.
+When the same SSRC is used for different clock rates, it is difficult to know what clock rate was used for the interarrival jitter field in an RTCP Receiver Report (RR) packet.
+These sections are not normative.
+Section 4 and its subsections recommend a unique algorithm that modifies RFC 3550.
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119
+Note that RFC 3550 uses various terms like "clock frequency", "media clock rate", "timestamp unit", "timestamp frequency", and "RTP timestamp clock rate" as synonymous to clock rate.
+A logical network element that sends RTP packets, sends RTCP SR packets, and receives RTCP reception report blocks.
+A logical network element that receives RTP packets, receives RTCP SR packets, and sends RTCP reception report blocks.
+The following sections describe the various ways in which legacy RTP implementations behave when multiple clock rates are used.
+"Legacy RTP" refers to RFC 3550 without the modifications introduced by this document.
+One way of managing multiple clock rates is to use a different SSRC for each different clock rate, as in this case there is no ambiguity on the clock rate used by fields in the RTCP packets.
+This method also seems to be the original intent of RTP as can be deduced from points 2 and 3 of Section 5.2 of RFC 3550.
+On the other hand, changing the SSRC can be a problem for some implementations designed to work only with unicast IP addresses, where having multiple SSRCs is considered a corner case.
+Lip synchronization can also be a problem in the interval between the beginning of the new stream and the first RTCP SR packet.
+The simplest way to manage multiple clock rates is to use the same SSRC for all of the payload types regardless of the clock rates.
+Unfortunately, there is no clear definition on how the RTP timestamp should be calculated in this case.
+The following subsections present the algorithms currently in use.
+This method of calculating the RTP timestamp ensures that the value increases monotonically.
+The formula used by this method is as follows: timestamp   previous timestamp
+(current capture time previous capture time)
+The problem with this method is that the jitter calculation on the receiving side gives an invalid result during the transition between two clock rates, as shown in Table 2 (Appendix A).
+The capture and arrival time are measured in seconds, starting at the beginning of the capture of the first packet; clock rate is measured in Hz; the RTP timestamp does not include the random offset; and the transit, jitter, and average jitter use the clock rate as a unit.
+Calculating the correct transit time on the receiving side can be done by using the following formulas: 1.
+(current timestamp previous timestamp) / current clock rate   previous capture time 2.
+(arrival time current capture time)
+The main problem with this method, in addition to the fact that the jitter calculation described in RFC 3550 cannot be used, is that it is dependent on the previous RTP packets, which can be reordered or lost in the network.
+An alternate way of generating the RTP timestamps is to use the following formula:
+timestamp   capture time   clock rate With this formula, the jitter calculation is correct but the RTP timestamp values are no longer increasing monotonically as shown in Table 3
+RFC 3550 states that "[t]he sampling instant MUST be derived from a clock that increments monotonically .
+.", but it does not say that the RTP timestamp must increment monotonically.
+The advantage with this method is that it works with the jitter calculation described in RFC 3550, as long as the correct clock rates are used.
+It seems that this is what most implementations are using (based on a survey done at SIPit26 and on a survey of open source implementations, see Appendix C).
+The following subsections describe behavioral recommendations for RTP senders (with and without RTCP) and RTP receivers.
+An RTP Sender with RTCP turned on MUST use a different SSRC for each different clock rate.
+An RTCP BYE MUST be sent and a new SSRC MUST be used if the clock rate switches back to a value already seen in the RTP stream.
+To accelerate lip synchronization, the next compound RTCP packet sent by the RTP sender MUST contain multiple SR packets, the first one containing the mapping for the current clock rate and the subsequent SR packet(s) containing the mapping for the other clock rates seen during the last period.
+The RTP extension defined by Perkins & Schierl
+[RFC6051] MAY be used to accelerate the synchronization.
+An RTP Sender with RTCP turned off (i.e., having set the RTP Sender and RTP Receiver bandwidth modifiers [RFC3556] to 0) SHOULD use a different SSRC for each different clock rate but MAY use different clock rates on the same SSRC as long as the RTP timestamp is calculated as explained below: Each time the clock rate changes, the start offset and capture start values are calculated with the following formulas: start offset
+previous clock rate capture start   capture time For the first RTP packet, the values are initialized with the following values:
+start offset   random initial offset capture start
+capture time After eventually updating these values, the RTP timestamp is calculated with the following formula: timestamp
+clock rate   start offset Note that in all the formulas, capture start is the first instant that the new timestamp rate is used.
+The output of the above method is exemplified in Table 4 (Appendix A).
+An RTP Receiver MUST calculate the jitter using the following formula: D(i,j)
+(arrival time j   clock rate i timestamp j) (arrival time i   clock rate i timestamp i)
+An RTP Receiver MUST be able to handle a compound RTCP packet with multiple SR packets.
+Security Considerations When the algorithm described in Section 4.1 is used, the security considerations described in RFC 3550 apply.
+The algorithm described in Section 4.2 is new and so its security properties were not considered in RFC 3550.
+Although the RTP timestamp is initialized with a random value like before, the timestamp value depends on the current and previous clock rates; this may or may not introduce a security vulnerability in the protocol.
+The following tables illustrate the timestamp and jitter values produced when the various methods discussed in the text are used.
+The values shown are purely exemplary, illustrative, and non  normative.
+Table 4: Recommended Method for RTP Sender (without RTCP)
+Using a Fixed Clock Rate
+An alternate way of fixing the issue with using multiple clock rates was proposed by Wenger and Perkins [AVT VAR RATE].
+This document proposed to define a unified clock rate, but the proposal was rejected at IETF 61.
+Appendix C.  Behavior of Legacy Implementations C.1.
+This library uses the formula described in Section 3.2.2.
+Note that this library uses gettimeofday(2) which is not guaranteed to increment monotonically (e.g., when the clock is adjusted by NTP).
+This library (which uses the oRTP library) uses the formula described in Section 3.2.2.
+Note that in some environments this library uses gettimeofday(2), which is not guaranteed to increment monotonically.
+This library uses the formula described in Section 3.2.2.
+This library changes the SSRC each time the format changes, as described in Section 3.1.

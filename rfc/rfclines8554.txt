@@ -1,0 +1,631 @@
+This note describes a digital signature system based on cryptographic hash functions, following the seminal work in this area of Lamport, Diffie, Winternitz, and Merkle, as adapted by Leighton and Micali in 1995.
+It specifies a one time signature scheme and a general signature scheme.
+These systems provide asymmetric authentication without using large integer mathematics and can achieve a high security level.
+They are suitable for compact implementations, are relatively simple to implement, and are naturally resistant to side  channel attacks.
+Unlike many other signature systems, hash based signatures would still be secure even if it proves feasible for an attacker to build a quantum computer.
+This document is a product of the Crypto Forum Research Group (CFRG) in the IRTF.
+This has been reviewed by many researchers, both in the research group and outside of it.
+The Acknowledgements section lists many of them.
+One time signature systems, and general purpose signature systems built out of one time signature systems, have been known since 1979 [Merkle79]
+, were well studied in the 1990s [USPTO5432852], and have benefited from renewed attention in the last decade.
+The characteristics of these signature systems are small private and public keys and fast signature generation and verification, but large signatures and moderately slow key generation (in comparison with RSA and ECDSA (Elliptic Curve Digital Signature Algorithm)).
+Private keys can be made very small by appropriate key generation, for example, as described in Appendix A.
+In recent years, there has been interest in these systems because of their post quantum security and their suitability for compact verifier implementations.
+This note describes the Leighton and Micali adaptation [USPTO5432852] of the original Lamport Diffie Winternitz Merkle one time signature system [Merkle79]
+[C:Merkle89b] and general signature system [Merkle79]
+with enough specificity to ensure interoperability between implementations.
+A signature system provides asymmetric message authentication.
+The key generation algorithm produces a public/private key pair.
+A message is signed by a private key, producing a signature, and a message/signature pair can be verified by a public key.
+A One Time Signature (OTS) system can be used to sign one message securely but will become insecure if more than one is signed with the same public/ private key pair.
+An N time signature system can be used to sign N or fewer messages securely.
+A Merkle tree signature scheme is an N time signature system that uses an OTS system as a component.
+In the Merkle scheme, a binary tree of height h is used to hold 2^h OTS key pairs.
+Each interior node of the tree holds a value that is the hash of the values of its two child nodes.
+The public key of the tree is the value of the root node (a recursive hash of the OTS public keys), while the private key of the tree is the collection of all the OTS private keys, together with the index of the next OTS private key to sign the next message with.
+In this note, we describe the Leighton Micali Signature (LMS) system (a variant of the Merkle scheme) with the Hierarchical Signature System (HSS) built on top of it that allows it to efficiently scale to larger numbers of signatures.
+In order to support signing a large number of messages on resource constrained systems, the Merkle tree can be subdivided into a number of smaller trees.
+Only the bottommost tree is used to sign messages, while trees above that are used to sign the public keys of their children.
+For example, in the simplest case with two levels with both levels consisting of height h trees, the root tree is used to sign 2^h trees with 2^h OTS key pairs, and each second level tree has 2^h OTS key pairs, for a total of 2^(2h) bottom level key pairs, and so can sign 2^(2h) messages.
+The advantage of this scheme is that only the active trees need to be instantiated, which saves both time (for key generation) and space (for key storage).
+On the other hand, using a multilevel signature scheme increases the size of the signature as well as the signature verification time.
+This note is structured as follows.
+Notes on post quantum cryptography are discussed in Section 1.1.
+Intellectual property issues are discussed in Section 1.2.
+The notation used within this note is defined in Section 3, and the public formats are described in Section 3.3.
+The Leighton Micali One Time Signature (LM OTS) system is described in Section 4, and the LMS and HSS N time signature systems are described in Sections 5 and 6, respectively.
+Sufficient detail is provided to ensure interoperability.
+The rationale for the design decisions is given in Section 7.
+The IANA registry for these signature systems is described in Section 8.
+Security considerations are presented in Section 9.
+Comparison with another hash based signature algorithm (eXtended Merkle Signature Scheme (XMSS)) is in Section 10.
+This document represents the rough consensus of the CFRG.
+CFRG Note on Post Quantum Cryptography
+All post quantum algorithms documented by the Crypto Forum Research Group (CFRG) are today considered ready for experimentation and further engineering development (
+e.g., to establish the impact of performance and sizes on IETF protocols).
+However, at the time of writing, we do not have significant deployment experience with such algorithms.
+Many of these algorithms come with specific restrictions, e.g., change of classical interface or less cryptanalysis of proposed parameters than established schemes.
+The CFRG has consensus that all documents describing post quantum technologies include the above paragraph and a clear additional warning about any specific restrictions, especially as those might affect use or deployment of the specific scheme.
+That guidance may be changed over time via document updates.
+Additionally, for LMS: CFRG consensus is that we are confident in the cryptographic security of the signature schemes described in this document against quantum computers, given the current state of the research community's knowledge about quantum algorithms.
+Indeed, we are confident that the security of a significant part of the Internet could be made dependent on the signature schemes defined in this document, if developers take care of the following.
+In contrast to traditional signature schemes, the signature schemes described in this document are stateful, meaning the secret key changes over time.
+If a secret key state is used twice, no cryptographic security guarantees remain.
+In consequence, it becomes feasible to forge a signature on a new message.
+This is a new property that most developers will not be familiar with and requires careful handling of secret keys.
+Developers should not use the schemes described here except in systems that prevent the reuse of secret key states.
+Note that the fact that the schemes described in this document are stateful also implies that classical APIs for digital signatures cannot be used without modification.
+The API MUST be able to handle a dynamic secret key state; that is, the API MUST allow the signature generation algorithm to update the secret key state.
+This document is not intended as legal advice.
+Readers are advised to consult with their own legal advisers if they would like a legal interpretation of their rights.
+The IETF policies and processes regarding intellectual property and patents are outlined in [RFC8179] and at <https://datatracker.ietf.org/ipr/about>.
+Conventions Used in This Document
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "
+SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in BCP 14
+when, and only when, they appear in all capitals, as shown here.
+The LMS signing algorithm is stateful; it modifies and updates the private key as a side effect of generating a signature.
+Once a particular value of the private key is used to sign one message, it MUST NOT be used to sign another.
+The key generation algorithm takes as input an indication of the parameters for the signature system.
+If it is successful, it returns both a private key and a public key.
+Otherwise, it returns an indication of failure.
+The signing algorithm takes as input the message to be signed and the current value of the private key.
+If successful, it returns a signature and the next value of the private key, if there is such a value.
+After the private key of an N time signature system has signed N messages, the signing algorithm returns the signature and an indication that there is no next value of the private key that can be used for signing.
+If unsuccessful, it returns an indication of failure.
+The verification algorithm takes as input the public key, a message, and a signature; it returns an indication of whether or not the signature and message pair is valid.
+A message/signature pair is valid if the signature was returned by the signing algorithm upon input of the message and the private key corresponding to the public key; otherwise, the signature and message pair is not valid with probability very close to one.
+Data Types Bytes and byte strings are the fundamental data types.
+A single byte is denoted as a pair of hexadecimal digits with a leading "0x".
+A byte string is an ordered sequence of zero or more bytes and is denoted as an ordered sequence of hexadecimal characters with a leading "0x".
+For example, 0xe534f0 is a byte string with a length of three.
+An array of byte strings is an ordered set, indexed starting at zero, in which all strings have the same length.
+Unsigned integers are converted into byte strings by representing them in network byte order.
+To make the number of bytes in the representation explicit, we define the functions u8str(X), u16str(X), and u32str(X), which take a nonnegative integer X as input and return one , two , and four byte strings, respectively.
+When a and b are real numbers, mathematical operators are defined as follows:
+The standard order of operations is used when evaluating arithmetic expressions.
+When B is a byte and i is an integer, then B
+i denotes the logical right shift operation by i
+< i denotes the logical left shift operation.
+If S and T are byte strings, then S    T denotes the concatenation of S and T.
+If S and T are equal length byte strings, then S AND T denotes the bitwise logical and operation.
+The i th element in an array
+A is denoted as A[i].
+If r is a nonnegative real number, then we define the following functions: ceil(r) : returns the smallest integer greater than or equal to r floor(r) : returns the largest integer less than or equal to r lg(r) : returns the base 2 logarithm of r 3.1.3.
+Strings of w Bit Elements
+If S is a byte string, then byte(S, i) denotes its i th byte, where the index starts at 0 at the left.
+Hence, byte(S, 0) is the leftmost byte of S, byte(S, 1) is the second byte from the left, and (assuming S is n bytes long)
+byte(S, n 1) is the rightmost byte of S.
+In addition, bytes(S, i, j) denotes the range of bytes from the i th to the j th byte, inclusive.
+For example, if S   0x02040608, then byte(S, 0) is 0x02 and bytes(S, 1, 2) is 0x0406.
+A byte string can be considered to be a string of w bit unsigned integers; the correspondence is defined by the function coef(S, i, w) as follows: If S is a string, i is a positive integer, and w is a member of the set { 1, 2, 4, 8 }, then
+coef(S, i, w) is the i th, w bit value, if S is interpreted as a sequence of w bit values.
+That is, coef(S, i, w)
+For example, if S is the string 0x1234, then coef(S, 7, 1) is 0 and coef(S, 0, 4)
+The return value of coef is an unsigned integer.
+If i is larger than the number of w bit values in S, then coef(S, i, w) is undefined, and an attempt to compute that value MUST raise an error.
+A typecode is an unsigned integer that is associated with a particular data format.
+The format of the LM OTS, LMS, and HSS signatures and public keys all begin with a typecode that indicates the precise details used in that format.
+These typecodes are represented as four byte unsigned integers in network byte order; equivalently, they are External Data Representation (XDR) enumerations (see Section 3.3).
+The signature and public key formats are formally defined in XDR to provide an unambiguous, machine readable definition [RFC4506].
+The private key format is not included as it is not needed for interoperability and
+an implementation MAY use any private key format.
+However, for clarity, we include an example of private key data in Test Case 2 of Appendix F.
+Though XDR is used, these formats are simple and easy to parse without any special tools.
+An illustration of the layout of data in these objects is provided below.
+sha256 n32 w2    2, lmots sha256 n32 w4    3, lmots sha256 n32 w8    4 }; typedef opaque bytestring32[32]; struct lmots signature n32 p265 { bytestring32 C; bytestring32 y[265]
+lmots signature n32 p265 sig n32 p265; case lmots
+lmots signature n32 p133 sig n32 p133; case lmots sha256 n32 w4:
+lmots signature n32 p67  sig n32 p67; case lmots
+lmots signature n32 p34  sig n32 p34
+sha256 n32 h5    5, lms
+sha256 n32 h10   6, lms
+sha256 n32 h15   7, lms
+/ union lms path switch (lms algorithm type type)
+{ case lms sha256 n32 h5:
+bytestring32 path n32 h10[10]; case lms
+h15[15]; case lms sha256 n32 h20:
+bytestring32 path n32 h20[20]; case lms
+sha256 n32 h10: case lms sha256 n32 h15: case lms sha256 n32 h20
+sha256 n32 h25: lms key n32 z n32;
+LM OTS One Time Signatures This section defines LM OTS signatures.
+The signature is used to validate the authenticity of a message by associating a secret private key with a shared public key.
+These are one time signatures; each private key MUST be used at most one time to sign any given message.
+As part of the signing process, a digest of the original message is computed using the cryptographic hash function H (see Section 4.1), and the resulting digest is signed.
+In order to facilitate its use in an N time signature system, the LM OTS key generation, signing, and verification algorithms all take as input parameters I and q.
+I is a 16 byte string that indicates which Merkle tree this LM OTS is used with.
+The parameter q is a 32 bit integer that indicates the leaf of the Merkle tree where the OTS public key appears.
+These parameters are used as part of the security string, as listed in Section 7.1.
+When the LM OTS signature system is used outside of an N time signature system, the value I MAY be used to differentiate this one time signature from others; however, the value q MUST be set to the all  zero value.
+The signature system uses the parameters n and w, which are both positive integers.
+The algorithm description also makes use of the internal parameters p and ls, which are dependent on n and w.
+These parameters are summarized as follows:
+the number of bytes of the output of the hash function.
+w : the width (in bits) of the Winternitz coefficients; that is, the number of bits from the hash or checksum that is used with a single Winternitz chain.
+It is a member of the set { 1, 2, 4, 8 }.
+p : the number of n byte string elements that make up the LM OTS signature.
+This is a function of n and w; the values for the defined parameter sets are listed in Table 1; it can also be computed by the algorithm given in Appendix B. ls : the number of left shift bits used in the checksum function Cksm (defined in Section 4.4).
+H : a second preimage resistant cryptographic hash function that accepts byte strings of any length and returns an n byte string.
+For more background on the cryptographic security requirements for H, see Section 9.
+The value of n is determined by the hash function selected for use as part of the LM OTS algorithm; the choice of this value has a strong effect on the security of the system.
+The parameter w determines the length of the Winternitz chains computed as a part of the OTS signature (which involve 2^w 1 invocations of the hash function); it has little effect on security.
+Increasing w will shorten the signature, but at a cost of a larger computation to generate and verify a signature.
+The values of p and ls are dependent on the choices of the parameters n and w, as described in Appendix B. Table 1 illustrates various combinations of n, w, p and ls, along with the resulting signature length.
+The value of w describes a space/time trade off; increasing the value of w will cause the signature to shrink (by decreasing the value of p) while increasing the amount of time needed to perform operations with it: generate the public key and generate and verify the signature.
+In general, the LM OTS signature is 4 n (p 1) bytes long, and public key generation will take p (2^w 1)
+1 hash computations (and signature generation and verification will take approximately half that on average).
+Here SHA256 denotes the SHA 256 hash function defined in NIST standard [FIPS180].
+The format of the LM OTS private key is an internal matter to the implementation, and this document does not attempt to define it.
+One possibility is that the private key may consist of a typecode indicating the particular LM OTS algorithm, an array x[] containing p n byte strings, and the 16 byte string I and the 4 byte string q.
+This private key MUST be used to sign (at most) one message.
+The following algorithm shows pseudocode for generating a private key.
+Generating a Private Key 1.
+Retrieve the values of q and I (the 16 byte identifier of the LMS public/private key pair) from the LMS tree that this LM OTS private key will be used with 2.
+Set type to the typecode of the algorithm 3.
+according to the typecode and Table 1 4.
+An implementation MAY use a pseudorandom method to compute x[i], as suggested in [Merkle79], page 46.
+The details of the pseudorandom method do not affect interoperability, but the cryptographic strength MUST match that of the LM OTS algorithm.
+Appendix A provides an example of a pseudorandom method for computing the LM OTS private key.
+The LM OTS public key is generated from the private key by iteratively applying the function H to each individual element of x, for 2^w 1 iterations, then hashing all of the resulting values.
+The public key is generated from the private key using the following algorithm, or any equivalent process.
+Generating a One Time Signature Public Key From a Private Key 1.
+Set type to the typecode of the algorithm 2.
+Set the integers n, p, and w
+according to the typecode and Table 1 3.
+Determine x, I, and q from the private key 4.
+Compute the string K as follows: for ( i   0; i < p;
+K where D PBLC is the fixed two byte value 0x8080, which is used to distinguish the last hash from every other hash in this system.
+The public key is the value returned by Algorithm 1. 4.4.
+Checksum A checksum is used to ensure that any forgery attempt that manipulates the elements of an existing signature will be detected.
+This checksum is needed because an attacker can freely advance any of the Winternitz chains.
+That is, if this checksum were not present, then an attacker who could find a hash that has every digit larger than the valid hash could replace it (and adjust the Winternitz chains).
+The security property that the checksum provides is detailed in Section 9.
+The checksum function Cksm is defined as follows, where S denotes the n byte string that is input to that function, and the value sum is a 16 bit unsigned integer: Algorithm 2: Checksum Calculation sum   0 for ( i   0;
+i < (n 8/w); i
+, i, w) } return (sum << ls)
+ls is the parameter that shifts the significant bits of the checksum into the positions that will actually be used by the coef function when encoding the digits of the checksum.
+The actual ls parameter is a function of the n and w parameters; the values for the currently defined parameter sets are shown in Table 1.
+It is calculated by the algorithm given in Appendix B.
+Because of the left shift operation, the rightmost bits of the result of Cksm will often be zeros.
+Due to the value of p, these bits will not be used during signature generation or verification.
+The LM OTS signature of a message is generated by doing the following in sequence: prepending the LMS key identifier I, the LMS leaf identifier q, the value D MESG (0x8181), and the randomizer C to the message; computing the hash; concatenating the checksum of the hash to the hash itself; considering the resulting value as a sequence of w bit values; and using each of the w bit values to determine the number of times to apply the function H to the corresponding element of the private key.
+The outputs of the function H are concatenated together and returned as the signature.
+The pseudocode for this procedure is shown below.
+Generating a One Time Signature From a Private Key and a Message 1.
+Set type to the typecode of the algorithm 2.
+Set n, p, and w
+according to the typecode and Table 1 3.
+Determine x, I, and q from the private key 4.
+Set C to a uniformly random n byte string 5.
+C    message) for ( i   0; i < p;
+Note that this algorithm results in a signature whose elements are intermediate values of the elements computed by the public key algorithm in Section 4.3.
+The signature is the string returned by Algorithm 3.
+Section 3.3 formally defines the structure of the string as the lmots signature union.
+In order to verify a message with its signature (an array of n byte strings, denoted as y), the receiver must "complete" the chain of iterations of H using the w bit coefficients of the string resulting from the concatenation of the message hash and its checksum.
+This computation should result in a value that matches the provided public key.
+Verifying a Signature and Message
+Using a Public Key 1.
+If the public key is not at least four bytes long, return INVALID.
+Parse pubtype, I, q, and K from the public key as follows:
+a. pubtype   strTou32(first 4 bytes of public key)
+according to the pubkey and Table 1; if the public key is not exactly 24   n bytes long, return INVALID.
+next 16 bytes of public key d. q
+strTou32(next 4 bytes of public key)
+next n bytes of public key 3.
+Compute the public key candidate Kc from the signature, message, pubtype, and the identifiers I and q obtained from the public key, using Algorithm 4b.
+If Algorithm 4b returns INVALID, then return INVALID.
+If Kc is equal to K, return VALID; otherwise, return INVALID.
+Computing a Public Key Candidate Kc from a Signature, Message, Signature Typecode pubtype, and Identifiers I, q 1.
+If the signature is not at least four bytes long, return INVALID.
+Parse sigtype, C, and y from the signature as follows:
+a. sigtype   strTou32(first 4 bytes of signature)
+If sigtype is not equal to pubtype, return INVALID.
+c. Set n and p
+according to the pubtype and Table 1; if the signature is not exactly 4
+(p 1) bytes long, return INVALID.
+next n bytes of signature e.   y[0]
+next n bytes of signature y[1]
+next n bytes of signature ...
+next n bytes of signature 3.
+Compute the string Kc as follows:
+C    message) for ( i   0; i < p;
+Leighton Micali Signatures The Leighton Micali Signature (LMS) method can sign a potentially large but fixed number of messages.
+An LMS system uses two cryptographic components: a one time signature method and a hash function.
+Each LMS public/private key pair is associated with a perfect binary tree, each node of which contains an m byte value, where m is the output length of the hash function.
+Each leaf of the tree contains the value of the public key of an LM OTS public/private key pair.
+The value contained by the root of the tree is the LMS public key.
+Each interior node is computed by applying the hash function to the concatenation of the values of its children nodes.
+Each node of the tree is associated with a node number, an unsigned integer that is denoted as node num in the algorithms below, which is computed as follows.
+The root node has node number 1; for each node with node number
+N < 2^h (where h is the height of the tree), its left child has node number 2 N, while its right child has node number 2
+at level i has node number 2^i
+The node number can conveniently be computed when it is needed in the LMS algorithms, as described in those algorithms.
+An LMS system has the following parameters: h : the height of the tree m : the number of bytes associated with each node H : a second preimage resistant cryptographic hash function that accepts byte strings of any length and returns an m byte string.
+There are 2^h leaves in the tree.
+The overall strength of LMS signatures is governed by the weaker of the hash function used within the LM OTS and the hash function used within the LMS system.
+In order to minimize the risk, these two hash functions SHOULD be the same (so that an attacker could not take advantage of the weaker hash function choice).
+The format of the LMS private key is an internal matter to the implementation, and this document does not attempt to define it.
+One possibility is that it may consist of an array OTS PRIV[] of 2^h LM OTS private keys and the leaf number q of the next LM OTS private key that has not yet been used.
+The q th element of OTS PRIV[] is generated using Algorithm 0 with the identifiers I, q.
+The leaf number q is initialized to zero when the LMS private key is created.
+The process is as follows:
+Computing an LMS Private Key.
+Determine h and m from the typecode and Table 2.
+Set I to a uniformly random 16 byte string.
+Compute the array OTS PRIV[] as follows: for ( q   0; q < 2^h; q
+LM OTS private key with identifiers I, q } 4.
+An LMS private key MAY be generated pseudorandomly from a secret value; in this case, the secret value MUST be at least m bytes long and uniformly random and MUST NOT be used for any other purpose than the generation of the LMS private key.
+The details of how this process is done do not affect interoperability; that is, the public key verification operation is independent of these details.
+Appendix A provides an example of a pseudorandom method for computing an LMS private key.
+The signature generation logic uses q as the next leaf to use; hence, step 4 starts it off at the leftmost leaf.
+Because the signature process increments q after the signature operation, the first signature will have q 0.
+An LMS public key is defined as follows, where we denote the public key final hash value (namely, the K value computed in Algorithm 1) associated with the i th LM OTS private key as OTS PUB HASH[i], with i ranging from 0 to (2^h) 1.
+Each instance of an LMS public/private key pair is associated with a balanced binary tree, and the nodes of that tree are indexed from 1 to 2^(h 1) 1.
+Each node is associated with an m byte string.
+The string for the r th node is denoted as T[r] and defined as if r
+H(I  u32str(r)  u16str(D LEAF)  OTS PUB HASH[r 2^h])
+else H(I  u32str(r)  u16str(D INTR)
+where D LEAF is the fixed two byte value 0x8282 and D INTR is the fixed two byte value 0x8383, both of which are used to distinguish this hash from every other hash in this system.
+2^h, then we are processing a leaf node (and thus hashing only a single LM OTS public key).
+When we have r < 2^h, then we are processing an internal node
+that is, a node with two child nodes that we need to combine.
+Section 3.3 specifies the format of the type variable.
+The value otstype is the parameter set for the LM OTS public/private key pairs used.
+I is the private key identifier and is the value used for all computations for the same LMS tree.
+The value T[1] can be computed via recursive application of the above equation or by any equivalent method.
+An iterative procedure is outlined in Appendix C. 5.4.
+An LMS signature consists of the number q of the leaf associated with the LM OTS signature, as a four byte unsigned integer in network byte order, an LM OTS signature, a typecode indicating the particular LMS algorithm, an array of h m byte values that is associated with the path through the tree from the leaf associated with the LM OTS signature to the root.
+Symbolically, the signature can be represented as u32str(q)
+] Section 3.3 formally defines the format of the signature as the lms signature structure.
+The array for a tree with height h will have h values and contains the values of the siblings of (that is, is adjacent to)
+the nodes on the path from the leaf to the root, where the sibling to node A is the other node that shares node A's parent.
+In the signature, 0 is counted from the bottom level of the tree, and so path[0]
+is the value of the node adjacent to leaf node q; path[1] is the second level node that is adjacent to leaf node q's parent, and so on up the tree until we get to path[h 1], which is the value of the next to the top level node whose branch the leaf node q does not reside in.
+Below is a simple example of the authentication path for h 3 and q 2.
+The leaf marked OTS is the one time signature that is used to sign the actual message.
+The nodes on the path from the OTS public key to the root are marked with a  , while the nodes that are used within the path array are marked with   .
+The values in the path array are those nodes that are siblings of the nodes on the path; path[0] is the leaf   node that is adjacent to the OTS public key (which is the start of the path); path[1] is the T[4]
+node that is the sibling of the second node
+on the path, and path[2] is the T[3]
+node that is the sibling of the third node
+The idea behind this authentication path is that it allows us to validate the OTS hash with using h path array values and hash computations.
+What the verifier does is recompute the hashes up the path; first, it hashes the given OTS and path[0] value, giving a tentative T[5]' value.
+Then, it hashes its path[1] and tentative T[5]' value to get a tentative T[2]' value.
+Then, it hashes that and the path[2] value to get a tentative Root' value.
+If that value is the known public key of the Merkle tree, then we can assume that the value T[2]
+' it got was the correct T[2] value in the original tree, and so the T[5]' value it got was the correct T[5] value in the original tree, and so the OTS public key is the same as in the original and, hence, is correct.
+To compute the LMS signature of a message with an LMS private key, the signer first computes the LM OTS signature of the message using the leaf number of the next unused LM OTS private key.
+The leaf number q in the signature is set to the leaf number of the LMS private key that was used in the signature.
+Before releasing the signature, the leaf number q in the LMS private key MUST be incremented to prevent the LM OTS private key from being used again.
+If the LMS private key is maintained in nonvolatile memory, then the implementation MUST ensure that the incremented value has been stored before releasing the signature.
+The issue this tries to prevent is a scenario where a)
+we generate a signature using one LM OTS private key and release it to the application, b) before we update the nonvolatile memory, we crash, and c) we reboot and generate a second signature using the same LM OTS private key.
+With two different signatures using the same LM OTS private key, an attacker could potentially generate a forged signature of a third message.
+The array of node values in the signature MAY be computed in any way.
+There are many potential time/storage trade offs that can be applied.
+The fastest alternative is to store all of the nodes of the tree and set the array in the signature by copying them; pseudocode to do so appears in Appendix D.
+The least storage intensive alternative is to recompute all of the nodes for each signature.
+Note that the details of this procedure are not important for interoperability; it is not necessary to know any of these details in order to perform the signature verification operation.
+The internal nodes of the tree need not be kept secret, and thus a node caching scheme that stores only internal nodes can sidestep the need for strong protections.
+Several useful time/storage trade offs are described in the "Small  Memory LM Schemes" section of [USPTO5432852].
+An LMS signature is verified by first using the LM OTS signature verification algorithm (Algorithm 4b) to compute the LM OTS public key from the LM OTS signature and the message.
+The value of that public key is then assigned to the associated leaf of the LMS tree, and then the root of the tree is computed from the leaf value and the array path[] as described in Algorithm 6 below.
+If the root value matches the public key, then the signature is valid; otherwise, the signature verification fails.
+If the public key is not at least eight bytes long, return INVALID.
+Parse pubtype, I, and T[1] from the public key as follows:
+a. pubtype   strTou32(first 4 bytes of public key)
+strTou32(next 4 bytes of public key)
+according to pubtype, based on Table 2.
+If the public key is not exactly 24
+m bytes long, return INVALID.
+next 16 bytes of the public key f.
+next m bytes of the public key 3.
+Compute the LMS Public Key Candidate Tc from the signature, message, identifier, pubtype, and ots typecode, using Algorithm 6a.
+If Tc is equal to T[1], return VALID; otherwise, return INVALID.
+Computing an LMS Public Key Candidate from a Signature, Message, Identifier, and Algorithm Typecodes 1.
+If the signature is not at least eight bytes long, return INVALID.
+Parse sigtype, q, lmots signature, and path from the signature as follows:
+strTou32(first 4 bytes of signature)
+strTou32(next 4 bytes of signature)
+If otssigtype is not the OTS typecode from the public key, return INVALID.
+p according to otssigtype and Table 1; if the signature is not at least 12
+(p   1) bytes long, return INVALID.
+e. lmots signature   bytes 4 through 7
+(p   1) of signature f. sigtype
+(p   1) of signature) g.
+If sigtype is not the LM typecode from the public key, return INVALID.
+, h according to sigtype and Table 2.
+2^h or the signature is not exactly 12
+m   h bytes long, return INVALID.
+j. Set path as follows:
+next m bytes of signature
+next m bytes of signature ...
+next m bytes of signature 3.
+Kc   candidate public key computed by applying Algorithm 4b to the signature lmots signature, the message, and the identifiers I, q 4.
+Compute the candidate LMS root value Tc as follows: node num
+while (node num > 1) { if (node num is odd):
+else: tmp   H(I  u32str(node num/2)  u16str(D INTR)
+In scenarios where it is necessary to minimize the time taken by the public key generation process, the Hierarchical Signature System (HSS) can be used.
+This hierarchical scheme, which we describe in this section, uses the LMS scheme as a component.
+In HSS, we have a sequence of L LMS trees, where the public key for the first LMS tree is included in the public key of the HSS system, each LMS private key signs the next LMS public key, and the last LMS private key signs the actual message.
+For example, if we have a three level hierarchy (L 3), then to sign a message, we would have: The first LMS private key (level 0) signs a level 1 LMS public key.
+The second LMS private key (level 1) signs a level 2 LMS public key.
+The third LMS private key (level 2) signs the message.
+The root of the level 0 LMS tree is contained in the HSS public key.
+To verify the LMS signature, we would verify all the signatures: We would verify that the level 1 LMS public key is correctly signed by the level 0 signature.
+We would verify that the level 2 LMS public key is correctly signed by the level 1 signature.
+We would verify that the message is correctly signed by the level 2 signature.
+We would accept the HSS signature only if all the signatures validated.
+During the signature generation process, we sign messages with the lowest (level L 1) LMS tree.
+Once we have used all the leafs in that tree to sign messages, we would discard it, generate a fresh LMS tree, and sign it with the next (level L 2) LMS tree (and when that is used up, recursively generate and sign a fresh level L 2 LMS tree).
+HSS, in essence, utilizes a tree of LMS trees.
+There is a single LMS tree at level 0 (the root).
+Each LMS tree (actually, the private key corresponding to the LMS tree) at level i is used to sign 2^h objects (where h is the height of trees at level i).
+If i < L 1, then each object will be another LMS tree (actually, the public key) at level
+i 1; if i   L 1, we've reached the bottom of the HSS tree, and so each object will be a message from the application.
+The HSS public key contains the public key of the LMS tree at the root, and an HSS signature is associated with a path from the root of the HSS tree to the leaf.
+Compared to LMS, HSS has a much reduced public key generation time, as only the root tree needs to be generated prior to the distribution of the HSS public key.
+For example, an L 3 tree (with h 10 at each level) would have one level 0 LMS tree, 2^10 level 1 LMS trees (with each such level 1 public key signed by one of the 1024 level 0 OTS public keys), and 2^20 level 2 LMS trees.
+Only 1024 OTS public keys need to be computed to generate the HSS public key (as you need to compute only the level 0 LMS tree to compute that value; you can, of course, decide to compute the initial level 1 and level 2 LMS trees).
+In addition, the 2^20 level 2 LMS trees can jointly sign a total of over a billion messages.
+In contrast, a single LMS tree that could sign a billion messages would require a billion OTS public keys to be computed first (if h 30 were allowed in a supported parameter set).
+Each LMS tree within the hierarchy is associated with a distinct LMS public key, private key, signature, and identifier.
+The number of levels is denoted as L and is between one and eight, inclusive.
+The following notation is used, where i is an integer between 0 and L 1 inclusive, and the root of the hierarchy is level 0
+: prv[i] is the current LMS private key of the i th level.
+pub[i] is the current LMS public key of the i th level, as described in Section 5.3.
+sig[i] is the LMS signature of public key pub[i 1] generated using the private key prv[i].
+It is expected that the above arrays are maintained for the course of the HSS key.
+The contents of the prv[] array MUST be kept private; the pub[] and sig
+[] array may be revealed should the implementation find that convenient.
+In this section, we say that an N time private key is exhausted when it has generated N signatures; thus, it can no longer be used for signing.
+For i > 0, the values prv[i], pub[i], and (for all values of i) sig[i] will be updated over time as private keys are exhausted and replaced by newer keys.
+When these key pairs are updated (or initially generated before the first message is signed), then the LMS key generation processes outlined in Sections 5.2 and 5.3 are performed.
+If the generated key pairs are for level
+i of the HSS hierarchy, then we store the public key in pub[i] and the private key in prv[i].
+In addition, if i > 0, then we sign the generated public key with the LMS private key at level
+i 1, placing the signature into sig[i 1].
+When the LMS key pair is generated, the key pair and the corresponding identifier MUST be generated independently of all other key pairs.
+HSS allows L 1, in which case the HSS public key and signature formats are essentially the LMS public key and signature formats, prepended by a fixed field.
+Since HSS with L 1 has very little overhead compared to LMS, all implementations MUST support HSS in order to maximize interoperability.
+We specifically allow different LMS levels to use different parameter sets.
+For example, the 0 th LMS public key (the root) may use the LMS SHA256 M32 H15 parameter set, while the 1 th public key may use LMS SHA256 M32 H10.
+There are practical reasons to allow this; for one, the signer may decide to store parts of the 0 th LMS tree (that it needs to construct while computing the public key) to accelerate later operations.
+As the 0 th tree is never updated, these internal nodes will never need to be recomputed.
+In addition, during the signature generation operation, almost all the operations involved with updating the authentication path occur with the bottom (L 1th)
+LMS public key; hence, it may be useful to select the parameter set for that public key to have a shorter LMS tree.
+A close reading of the HSS verification pseudocode shows that it would allow the parameters of the nontop LMS public keys to change over time; for example, the signer might initially have the 1 th LMS public key use the LMS SHA256
+M32 H10 parameter set, but when that tree is exhausted, the signer might replace it with an LMS public key that uses the LMS SHA256
+While this would work with the example verification pseudocode, the signer MUST NOT change the parameter sets for a specific level.
+This prohibition is to support verifiers that may keep state over the course of several signature verifications.
+The public key of the HSS scheme consists of the number of levels L, followed by pub[0], the public key of the top level.
+As stated earlier, the values of the pub[] and sig[] arrays need not be kept secret and may be revealed.
+The value of pub[0] does not change (and, except for the index q, the value of prv[0] need not change); however, the values of pub[i] and prv[i] are dynamic for i > 0 and are changed by the signature generation algorithm.
+During the key generation, the public and private keys are initialized.
+Here is some pseudocode that explains the key  generation logic:
+Generating an HSS Key Pair 1.
+Generate an LMS key pair, as specified in Sections 5.2 and 5.3, placing the private key into priv[0], and the public key into pub[0
+For i   1 to L 1
+do { generate an LMS key pair, placing the private key into priv[i] and the public key into pub[i]
+pub[0] as the public key and the priv[]
+, pub[], and sig[] arrays as the private key In the above algorithm, each LMS public/private key pair generated MUST be generated independently.
+Note that the value of the public key does not depend on the execution of step 2.
+As a result, an implementation may decide to delay step 2 until later   for example, during the initial signature generation operation.
+If d is equal to zero, then the HSS key pair is exhausted, and it MUST NOT generate any more signatures.
+Otherwise, the key pairs for levels d through L 1 must be regenerated during the signature generation process, as follows.
+For i from d to L 1, a new LMS public and private key pair with a new identifier is generated, pub[i] and prv[i] are set to those values, then the public key pub[i] is signed with prv[i 1], and sig[i 1] is set to the resulting value.
+The message is signed with prv[L 1], and the value sig[L 1] is set to that result.
+The value of the HSS signature is set as follows.
+We let signed pub key denote an array of octet strings, where signed pub key[i]
+pub[i 1], for i between 0 and Nspk 1, inclusive, where Nspk   L 1 denotes the number of signed public keys.
+Note that the number of signed pub key elements in the signature is indicated by the value Nspk that appears in the initial four bytes of the signature.
+Here is some pseudocode of the above logic: Algorithm 8:
+Generating an HSS signature 1.
+If the message signing key prv[L 1] is exhausted, regenerate that key pair, together with any parent key pairs that might be necessary.
+If the root key pair is exhausted, then the HSS key pair is exhausted and MUST NOT generate any more signatures.
+while (prv[d 1].q   2^(prv[d 1].h))
+{ d   d 1 if (d   0) return FAILURE }
+while (d < L) { create lms key pair pub[d], prv[d] sig[d 1]   lms signature( pub[d], prv[d 1] )
+sig[L 1]   lms signature( msg, prv[L 1] ) 3.
+Create the list of signed public keys.
+i   0; while (i < L 1) { signed pub key[i]
+In the specific case of L 1, the format of an HSS signature is u32str(0)
+sig[Nspk] which is equivalent to u32str(Nspk)
+To verify a signature S and message using the public key pub, perform the following steps: The signature S is parsed into its components as follows:
+Nspk   strTou32(first four bytes of S)
+if Nspk 1 is not equal to the number of levels L in pub: return INVALID for (i   0; i < Nspk; i
+next LMS signature parsed from S publist[i]
+next LMS public key parsed from S } siglist[Nspk]
+next LMS signature parsed from S key   pub for (i   0; i < Nspk; i
+publist[i] if (lms verify(msg, key, sig) !
+Since the length of an LMS signature cannot be known without parsing it, the HSS signature verification algorithm makes use of an LMS signature parsing routine that takes as input a string consisting of an LMS signature with an arbitrary string appended to it and returns both the LMS signature and the appended string.
+The latter is passed on for further processing.
+As for guidance as to the number of LMS levels and the size of each, any discussion of performance is implementation specific.
+In general, the sole drawback for a single LMS tree is the time it takes to generate the public key; as every LM OTS public key needs to be generated, the time this takes can be substantial.
+For a two level tree, only the top level LMS tree and the initial bottom level LMS tree need to be generated initially (before the first signature is generated); this will in general be significantly quicker.
+To give a general idea of the trade offs available, we include some measurements taken with the LMS implementation available at <https://github.com/cisco/hash sigs>, taken on a 3.3 GHz Xeon processor with threading enabled.
+We tried various parameter sets, all with W 8 (which minimizes signature size, while increasing time).
+These are here to give a guideline as to what's possible; for the computational time, your mileage may vary, depending on the computing resources you have.
+The machine these tests were performed on does not have the SHA 256 extensions; you could possibly do significantly better.
+this is the height of the Merkle tree(s); parameter sets listed as a single integer have L 1 and consist of a single Merkle tree of that height; parameter sets with L 2 are listed as x/y, with x being the height of the top level Merkle tree and y being the bottom level.
+KeyGenTime:  the measured key generation time; that is, the time needed to generate the public/private key pair.
+the size of a signature (in bytes)
+the lifetime of a key, assuming we generated 1000 signatures per second.
+In practice, we're not likely to get anywhere close to 1000 signatures per second sustained; if you have a more appropriate figure for your scenario, this column is easy to recompute.
+As for signature generation or verification times, those are moderately insensitive to the above parameter settings (except for the Winternitz setting and the number of Merkle trees for verification).
+Tests on the same machine (without multithreading) gave approximately 4 msec to sign a short message, 2.6 msec to verify; these tests used a two level ParmSet; a single level would approximately halve the verification time.
+All times can be significantly improved (by perhaps a factor of 8) by using a parameter set with W 4; however, that also about doubles the signature size.
+The goal of this note is to describe the LM OTS, LMS, and HSS algorithms following the original references and present the modern security analysis of those algorithms.
+Other signature methods are out of scope and may be interesting follow on work.
+We adopt the techniques described by Leighton and Micali to mitigate attacks that amortize their work over multiple invocations of the hash function.
+The values taken by the identifier I across different LMS public/ private key pairs are chosen randomly in order to improve security.
+The analysis of this method in [Fluhrer17] shows that we do not need uniqueness to ensure security; we do need to ensure that we don't have a large number of private keys that use the same I value.
+By randomly selecting 16 byte I values, the chance that, out of 2^64 private keys, 4 or more of them will use the same I value is negligible (that is, has probability less than 2^ 128).
+was to optimize the Winternitz hash chain operation.
+With the current settings, the value being hashed is exactly 55 bytes long (for a 32 byte hash function), which SHA 256 can hash in a single hash compression operation.
+Other hash functions may be used in future specifications; all the ones that we will be likely to support (SHA 512/256 and the various SHA 3 hashes) would work well with a 16 byte I value.
+The signature and public key formats are designed so that they are relatively easy to parse.
+Each format starts with a 32 bit enumeration value that indicates the details of the signature algorithm and provides all of the information that is needed in order to parse the format.
+The Checksum (Section 4.4) is calculated using a nonnegative integer "sum" whose width was chosen to be an integer number of w bit fields such that it is capable of holding the difference of the total possible number of applications of the function H (as defined in the signing algorithm of Section 4.5) and the total actual number.
+Thus, for the purposes of this document, which describes signature methods based on H   SHA256 (n   32 bytes)
+The calculation uses the parameter ls defined in Section 4.1 and calculated in Appendix B, which indicates the number of bits used in the left shift operation.
+To improve security against attacks that amortize their effort against multiple invocations of the hash function, Leighton and Micali introduced a "security string" that is distinct for each invocation of that function.
+Whenever this process computes a hash, the string being hashed will start with a string formed from the fields below.
+These fields will appear in fixed locations in the value we compute the hash of, and so we list where in the hash these fields would be present.
+It MUST be chosen uniformly at random, or via a pseudorandom process, at the time that a key pair is generated, in order to minimize the probability that any specific value of I be used for a large number of different LMS private keys.
+This is always bytes 0 15 of the value being hashed.
+In the LMS N time signature scheme, the node number r associated with a particular node of a hash tree is used as an input to the hash used to compute that node.
+This value is represented as a 32 bit (four byte) unsigned integer in network byte order.
+(depending on the domain separation parameter) will be bytes 16 19 of the value being hashed.
+In the LMS N time signature scheme, each LM OTS signature is associated with the leaf of a hash tree, and q is set to the leaf number.
+This ensures that a distinct value of q is used for each distinct LM OTS public/private key pair.
+This value is represented as a 32 bit (four byte) unsigned integer in network byte order.
+(depending on the domain  separation parameter) will be bytes 16 19 of the value being hashed.
+A domain separation parameter, which is a two byte identifier that takes on different values in the different contexts in which the hash function is invoked.
+D occurs in bytes 20 and 21 of the value being hashed and takes on the following values: D PBLC   0x8080
+when computing the hash of all of the iterates in the LM OTS algorithm D MESG   0x8181
+when computing the hash of the message in the LM OTS algorithms D LEAF   0x8282
+when computing the hash of the leaf of an LMS tree D INTR   0x8383
+It is represented as a 16 bit (two byte) unsigned integer in network byte order.
+If present, it occurs at bytes 20 and 21 of the value being hashed.
+In the LM OTS scheme, j is the iteration number used when the private key element is being iteratively hashed.
+It is represented as an 8 bit (one byte) unsigned integer and is present if i is a value between 0 and 264.
+If present, it occurs at bytes 22 to 21 n of the value being hashed.
+C MUST be chosen uniformly at random or via another unpredictable process.
+It is present if D D MESG, and it occurs at bytes 22 to 21 n of the value being hashed.
+IANA Considerations IANA has created two registries: "LM OTS Signatures", which includes all of the LM OTS signatures as defined in Section 4, and "Leighton  Micali Signatures (LMS)" for LMS as defined in Section 5.
+Additions to these registries require that a specification be documented in an RFC or another permanent and readily available reference in sufficient detail that interoperability between independent implementations is possible
+IANA MUST verify that all applications for additions to these registries have first been reviewed by the IRTF Crypto Forum Research Group (CFRG).
+Each entry in either of the registries contains the following elements: a short name (Name), such as "LMS SHA256 M32 H10", a positive number (Numeric Identifier), and a Reference to a specification that completely defines the signature method test cases that can be used to verify the correctness of an implementation.
+The numbers between 0xDDDDDDDD (decimal 3,722,304,989) and 0xFFFFFFFF
+(decimal 4,294,967,295), inclusive, will not be assigned by IANA and are reserved for private use; no attempt will be made to prevent multiple sites from using the same value in different (and incompatible) ways [RFC8126].
+The initial contents of the "LM OTS Signatures" registry are as follows.
+The initial contents of the "Leighton Micali Signatures (LMS)" registry are as follows.
+An IANA registration of a signature system does not constitute an endorsement of that system or its security.
+Currently, the two registries assign a disjoint set of values to the defined parameter sets.
+This coincidence is a historical accident; the correctness of the system does not depend on this.
+IANA is not required to maintain this situation.
+The hash function H MUST have second preimage resistance: it must be computationally infeasible for an attacker that is given one message M to be able to find a second message M' such that H(M)   H(M').
+The security goal of a signature system is to prevent forgeries.
+A successful forgery occurs when an attacker who does not know the private key associated with a public key can find a message (distinct from all previously signed ones) and signature that is valid with that public key (that is, the Signature Verification algorithm applied to that signature and message and public key will return VALID).
+Such an attacker, in the strongest case, may have the ability to forge valid signatures for an arbitrary number of other messages.
+LMS is provably secure in the random oracle model, as shown by [Katz16].
+In addition, further analysis is done by [Fluhrer17], where the hash compression function (rather than the entire hash function) is considered to be a random oracle.
+Corollary 1 of the latter paper states: If we have no more than 2^64 randomly chosen LMS private keys, allow the attacker access to a signing oracle and a SHA 256 hash compression oracle, and allow a maximum of 2^120 hash compression computations, then the probability of an attacker being able to generate a single forgery against any of those LMS keys is less than 2^ 129.
+Many of the objects within the public key and the signature start with a typecode.
+A verifier MUST check each of these typecodes, and a verification operation on a signature with an unknown type, or a type that does not correspond to the type within the public key, MUST return INVALID.
+The expected length of a variable length object can be determined from its typecode; if an object has a different length, then any signature computed from the object is INVALID.
+The format of the inputs to the hash function
+H has the property that each invocation of that function has an input that is repeated by a small bounded number of other inputs (due to potential repeats of the I value).
+In particular, it will vary somewhere in the first 23 bytes of the value being hashed.
+This property is important for a proof of security in the random oracle model.
+The formats used during key generation and signing (including the recommended pseudorandom key generation procedure in Appendix A) are as follows:
+Each hash type listed is distinct; at locations 20 and 21 of the value being hashed, there exists either a fixed value D PBLC, D MESG, D LEAF, D INTR, or a 16 bit value i.
+These fixed values are distinct from each other and are large (over 32768), while the 16 bit values of i are small (currently no more than 265; possibly being slightly larger if larger hash functions are supported); hence, the range of possible values of i will not collide any of the D PBLC, D MESG, D LEAF, D INTR identifiers.
+The only other collision possibility is the Winternitz chain hash colliding with the recommended pseudorandom key generation process; here, at location 22 of the value being hashed, the Winternitz chain function has the value u8str(j), where j is a value between 0 and 254, while location 22 of the recommended pseudorandom key generation process has value 255.
+For the Winternitz chaining function, D PBLC, and D MESG, the value of I    u32str(q) is distinct for each LMS leaf (or equivalently, for each q value).
+For D PBLC and D MESG, the input format is used only once for each value of q and, thus, distinctness is assured.
+The formats for D INTR and D LEAF are used exactly once for each value of r, which ensures their distinctness.
+For the recommended pseudorandom key generation process, for a given value of I, q and j are distinct for each invocation of H.
+The value of I is chosen uniformly at random from the set of all 128 bit strings.
+If 2^64 public keys are generated (and, hence, 2^64 random I values), there is a nontrivial probability of a duplicate (which would imply duplicate prefixes).
+However, there will be an extremely high probability there will not be a four way collision (that is, any I value used for four distinct LMS keys;
+probability < 2^ 132), and, hence, the number of repeats for any specific prefix will be limited to at most three.
+This is shown (in [Fluhrer17]) to have only a limited effect on the security of the system.
+The LMS signature system, like all N time signature systems, requires that the signer maintain state across different invocations of the signing algorithm to ensure that none of the component one time signature systems are used more than once.
+This section calls out some important practical considerations around this statefulness.
+These issues are discussed in greater detail in [STMGMT].
+In a typical computing environment, a private key will be stored in nonvolatile media such as on a hard drive.
+Before it is used to sign a message, it will be read into an application's Random Access Memory (RAM).
+After a signature is generated, the value of the private key will need to be updated by writing the new value of the private key into nonvolatile storage.
+It is essential for security that the application ensures that this value is actually written into that storage, yet there may be one or more memory caches between it and the application.
+Memory caching is commonly done in the file system and in a physical memory unit on the hard disk that is dedicated to that purpose.
+To ensure that the updated value is written to physical media, the application may need to take several special steps.
+In a POSIX environment, for instance, the O SYNC flag (for the open() system call) will cause invocations of the write() system call to block the calling process until the data has been written to the underlying hardware.
+However, if that hardware has its own memory cache, it must be separately dealt with using an operating system or device specific tool such as hdparm to flush the on drive cache or turn off write caching for that drive.
+Because these details vary across different operating systems and devices, this note does not attempt to provide complete guidance; instead, we call the implementer's attention to these issues.
+When hierarchical signatures are used, an easy way to minimize the private key synchronization issues is to have the private key for the second level resident in RAM only and never write that value into nonvolatile memory.
+A new second level public/private key pair will be generated whenever the application (re)starts; thus, failures such as a power outage or application crash are automatically accommodated.
+Implementations SHOULD use this approach wherever possible.
+Security of LM OTS Checksum
+To show the security of LM OTS checksum, we consider the signature y of a message with a private key x and let h   H(message) and c   Cksm(H(message))
+To attempt a forgery, an attacker may try to change the values of h and c.
+Let h' and c' denote the values used in the forgery attempt.
+If for some integer j in the range 0 to u, where u   ceil(8 n/w) is the size of the range that the checksum value can cover, inclusive,
+a'   coef(h', j, w), a   coef(h, j, w), and a'
+> a then the attacker can compute F^a'(x[j]) from F^a(x[j])
+y[j] by iteratively applying function F to the j th term of the signature an additional (a' a) times.
+However, as a result of the increased number of hashing iterations, the checksum value c' will decrease from its original value of c.
+Thus, a valid signature's checksum will have, for some number k in the range u
+to (p 1), inclusive, b'
+The eXtended Merkle Signature Scheme (XMSS) is similar to HSS in several ways [XMSS][RFC8391].
+Both are stateful hash based signature schemes, and both use a hierarchical approach, with a Merkle tree at each level of the hierarchy.
+XMSS signatures are slightly shorter than HSS signatures, for equivalent security and an equal number of signatures.
+HSS has several advantages over XMSS.
+HSS operations are roughly four times faster than the comparable XMSS ones, when SHA256 is used as the underlying hash.
+This occurs because the hash operation done as a part of the Winternitz iterations
+dominates performance, and XMSS performs four compression function invocations (two for the PRF, two for the F function) where HSS only needs to perform one.
+Additionally, HSS is somewhat simpler (as each hash invocation is just a prefix followed by the data being hashed).
+An implementation MAY use the following pseudorandom process for generating an LMS private key.
+SEED is an m byte value that is generated uniformly at random at the start of the process, I is the LMS key pair identifier, q denotes the LMS leaf number of an LM OTS private key,
+x q denotes the x array of private elements in the LM OTS private key with leaf number q, i is the index of the private key element, and H is the hash function used in LM OTS.
+The elements of the LM OTS private keys are computed as: x
+This process stretches the m byte random value SEED into a (much larger) set of pseudorandom values, using a unique counter in each invocation of H.
+The format of the inputs to H are chosen so that they are distinct from all other uses of H in LMS and LM OTS.
+A careful reader will note that this is similar to the hash we perform when iterating through the Winternitz chain; however, in that chain, the iteration index will vary between 0 and 254 maximum (for W 8), while the corresponding value in this formula is 255.
+This algorithm is included in the proof of security in [Fluhrer17] and hence this method is safe when used within the LMS system; however, any other cryptographically secure method of generating private keys would also be safe.
+Appendix B.  LM OTS Parameter Options
+The LM OTS one time signature method uses several internal parameters, which are a function of the selected parameter set.
+These internal parameters include the following: p
+This is the number of independent Winternitz chains used in the signature; it will be the number of w bit digits needed to hold the n bit hash (u in the below equations), along with the number of digits needed to hold the checksum (v in the below equations)
+This is the size of the shift needed to move the checksum so that it appears in the checksum digits ls is needed because, while we express the checksum internally as a 16 bit value, we don't always express all 16 bits in the signature; for example, if w 4, we might use only the top 12 bits.
+Because we read the checksum in network order, this means that, without the shift, we'll use the higher order bits (which may be always 0) and omit the lower order bits (where the checksum value actually resides).
+This shift is here to ensure that the parts of the checksum we need to express (for security) actually contribute to the signature; when multiple such shifts are possible, we take the minimal value.
+The parameters ls and p are computed as follows:
+Here, u and v represent the number of w bit fields required to contain the hash of the message and the checksum byte strings, respectively.
+), it is also equivalently the number of byte strings that form the private key and the number of byte strings in the signature.
+The value 16 in the ls computation of ls corresponds to the 16 bit value used for the sum variable in Algorithm 2 in Section 4.4
+A table illustrating various combinations of n and w with the associated values of u, v, ls, and p is provided in Table 6.
+An Iterative Algorithm for Computing an LMS Public Key
+The LMS public key can be computed using the following algorithm or any equivalent method.
+The algorithm uses a stack of hashes for data.
+hash final(), in that order, is identical to that of the invocation of H(N[1]
+Generating an LMS Public Key from an LMS Private Key for ( i   0; i < 2^h; i
+j   i; while (j % 2   1) { r   (r 1)/2; j   (j 1) / 2; left side   pop(data stack); temp   H(I    u32str(r)
+Note that this pseudocode expects that all 2^h leaves of the tree have equal depth
+that is, it expects num lmots keys to be a power of 2.
+The maximum depth of the stack will be h 1 elements
+that is, a total of (h 1)
+n bytes; for the currently defined parameter sets, this will never be more than 768 bytes of data.
+Appendix D.  Method for Deriving Authentication Path for a Signature
+The LMS signature consists of u32str(q)
+This appendix shows one method of constructing this signature, assuming that the implementation has stored the T[] array that was used to construct the public key.
+Note that this is not the only possible method
+; other methods exist that don't assume that you have the entire T[] array in memory.
+To construct a signature, you perform the following algorithm:
+Generating an LMS Signature 1.
+Set type to the typecode of the LMS algorithm.
+Extract h from the typecode, according to Table 2.
+Create the LM OTS signature for the message: ots signature
+Compute the array path as follows:
+(r / 2^i) xor 1 path[i]
+Here "xor" is the bitwise exclusive or operation, and / is integer division (that is, rounded down to an integer value).
+An example implementation can be found online at <https://github.com/cisco/hash sigs
+This section provides test cases that can be used to verify or debug an implementation.
+This data is formatted with the name of the elements on the left and the hexadecimal value of the elements on the right.
+The concatenation of all of the values within a public key or signature produces that public key or signature, and values that do not fit within a single line are listed across successive lines.
+Test Case 1 Public Key
+elegated to the   556e6974656420537461746573206279   United States by  2074686520436f6e737469747574696f
+d by it to the S  74617465732c20617265207265736572   tates, are reser  76656420746f20746865205374617465   ved to the State
+6f7220746f207468652070656f706c65   or to the people
+LMOTS signature LMOTS type  00000004
+LM SHA256 M32 H5 path[0]
+LMS public key LMS type    00000005
+LMOTS signature LMOTS type  00000004
+(note: procedure in Appendix A is used)
+Top level LMS tree SEED
+Second level LMS tree SEED
+M32 H10 LMOTS type  00000003
+ion, of certain   7269676874732c207368616c6c206e6f   rights, shall no  7420626520636f6e7374727565642074
+LMOTS signature LMOTS type  00000003
+LMS public key LMS type    00000005
+# LM SHA256 M32 H5 path[0]

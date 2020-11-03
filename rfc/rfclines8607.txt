@@ -1,0 +1,312 @@
+Abstract This specification adds an extension to the Calendaring Extensions to WebDAV (CalDAV) to allow attachments associated with iCalendar data to be stored and managed on the server.
+This specification documents existing code deployed by multiple vendors.
+It is published as an Informational specification rather than Standards Track due to its noncompliance with multiple best current practices of HTTP.
+The iCalendar [RFC5545] data format is used to represent calendar data and is used with iCalendar Transport independent Interoperability Protocol (iTIP)
+[RFC5546] to handle scheduling operations between calendar users.
+[RFC4791] defines the Calendaring Extensions to WebDAV (CalDAV), based on HTTP [RFC7230], for accessing calendar data stored on a server.
+Calendar users often want to include attachments with their calendar data events or tasks (for example, a copy of a presentation or the meeting agenda).
+iCalendar provides an "ATTACH" property whose value is either the inline Base64 encoded attachment data or a URL specifying the location of the attachment data.
+Use of inline attachment data is not ideal with CalDAV because the data would need to be uploaded to the server each time a change to the calendar data is made, even minor changes such as a change to the summary.
+Whilst a client could choose to use a URL value instead, the problem then becomes where and how the client discovers an appropriate URL to use and how it ensures that only those attendees listed in the event or task are able to access it.
+This specification solves this problem by having the client send the attachment to the server, separately from the iCalendar data, and having the server add appropriate "ATTACH" properties in the iCalendar data as well as manage access privileges.
+The server can also provide additional information to the client about each attachment in the iCalendar data, such as the size and an identifier.
+Although this extension to CalDAV has wide deployment, its design does not comply with some of the best current practices of HTTP, namely:  All operations on attachments are modeled as HTTP POST operations, where the actual type of operation is specified using a query parameter instead of using separate HTTP POST, PUT, and DELETE methods where appropriate.
+Specific query strings are hardwired into the protocol in violation of Section 2.4 of [RFC7320].
+Additionally, this extension misuses the Content Disposition header field [RFC6266] as a request header field to convey a filename for an attachment rather than using an existing request header field suitable for that purpose, such as "Slug" (see Section 9.7 of [RFC5023]).
+Rather than creating interoperability problems with deployed code by updating the design of this extension to be compliant with best current practices and to allow this specification to be placed on the Standards Track, it was decided to simply document how existing implementations interoperate and to publish the document as Informational. 2.
+Conventions Used in This Document
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "
+SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in BCP 14
+when, and only when, they appear in all capitals, as shown here.
+The notation used in this memo is the ABNF notation of [RFC5234] as used by iCalendar
+Any syntax elements shown below that are not explicitly defined in this specification come from iCalendar
+There are four main operations a client needs to perform with attachments for calendar data: add, update, remove, and retrieve.
+The first three operations are carried out by the client issuing an HTTP POST request on the calendar
+object resource to which the attachment is associated and specifying the appropriate "action" query parameter (see Section 3.3).
+In the case of the remove operation, the client can alternatively directly update the calendar object resource and remove the relevant "ATTACH" properties (see Section 3.9).
+The retrieve operation is accomplished by simply issuing an HTTP GET request targeting the attachment URI specified by the calendar resource's "ATTACH" property (see Section 3.10).
+iCalendar data stored in a CalDAV calendar object resource can contain multiple components when recurrences are involved.
+In such a situation, the client needs to be able to target a specific recurrence instance or multiple instances when adding or deleting attachments.
+As a result, the POST request needs to provide a way for the client to specify which recurrence instances should be targeted for the attachment operation.
+This is accomplished through use of additional query parameters on the POST Request URI.
+A server that supports the features described in this specification is REQUIRED to support the CalDAV "calendar access" [RFC4791] features.
+In addition, such a server SHOULD support the "return representation" Prefer header field [RFC7240] preference on successful HTTP PUT and POST requests targeting existing calendar object resources by returning the new representation of that calendar resource (including its new ETag header field value) in the response.
+Discovering Support for Managed Attachments A server supporting the features described in this specification MUST include "calendar managed attachments" as a token in the DAV response header field (as defined in Section 10.1 of [RFC4918]) from an OPTIONS request on a calendar home collection.
+A server might choose not to support the storing of managed attachments on a per recurrence instance basis (i.e., they can only be added to all instances as a whole).
+If that is the case, the server MUST also include "calendar managed attachments no recurrence" as a token in the DAV response header field from an OPTIONS request on a calendar home collection.
+When that field is present, clients MUST NOT attempt any managed attachment operations that target specific recurrence instances.
+POST Request for Managing Attachments
+An HTTP POST request is used to add, update, or remove attachments.
+These requests are subject to the preconditions listed in Section 3.11.
+The Request URI will contain various query parameters to specify the behavior.
+The "action" query parameter is used to identify which attachment operation the client is requesting.
+This parameter MUST be present once on each POST request used to manage attachments.
+One of these three values MUST be used: attachment add:
+Indicates an operation that is adding an attachment to a calendar object resource.
+See Section 3.4 for more details.
+Indicates an operation that is updating an existing attachment on a calendar object resource.
+See Section 3.5 for more details.
+Indicates an operation that is removing an attachment from a calendar object resource.
+See Section 3.6 for more details.
+Example: https://calendar.example.com/events/1.ics?action attachment add 3.3.2.
+The "rid" query parameter is used to identify which recurrence instances are being targeted by the client for the attachment operation.
+This query parameter MUST contain one or more items, separated by commas (denoted in ASCII as "0x2C").
+The item values can be in one of two forms:
+The value "M" (case insensitive) refers to the "master" recurrence instance, i.e., the component that does not include a "RECURRENCE ID" property.
+This item MUST be present only once.
+A specific iCalendar instance is targeted by using its "RECURRENCE ID" value as the item value.
+That value MUST correspond to the "RECURRENCE ID" value as stored in the calendar object resource (i.e., without any conversion to UTC).
+If multiple items of this form are used, they MUST be unique values.
+For example, to target a recurrence defined by property RECURRENCE ID;TZID America/Montreal:20111022T160000, the query parameter rid 20111022T160000 would be used.
+If the "rid" query parameter is not present, all recurrence instances in the calendar object resource are targeted.
+The "rid" query parameter MUST NOT be present in the case of an update operation, or if the server chooses not to support per  recurrence instance managed attachments (see Section 3.2).
+Example (targeting the master instance and a specific overridden instance): https://calendar.example.com/events/1.ics?
+action attachment add&rid M,20111022T160000 3.3.3.
+The "managed id" query parameter is used to identify which "ATTACH" property is being updated or removed.
+The value of this query parameter MUST match the "MANAGED ID" (Section 4.3) property parameter value on the "ATTACH" property in the calendar object resource instance(s) targeted by the request.
+The "managed id" query parameter MUST NOT be present in the case of an add operation.
+Adding Attachments To add an attachment to an existing calendar object resource, the following needs to occur: 1.
+The client issues a POST request targeted at the calendar object resource structured as follows:
+The Request URI will include an "action" query parameter with the value "attachment add" (see Section 3.3.1).
+If all recurrence instances are having an attachment added, the "rid" query parameter is not present in the Request URI.
+If one or more specific recurrence instances are targeted, then the Request URI will include a "rid" query parameter containing the list of instances (see Section 3.3.2).
+The body of the request contains the data for the attachment.
+The client MUST include a valid Content Type header field describing the media type of the attachment (as required by HTTP).
+The client SHOULD include a Content Disposition header field [RFC6266] with a "type" parameter set to "attachment", and a "filename" parameter that indicates the name of the attachment.
+Note that the use of Content Disposition as a request header field is nonstandard and specific to this protocol.
+The client MAY include a Prefer header field [RFC7240] with the "return representation" preference to request that the modified calendar object resource be returned as the body of a successful response to the POST request.
+When the server receives the POST request, it does the following: A.
+Validates that any recurrence instances referred to via the "rid" query parameter are valid for the calendar object resource being targeted.
+B.  Stores the supplied attachment data into a resource and generates an appropriate URI for clients to access the resource.
+C.  For each affected recurrence instance in the calendar object resource targeted by the request, adds an "ATTACH" property whose value is the URI of the stored attachment.
+The "ATTACH" property MUST contain a "MANAGED ID" property parameter whose value is a unique identifier (within the context of the server as a whole).
+The "ATTACH" property SHOULD contain an "FMTTYPE" property parameter whose value matches the Content Type header field value from the request.
+The "ATTACH" property SHOULD contain a "FILENAME" property parameter whose value matches the value of the Content  Disposition header field "filename" parameter value from the request, taking into account the restrictions expressed in Section 4.2.
+The "ATTACH" property SHOULD include a "SIZE" property parameter whose value represents the size in octets of the attachment.
+If a specified recurrence instance does not have a matching component in the calendar object resource, then the server MUST modify the calendar object resource to include an overridden component with the appropriate "RECURRENCE ID" property.
+Upon successful creation of the attachment resource, and modification of the targeted calendar object resource, it MUST return an appropriate HTTP success status response and include a "Cal Managed ID" header field containing the "MANAGED ID" property parameter value of the newly created "ATTACH" property.
+The client can use the "Cal Managed ID" header field value to correlate the attachment with "ATTACH" properties added to the calendar object resource.
+If the client included a Prefer header field with the "return representation" preference in the request, the server SHOULD return the modified calendar object resource as the body of the response.
+Otherwise, the server can expect that the client will reload the calendar object resource with a subsequent GET request to refresh any local cache.
+In the following example, the client adds a new attachment to a nonrecurring event and asks the server (via the Prefer header field [RFC7240]) to return the modified version of that event in the response.
+Host: cal.example.com Content Type: text/html; charset "utf 8
+agenda.html Content Length: 59 Prefer:
+<< HTTP/1.1 201 Created Content Type:
+text/calendar; charset "utf 8" Content Length: 371 Content Location: https://cal.example.com/events/64.ics ETag: "123456789 000 111
+123401@example.com DTSTAMP:20120201T203412Z DTSTART:20120714T170000Z DTEND:20120715T040000Z SUMMARY:
+One off meeting ATTACH;MANAGED ID 97S;FMTTYPE
+text/html;SIZE 59; FILENAME agenda.html:https://cal.example.com/attach/64/34X22R END:VEVENT END:VCALENDAR 3.5.
+Updating Attachments When an attachment is updated, the server MUST change the associated "MANAGED ID" property parameter and MAY change the "ATTACH" property value.
+With this approach, clients are able to determine when an attachment has been updated by some other client by looking for a change to either the "ATTACH" property value or the "MANAGED ID" property parameter value.
+To change the data of an existing managed attachment in a calendar object resource, the following needs to occur: 1.
+The client issues a POST request targeted at the calendar object resource structured as follows:
+The Request URI will include an "action" query parameter with the value "attachment update" (see Section 3.3.1).
+The Request URI will include a "managed id" query parameter with the value matching that of the "MANAGED ID" property parameter for the "ATTACH" property being updated (see Section 3.3.3).
+The body of the request contains the updated data for the attachment.
+The client MUST include a valid Content Type header field describing the media type of the attachment (as required by HTTP).
+The client SHOULD include a Content Disposition header field [RFC6266] with a "type" parameter set to "attachment", and a "filename" parameter that indicates the name of the attachment.
+The client MAY include a Prefer header field [RFC7240] with the "return representation" preference to request that the modified calendar object resource be returned as the body of a successful response to the POST request.
+When the server receives the POST request, it does the following: A.  Validates that the "managed id" query parameter is valid for the calendar object resource.
+B.  Updates the content of the attachment resource corresponding to that "managed id" value with the supplied attachment data.
+For each affected recurrence instance in the calendar object resource targeted by the request, updates the "ATTACH" property whose "MANAGED ID" property parameter value matches the "managed id" query parameter.
+The "MANAGED ID" property parameter value is changed to allow other clients to detect the update, and the property value (attachment URI) might also be changed.
+The "ATTACH" property SHOULD contain a "FMTTYPE" property parameter whose value matches the Content  Type header field value from the request; this could differ from the original value if the media type of the updated attachment is different.
+The "ATTACH" property SHOULD contain a "FILENAME" property parameter whose value matches the Content Disposition header field "filename" parameter value from the request, taking into account the restrictions expressed in Section 4.2.
+The "ATTACH" property SHOULD include a "SIZE" property parameter whose value represents the size in octets of the updated attachment.
+Upon successful update of the attachment resource, and modification of the targeted calendar object resource, it MUST return an appropriate HTTP success status response and include a "Cal Managed ID" header field containing the new value of the "MANAGED ID" property parameter.
+The client can use the "Cal Managed ID" header field value to correlate the attachment with "ATTACH" properties added to the calendar object resource.
+If the client included a Prefer header field with the "return representation" preference in the request, the server SHOULD return the modified calendar object resource as the body of the response.
+Otherwise, the server can expect that the client will reload the calendar object resource with a subsequent GET request to refresh any local cache.
+The update operation does not take a "rid" query parameter and does not add, or remove, any "ATTACH" property in the targeted calendar object resource.
+To link an existing attachment to a new instance, the client simply does a PUT on the calendar object resource, adding an "ATTACH" property that duplicates the existing one (see Section 3.7).
+In the following example, the client updates an existing attachment and asks the server (via the Prefer header field [RFC7240]) to return the updated version of that event in the response.
+attachment update&managed id 97S HTTP/1.1
+Host: cal.example.com Content Type: text/html; charset "utf 8
+agenda.html Content Length: 96 Prefer: return representation <html> <body
+>Discuss attachment draft</p> </body> </html> >>
+<< HTTP/1.1 200 OK Content Type:
+text/calendar; charset "utf 8" Content Length: 371 Content Location:
+98S ETag: "123456789 000 222
+123401@example.com DTSTAMP:20120201T203412Z DTSTART:20120714T170000Z DTEND:20120715T040000Z SUMMARY:
+One off meeting ATTACH;MANAGED ID 98S;FMTTYPE
+To remove an existing attachment from a calendar object, the following needs to occur: 1.
+The client issues a POST request targeted at the calendar object resource structured as follows:
+The Request URI will include an "action" query parameter with the value "attachment remove" (see Section 3.3.1).
+If all recurrence instances are having an attachment removed, the "rid" query parameter is not present in the Request URI.
+If one or more specific recurrence instances are targeted, then the Request URI will include a "rid" query parameter containing the list of instances (see Section 3.3.2).
+The Request URI will include a "managed id" query parameter with the value matching that of the "MANAGED ID" property parameter for the "ATTACH" property being removed (see Section 3.3.3).
+The body of the request will be empty.
+The client MAY include a Prefer header field [RFC7240] with the "return representation" preference to request that the modified calendar object resource be returned as the body of a successful response to the POST request.
+When the server receives the POST request, it does the following: A.
+Validates that any recurrence instances referred to via the "rid" query parameter are valid for the calendar object resource being targeted.
+B.  Validates that the "managed id" query parameter is valid for the calendar object resource and specific instances being targeted.
+For each affected recurrence instance in the calendar object resource targeted by the request, removes the matching "ATTACH" property.
+Note that if a specified recurrence instance does not have a matching component in the calendar object resource, then the server MUST modify the calendar object resource to include an overridden component with the appropriate "RECURRENCE ID" property and the matching "ATTACH" property removed.
+This latter case is actually valid only if the master component does include the referenced "ATTACH" property.
+If the attachment resource is no longer referenced by any instance of the calendar object resource, it can delete the attachment resource to free up storage space.
+Upon successful removal of the attachment resource and modification of the targeted calendar object resource, it MUST return an appropriate HTTP success status response.
+If the client included a Prefer header field with the "return representation" preference in the request, the server SHOULD return the modified calendar object resource as the body of the response.
+Otherwise, the server can expect that the client will reload the calendar object resource with a subsequent GET request to refresh any local cache.
+In the following example, the client deletes an existing attachment by passing its "managed id" value in the request.
+The Prefer header field [RFC7240] is not set in the request so the calendar object resource data is not returned in the response.
+Host: cal.example.com Content Length: 0 >
+No Content Content Length: 0 3.7.
+Adding Existing Managed Attachments via PUT Clients can make use of existing managed attachments by adding the corresponding "ATTACH" property to calendar object resources (subject to the restrictions described in Section 3.12.2).
+If a managed attachment is used in more than calendar resource, servers SHOULD NOT change either the "MANAGED ID" property parameter value or the "ATTACH" property value for these attachments; this ensures that clients do not have to download the attachment data again if they already have it cached.
+Additionally, servers SHOULD validate "SIZE" property parameter values and replace incorrect values with the actual sizes of existing attachments.
+These PUT requests are subject to the preconditions listed in Section 3.11.
+Updating Attachments via PUT Servers MUST NOT allow clients to update attachment data directly via a PUT on the attachment URI (or via any other HTTP method that modifies content).
+Instead, attachments can only be updated via use of POST requests on the calendar data.
+Removing Attachments via PUT Clients can remove attachments by simply rewriting the calendar object resource data to remove the appropriate "ATTACH" properties.
+Servers MUST NOT allow clients to delete attachments directly via a DELETE request on the attachment URI.
+Retrieving Attachments Clients retrieve attachments by issuing an HTTP GET request using the value of the corresponding "ATTACH" property as the Request URI, taking into account the substitution mechanism associated with the "CALDAV:managed attachments server URL" property (see Section 6.1).
+This specification creates additional preconditions for the POST method.
+The new preconditions are: (CALDAV:max attachment size):
+The attachment submitted in the POST request MUST have an octet size less than or equal to the value of the "CALDAV:max attachment size" property value (Section 6.2) on the calendar collection of the target calendar resource.
+The addition of the attachment submitted in the POST request MUST result in the target calendar resource having a number of managed attachments less than or equal to the value of the "CALDAV:
+max attachments per resource" property value (Section 6.3) on the calendar collection of the target calendar resource.
+The "action" query parameter in the POST request MUST contain only one of the following three values: "attachment add", "attachment update", or "attachment remove".
+The "rid" query parameter in the POST request MUST NOT be present with an "action attachment update" query parameter and MUST contain the value "M"
+and/or values corresponding to "RECURRENCE ID" property values in the iCalendar data targeted by the request.
+The "managed id" query parameter in the POST request MUST NOT be present with an "action attachment add" query parameter and MUST contain a value corresponding to a "MANAGED ID" property parameter value in the iCalendar data targeted by the request.
+A POST request to add, modify, or delete a managed attachment results in an implicit modification of the targeted calendar resource (equivalent of a PUT).
+As a consequence, clients should also be prepared to handle preconditions associated with this implicit PUT.
+This includes (but is not limited to):
+(CALDAV:max resource size) (from Section 5.3.2.1 of [RFC4791])
+(DAV:quota not exceeded) (from Section 6 of [RFC4331])
+(DAV:sufficient disk space) (from Section 6 of [RFC4331])
+A PUT request to add or modify an existing calendar object resource can make reference to an existing managed attachment.
+The following new precondition is defined: (CALDAV:valid managed id parameter):  a "MANAGED ID" property parameter value in the iCalendar data in the PUT request is not valid (e.g., does not match any existing managed attachment).
+If a precondition for a request is not satisfied: 1.
+The response status of the request MUST either be 403 (Forbidden) if the request should not be repeated because it will always fail, or 409 (Conflict) if it is expected that the user might be able to resolve the conflict and resubmit the request.
+The appropriate XML element MUST be returned as the child of a top level DAV:error element in the response body.
+The WebDAV Quotas specification [RFC4331] defines two live WebDAV properties (DAV:
+quota available bytes and DAV:quota used bytes) to communicate storage quota information to clients.
+Server implementations MAY choose to include managed attachment sizes when calculating the amount of storage used by a particular resource.
+Access Control Access to the managed attachments referenced in a calendar object resource SHOULD be restricted to only those calendar users who have access to that calendar object either directly or indirectly (via being an attendee who would receive a scheduling message).
+When accessing a managed attachment, clients SHOULD be prepared to authenticate with the server storing the attachment resource.
+The credentials required to access the managed attachment store could be different from the ones used to access the CalDAV server.
+This specification only allows organizers of scheduled events to add managed attachments.
+Servers MUST prevent attendees of scheduled events from adding, updating, or removing managed attachments.
+In addition, the server MUST prevent a calendar user from reusing a managed attachment (based on its "managed id" value), unless that user is the one who originally created the managed attachment.
+For POST requests that add or update attachment data, the server MAY issue a 307 (Temporary Redirect)
+[RFC7538] response to require the client to reissue the POST request using a different Request URI.
+As a result, clients SHOULD use the "100 continue" expectation defined in Section 5.1.1 of [RFC7231].
+Using this mechanism ensures that, if a redirect does occur, the client does not needlessly send the attachment data.
+Processing Time Clients can expect servers to take a while to respond to POST requests that include large attachment bodies.
+Servers SHOULD use the 102 (Processing) interim response defined in Section 10.1 of [RFC2518] to keep the client connection alive if the POST request will take significant time to complete.
+Automatic Cleanup by Servers Servers MAY automatically remove attachment data, for example, to regain the storage taken by unused attachments or as the result of a virus scanning.
+When doing so, they SHOULD NOT modify calendar data referencing those attachments.
+Instead, they SHOULD respond with 410 (Gone) to any request on the removed attachment URI.
+Sending Scheduling Messages with Attachments When a managed attachment is added, updated, or removed from a calendar object resource, the server MUST ensure that a scheduling message is sent to update any attendees with the changes, as per [RFC6638].
+When exporting calendar data from a CalDAV server supporting managed attachments, clients SHOULD remove all "MANAGED ID" property parameters from "ATTACH" properties in the calendar data.
+Similarly, when importing calendar data from another source, clients SHOULD remove any "MANAGED ID" property parameters on "ATTACH" properties (failure to do so will likely result in the server removing those properties automatically).
+Modifications to iCalendar Syntax 4.1.
+SIZE Property Parameter Parameter Name:  SIZE Purpose:  To specify the size of an attachment.
+This property parameter is defined by the following notation: sizeparam   "SIZE" "
+" paramtext ; positive integers Description:
+This property parameter MAY be specified on "ATTACH" properties.
+It indicates the size in octets of the corresponding attachment data.
+Since iCalendar integer values are restricted to a maximum value of 2147483647, the current property parameter is defined as text to allow an extended range to be used.
+FILENAME Property Parameter Parameter Name:
+To specify the filename of a managed attachment.
+This property parameter is defined by the following notation: filenameparam   "FILENAME" "
+" paramtext Description:  This property parameter MAY be specified on "ATTACH" properties corresponding to managed attachments.
+Its value provides information on how to construct a filename for storing the attachment data.
+This parameter is very similar in nature to the Content Disposition header field "filename" parameter and exposes the same security risks.
+As a consequence, clients MUST follow the guidelines expressed in Section 4.3 of [RFC6266] when consuming this property parameter value.
+Similarly, servers MUST follow those same guidelines before storing a value.
+ID Property Parameter Parameter Name:  MANAGED ID Purpose:
+To uniquely identify a managed attachment.
+This property parameter is defined by the following notation: managedidparam   "MANAGED ID" "
+This property parameter MUST be specified on "ATTACH" properties corresponding to managed attachments.
+Its value is generated by the server and uniquely identifies a managed attachment within the scope of the CalDAV server.
+This property parameter MUST NOT be present in the case of unmanaged attachments.
+ATTACH;MANAGED ID aUNhbGVuZGFy: https://attachments.example.com/abcd.txt 5.
+Additional Message Header Fields 5.1.
+Cal Managed ID Response Header Field
+The Cal Managed ID response header field provides the value of the "MANAGED ID" property parameter corresponding to a newly added "ATTACH" property.
+The Cal Managed ID header field MUST only be sent by an origin server in response to a successful POST request with an "action" query parameter set to "attachment add" or "attachment update".
+It MUST only appear once in a response and MUST NOT appear in trailers.
+The Cal Managed ID header field is end to end and MUST be forwarded by intermediaries.
+Intermediaries MUST NOT insert, delete, or modify a Cal Managed ID header field.
+URL Property Name:  managed attachments server
+This property specifies the server base URI to use when retrieving managed attachments.
+This property MUST be protected as only the server can update the value.
+This property is only defined on a calendar home collection, which cannot be moved or copied.
+This property SHOULD NOT be returned by a PROPFIND DAV:allprop request.
+This property MAY be defined on a calendar home collection.
+If present, it contains either a single DAV:href XML element or none at all.
+When one DAV:href element is present, its value MUST be an absolute HTTP URI containing only the scheme (i.e., "https") and authority (i.e., host and port) parts.
+Whenever a managed attachment is to be retrieved via an HTTP GET, the client MUST construct the actual URL of the attachment by substituting the scheme and authority parts of the attachment URI (as stored in the iCalendar "ATTACH" property) with the present WebDAV property value.
+href element is present, the client MUST substitute the scheme and authority parts of the attachment URI with the scheme and authority part of the calendar home collection absolute URI.
+In the absence of this property, the client can consider the attachment URI as its actual URL.
+ELEMENT managed attachments server URL (DAV:href?)
+Example: <C:managed attachments server URL xmlns:
+Property Name:  max attachment size
+This property provides a numeric value indicating the maximum attachment size, in octets, that the server is willing to accept when a managed attachment is stored on the server.
+This property MUST be protected as it indicates limits provided by the server.
+This property value MUST be preserved in COPY and MOVE operations.
+This property SHOULD NOT be returned by a PROPFIND DAV:allprop request.
+max attachment size" property is used to specify a numeric value that represents the maximum attachment size, in octets, that the server is willing to accept when a managed attachment is stored on the server.
+The property is defined on the parent collection of the calendar object resource to which the attachment is associated.
+Any attempt to store a managed attachment exceeding this size MUST result in an error, with the CALDAV:max attachment size precondition (Section 3.11) being violated.
+In the absence of this property, the client can assume that the server will allow storing an attachment of any reasonable size.
+ELEMENT max attachment size (#PCDATA)
+PCDATA value: a numeric value (positive decimal integer)
+This property provides a numeric value indicating the maximum number of managed attachments across all instances of a calendar object resource stored in a calendar collection.
+This property MUST be protected as it indicates limits provided by the server.
+This property value MUST be preserved in COPY and MOVE operations.
+This property SHOULD NOT be returned by a PROPFIND DAV:allprop request.
+max attachments per resource" property is used to specify a numeric value that represents the maximum number of managed attachments across all instances of a calendar object resource stored in a calendar collection.
+Unmanaged attachments are not counted toward that limit.
+The property is defined on the parent collection of the calendar object resource to which the attachment is associated.
+Any attempt to add a managed attachment that would cause the calendar resource to exceed this limit MUST result in an error, with the CALDAV:
+max attachments per resource precondition (Section 3.11) being violated.
+In the absence of this property, the client can assume that the server can handle any number of managed attachments per calendar resource.
+ELEMENT max attachments per resource (#PCDATA)
+PCDATA value: a numeric value (positive decimal integer)
+C:max attachments per resource xmlns:
+>12</C:max attachments per resource> 7.
+The security considerations in [RFC4791] and [RFC4918] apply to this extension.
+Additionally, servers need to be aware that a client could attack underlying storage by POSTing extremely large attachments and could attack processing time by uploading a recurring event with a large number of overrides and then repeatedly adding, updating, and deleting attachments.
+Malicious content could be introduced into the calendar server by way of a managed attachment, and propagated to many end users via scheduling.
+Servers SHOULD check managed attachments for malicious or inappropriate content.
+Upon detecting such content, servers SHOULD remove the attachment following the rules described in Section 3.12.5.
+The message header fields below should be added to the "Permanent Message Header Field Names" registry (see [RFC3864]).
+Cal Managed ID Header field name:
+: http Status: standard Author/Change controller:
+In the following example, the organizer of a recurring meeting makes an unsuccessful attempt to add an agenda (HTML attachment) to the corresponding calendar resource with a conditional request.
+Note that the client includes both the Expect and Prefer header fields in the request, thereby preventing itself from needlessly sending the attachment data and requesting that the current resource be returned in the failure response (see Section 3.2 of [RFC8144]).
+/events/65.ics?action attachment add HTTP/1.1 Host: cal.example.com Content Type: text/html; charset "utf 8
+" Expect: 100 continue Prefer:
+>> Final Response << HTTP/1.1 412 Precondition Failed Content Type: text/calendar; charset "utf 8" Content Length: 929 Content Location: https://cal.example.com/events/65.ics ETag:
+FREQ YEARLY;BYDAY 1SU;BYMONTH 4 TZNAME:EDT TZOFFSETFROM:
+Planning Meeting ORGANIZER:mailto:cyrus@example.com ATTENDEE;CUTYPE INDIVIDUAL;PARTSTAT ACCEPTED:
+The organizer of a recurring meeting successfully adds an agenda (HTML attachment) to the corresponding calendar resource.
+Attendees of the meeting are granted read access to the newly created attachment resource.
+Their own copy of the meeting is updated to include the new "ATTACH" property pointing to the attachment resource, and they are notified of the change via their scheduling inbox.
+/events/65.ics?action attachment add HTTP/1.1 Host: cal.example.com Content Type: text/html; charset "utf 8
+If Match: "123456789 000 000
+" Expect: 100 continue Prefer:
+>> Interim Response << HTTP/1.1 100 Continue >>
+Final Response << HTTP/1.1 201 Created Content Type: text/calendar; charset "utf 8" Content Length: 1043 Content Location: https://cal.example.com/events/65.ics ETag: "123456789 000 111
+FREQ YEARLY;BYDAY 1SU;BYMONTH 4 TZNAME:EDT TZOFFSETFROM:
+Planning Meeting ORGANIZER:mailto:cyrus@example.com ATTENDEE;CUTYPE INDIVIDUAL;PARTSTAT ACCEPTED:
+The organizer has a more specific agenda for the 20th of February meeting.
+It is added to that particular instance of the meeting by specifying the "rid" query parameter.
+Note that an overridden instance is created with the "RECURRENCE ID" property value matching the value of the "rid" query parameter in the request.
+Also, note that the server takes significant time to complete the request and notifies the client accordingly.
+Host: cal.example.com Content Type: text/html; charset "utf 8
+105 If Match: "123456789 000 111
+" Expect: 100 continue Prefer:
+>> Interim Response << HTTP/1.1 100 Continue >>
+Something different, for a change</p>
+<< HTTP/1.1 102 Processing >>
+Final Response << HTTP/1.1 201 Created Content Type: text/calendar; charset "utf 8" Content Length: 1661 Content Location: https://cal.example.com/events/65.ics ETag: "
+123456789 000 222" Cal Managed ID:
+FREQ YEARLY;BYDAY 1SU;BYMONTH 4 TZNAME:EDT TZOFFSETFROM:
+Planning Meeting ORGANIZER:mailto:cyrus@example.com ATTENDEE;CUTYPE INDIVIDUAL;PARTSTAT ACCEPTED:
+ID;TZID America/Montreal:20120220T100000 DTSTAMP:20120201T203412Z DTSTART;TZID America/Montreal:20120220T100000 DURATION:
+Planning Meeting ORGANIZER:mailto:cyrus@example.com ATTENDEE;CUTYPE INDIVIDUAL;PARTSTAT ACCEPTED:
+html;SIZE 105; FILENAME agenda0220.html:https://cal.example.com/attach/65/FGZ225 END:

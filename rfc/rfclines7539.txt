@@ -1,0 +1,794 @@
+ChaCha20 and Poly1305 for IETF Protocols Abstract
+This document defines the ChaCha20 stream cipher as well as the use of the Poly1305 authenticator, both as stand alone algorithms and as a "combined mode", or Authenticated Encryption with Associated Data (AEAD) algorithm.
+This document does not introduce any new crypto, but is meant to serve as a stable reference and an implementation guide.
+It is a product of the Crypto Forum Research Group (CFRG).
+The Advanced Encryption Standard (AES   [FIPS 197]) has become the gold standard in encryption.
+Its efficient design, widespread implementation, and hardware support allow for high performance in many areas.
+On most modern platforms, AES is anywhere from four to ten times as fast as the previous most used cipher, Triple Data Encryption Standard (3DES
+[SP800 67]), which makes it not only the best choice, but the only practical choice.
+There are several problems with this.
+If future advances in cryptanalysis reveal a weakness in AES, users will be in an unenviable position.
+With the only other widely supported cipher being the much slower 3DES, it is not feasible to reconfigure deployments to use 3DES.
+[Standby Cipher] describes this issue and the need for a standby cipher in greater detail.
+Another problem is that while AES is very fast on dedicated hardware, its performance on platforms that lack such hardware is considerably lower.
+Yet another problem is that many AES implementations are vulnerable to cache  collision timing attacks ([Cache Collisions]).
+This document provides a definition and implementation guide for three algorithms:
+This is a high speed cipher first described in [ChaCha].
+It is considerably faster than AES in software only implementations, making it around three times as fast on platforms that lack specialized AES hardware.
+See Appendix B for some hard numbers.
+is also not sensitive to timing attacks (see the security considerations in Section 4).
+This algorithm is described in Section 2.4 2.
+This is a high speed message authentication code.
+Implementation is also straightforward and easy to get right.
+The algorithm is described in Section 2.5.
+The CHACHA20 POLY1305 Authenticated Encryption with Associated Data (AEAD) construction, described in Section 2.8.
+This document does not introduce these new algorithms for the first time.
+They have been defined in scientific papers by D. J. Bernstein, which are referenced by this document.
+The purpose of this document is to serve as a stable reference for IETF documents making use of these algorithms.
+These algorithms have undergone rigorous analysis.
+Several papers discuss the security of Salsa and ChaCha ([LatinDances], [LatinDances2], [Zhenqing2012]).
+This document represents the consensus of the Crypto Forum Research Group (CFRG).
+Conventions Used in This Document
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "
+SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC2119].
+The description of the ChaCha algorithm will at various time refer to the ChaCha state as a "vector" or as a "matrix".
+This follows the use of these terms in Professor Bernstein's paper.
+The matrix notation is more visually convenient and gives a better notion as to why some rounds are called "column rounds" while others are called "diagonal rounds".
+Here's a diagram of how the matrices relate to vectors (using the C language convention of zero being the index origin).
+The elements in this vector or matrix are 32 bit unsigned integers.
+The algorithm name is "ChaCha".
+"ChaCha20" is a specific instance where 20 "rounds" (or 80 quarter rounds   see Section 2.1) are used.
+Other variations are defined, with 8 or 12 rounds, but in this document we only describe the 20 round ChaCha, so the names "ChaCha" and "ChaCha20" will be used interchangeably.
+The subsections below describe the algorithms used and the AEAD construction.
+The basic operation of the ChaCha algorithm is the quarter round.
+It operates on four 32 bit unsigned integers, denoted a, b, c, and d.
+The operation is as follows (in C like notation)
+For example, let's see the add, XOR, and roll operations from the fourth line with sample numbers:
+Test Vector for the ChaCha Quarter Round For a test vector
+, we will use the same numbers as in the example, adding something random for c.
+After running a Quarter Round on these four numbers, we get these:
+A Quarter Round on the ChaCha State
+The ChaCha state does not have four integer numbers: it has 16.
+So the quarter round operation works on only four of them   hence the name.
+Each quarter round operates on four predetermined numbers in the ChaCha state.
+We will denote by QUARTERROUND(x,y,z,w) a quarter  round operation on the numbers at indices
+x, y, z, and w of the ChaCha state when viewed as a vector.
+For example, if we apply QUARTERROUND(1,5,9,13) to a state, this means running the quarter  round operation on the elements marked with an asterisk, while leaving the others alone: 0
+8   c  10  11 12
+14  15 Note that this run of quarter round is part of what is called a "column round".
+Test Vector for the Quarter Round on the ChaCha State
+For a test vector, we will use a ChaCha state that was generated randomly: Sample ChaCha State 879531e0  c5ecf37d
+We will apply the QUARTERROUND(2,7,8,13) operation to this state.
+For obvious reasons, this one is part of what is called a "diagonal round": After applying QUARTERROUND(2,7,8,13) 879531e0
+91dbd320 Note that only the numbers in positions 2, 7, 8, and 13 changed.
+The ChaCha block function transforms a ChaCha state by running multiple quarter rounds.
+The inputs to ChaCha20 are:  A 256 bit key, treated as a concatenation of eight 32 bit little  endian integers.
+A 96 bit nonce, treated as a concatenation of three 32 bit little  endian integers.
+A 32 bit block count parameter, treated as a 32 bit little endian integer.
+The output is 64 random looking bytes.
+The ChaCha algorithm described here uses a 256 bit key.
+The original algorithm also specified 128 bit keys and 8  and 12 round variants, but these are out of scope for this document.
+In this section, we describe the ChaCha block function.
+Note also that the original ChaCha had a 64 bit nonce and 64 bit block count.
+We have modified this here to be more consistent with recommendations in Section 3.2 of [RFC5116].
+This limits the use of a single (key,nonce) combination to 2^32 blocks, or 256 GB, but that is enough for most uses.
+In cases where a single key is used by multiple senders, it is important to make sure that they don't use the same nonces.
+This can be assured by partitioning the nonce space so that the first 32 bits are unique per sender, while the other 64 bits come from a counter.
+The ChaCha20 state is initialized as follows:
+The first four words (0 3) are constants: 0x61707865, 0x3320646e, 0x79622d32, 0x6b206574.
+The next eight words (4 11) are taken from the 256 bit key by reading the bytes in little endian order, in 4 byte chunks.
+Word 12 is a block counter.
+Since each block is 64 byte, a 32 bit word is enough for 256 gigabytes of data.
+Words 13 15 are a nonce, which should not be repeated for the same key.
+The 13th word is the first 32 bits of the input nonce taken as a little endian integer, while the 15th word is the last 32 bits.
+cccccccc  cccccccc  cccccccc  cccccccc kkkkkkkk
+nnnnnnnn  nnnnnnnn  nnnnnnnn c constant k key b blockcount n nonce ChaCha20 runs 20 rounds, alternating between "column rounds" and "diagonal rounds".
+Each round consists of four quarter rounds, and they are run as follows.
+Quarter rounds 1 4 are part of a "column" round, while 5 8 are part of a "diagonal" round: 1.
+QUARTERROUND ( 0, 4, 8,12)
+QUARTERROUND ( 1, 5, 9,13) 3.
+QUARTERROUND ( 1, 6,11,12) 7.
+QUARTERROUND ( 2, 7, 8,13)
+QUARTERROUND ( 3, 4, 9,14)
+At the end of 20 rounds (or 10 iterations of the above list), we add the original input words to the output words, and serialize the result by sequencing the words one by one in little endian order.
+Note: "addition" in the above paragraph is done modulo 2^32.
+In some machine languages, this is called carryless addition on a 32 bit word.
+The ChaCha20 Block Function in Pseudocode Note
+: This section and a few others contain pseudocode for the algorithm explained in a previous section.
+Every effort was made for the pseudocode to accurately reflect the algorithm as described in the preceding section.
+If a conflict is still present, the textual explanation and the test vectors are normative.
+inner block (state): Qround(state, 0, 4, 8,12) Qround(state, 1, 5, 9,13) Qround(state, 2, 6,10,14) Qround(state, 3, 7,11,15) Qround(state, 0, 5,10,15) Qround(state, 1, 6,11,12) Qround(state, 2, 7, 8,13) Qround(state, 3, 4, 9,14) end chacha20
+, counter, nonce): state   constants
+state for i 1 upto 10 inner block(working state)
+end state    working state return
+Test Vector for the ChaCha20 Block Function For a test vector
+, we will use the following inputs to the ChaCha20 block function:
+The key is a sequence of octets with no particular structure before we copy it into the ChaCha state.
+After setting up the ChaCha state, it looks like this: ChaCha state with the key setup.
+After running 20 rounds (10 column rounds interleaved with 10 "diagonal rounds"), the ChaCha state looks like this:
+ChaCha state after 20 rounds
+Finally, we add the original state to the result (simple vector or matrix addition), giving this: ChaCha state at the end of the ChaCha20 operation e4e7f110
+After we serialize the state, we get this: Serialized Block:
+f1 e7 e4 d1 3b 59
+c7 d1 f4 c7 33 c0
+aa 9a c3 d4 6c
+46 07 9f aa 09 14 c2 d7 05
+is a stream cipher designed by D. J. Bernstein.
+It is a refinement of the Salsa20 algorithm, and it uses a 256 bit key.
+successively calls the ChaCha20 block function, with the same key and nonce, and with successively increasing block counter parameters.
+then serializes the resulting state by writing the numbers in little endian order, creating a keystream block.
+Concatenating the keystream blocks from the successive blocks forms a keystream.
+The ChaCha20 function then performs an XOR of this keystream with the plaintext.
+Alternatively, each keystream block can be XORed with a plaintext block before proceeding to create the next block, saving some memory.
+There is no requirement for the plaintext to be an integral multiple of 512 bits.
+If there is extra keystream from the last block, it is discarded.
+Specific protocols MAY require that the plaintext and ciphertext have certain length.
+Such protocols need to specify how the plaintext is padded and how much padding it receives.
+The inputs to ChaCha20 are:  A 256 bit key  A 32 bit initial counter.
+This can be set to any number, but will usually be zero or one.
+It makes sense to use one if we use the zero block for something else, such as generating a one time authenticator key as part of an AEAD algorithm.
+In some protocols, this is known as the Initialization Vector.
+The output is an encrypted message, or "ciphertext", of the same length.
+Decryption is done in the same way.
+The ChaCha20 block function is used to expand the key into a keystream, which is XORed with the ciphertext giving back the plaintext.
+The ChaCha20 Encryption Algorithm in Pseudocode chacha20 encrypt(key, counter, nonce, plaintext): for j   0 upto floor(len(plaintext)/64)
+, counter j, nonce) block   plaintext[(j
+if ((len(plaintext) % 64) !
+, counter j, nonce) block   plaintext[(j
+(block^key stream)[0..len(plaintext)%64] end return encrypted message end 2.4.2.
+Example and Test Vector for the ChaCha20 Cipher
+For a test vector, we will use the following inputs to the ChaCha20 block function:
+We use the following for the plaintext.
+It was chosen to be long enough to require more than one block, but not so long that it would make this example cumbersome (
+so, less than 3 blocks):
+4c 61 64 69 65 73 20 61 6e 64 20 47 65 6e 74
+6c  Ladies and Gentl 016
+65 6d 65 6e 20
+20 63 6c 61 73
+emen of the clas 032  73 20
+39 39 3a 20 49
+66 20 49 20 63
+If I c 048  6f 75 6c 64 20 6f 66 66 65 72 20 79 6f 75 20 6f  ould offer you 064
+20 74 69 70 20 66
+nly one tip for 080  74 68 65 20 66 75 74 75 72 65 2c 20
+73 75 6e 73  the future, suns 096
+65 65 6e 20 77
+6f 75 6c 64 20 62 65
+20 69  creen would be i
+The following figure shows four ChaCha state matrices: 1.
+First block as it is set up.
+Second block as it is set up.
+Note that these blocks are only two bits apart
+only the counter in position 12 is different.
+Third block is the first block after the ChaCha20 block operation.
+Final block is the second block after the ChaCha20 block operation was applied.
+After that, we show the keystream.
+First block after block operation:
+b7417df0 Second block after block operation:
+45590cc4 da6e8b39  892c831a  cdea67c1  2b7e1d90 037463f3
+f3:63 Finally, we XOR the keystream with the plaintext, yielding the ciphertext:
+6e 2e 35 9a 25 68 f9 80 41 ba 07
+e9 7e 7a ec 1d
+27 af cc fd 9f ae
+f9 1b 65 c5 52
+47 33 ab 8f 59 3d ab cd 62 b3 57  ..
+16 39 d6 24 e6
+51 52 ab 8f 53 0c 35 9f
+ca 0d bf 50 0d
+4d 16 cc f8 06 81 8c e9 1a b7 79 37 36
+5a f9 0b bf 74 a3 5b e6 b4 0b 8e ed f2 78
+The Poly1305 Algorithm Poly1305 is a one time authenticator designed by D. J. Bernstein.
+Poly1305 takes a 32 byte one time key and a message and produces a 16 byte tag.
+This tag is used to authenticate the message.
+The original article ([Poly1305]) is titled "The Poly1305 AES message authentication code", and the MAC function there requires a 128 bit AES key, a 128 bit "additional key", and a 128 bit (non  secret) nonce.
+AES is used there for encrypting the nonce, so as to get a unique (and secret) 128 bit string, but as the paper states, "There is nothing special about AES here.
+One can replace AES with an arbitrary keyed function from an arbitrary set of nonces to 16 byte strings."
+Regardless of how the key is generated, the key is partitioned into two parts, called "r" and "s".
+The pair (r,s) should be unique, and MUST be unpredictable for each invocation (that is why it was originally obtained by encrypting a nonce), while "r" MAY be constant, but needs to be modified as follows before being used: ("r" is treated as a 16 octet little endian number):  r[3], r[7], r[11], and r[15] are required to have their top four bits clear (be smaller than 16)
+r[4], r[8], and r[12] are required to have their bottom two bits clear (be divisible by 4)
+The following sample code clamps "r" to be appropriate: /
+Adapted from poly1305aes test clamp.c version 20050207
+D. J. Bernstein Public domain.
+#include "poly1305aes test.h" void poly1305aes test
+Because each of them is 128 bits, pseudorandomly generating them (see Section 2.6) is also acceptable.
+The inputs to Poly1305 are:  A 256 bit one time key
+The output is a 128 bit tag.
+First, the "r" value should be clamped.
+Next, set the constant prime "P" be 2^130 5: 3fffffffffffffffffffffffffffffffb.
+Also set a variable "accumulator" to zero.
+Next, divide the message into 16 byte blocks.
+The last one might be shorter:  Read the block as a little endian number.
+Add one bit beyond the number of octets.
+For a 16 byte block, this is equivalent to adding 2^128 to the number.
+For the shorter block, it can be 2^120, 2^112, or any power of two that is evenly divisible by 8, all the way down to 2^8.
+If the block is not 17 bytes long (the last block), pad it with zeros.
+This is meaningless if you are treating the blocks as numbers.
+Add this number to the accumulator.
+Set the accumulator to the result modulo p.
+p. Finally, the value of the secret key "s" is added to the accumulator, and the 128 least significant bits are serialized in little endian order to form the tag.
+The Poly1305 Algorithms in Pseudocode clamp(r): r &  0x0ffffffc0ffffffc0ffffffc0fffffff poly1305 mac(msg, key):
+r   (le bytes to num(key[0..15])
+(1<<130) 5 for i 1 upto ceil(msg length in bytes / 16)
+le bytes to num(msg[((i 1)
+(r   a) % p end
+a    s return num to 16 le
+For our example, we will dispense with generating the one time key using AES, and assume that we got the following keying material:
+bf:f6:af:41:49:f5:1b  s as an octet string:
+s as a 128 bit number:
+1bf54941aff6bf4afdb20dfb8a800301  r before clamping: 85:d6:
+d5:06:a8  Clamped r as a number: 806d5400e52447c036d555408bed685 For our message
+, we'll use a short text:
+Message to be Authenticated: 000
+72 75 6d 20 52 65
+Since Poly1305 works in 16 byte chunks, the 34 byte message divides into three blocks.
+In the following calculation, "Acc" denotes the accumulator and "Block" the current block: Block
+) % P   2c88c77849d64ae9147ddeb88e69c83fc Block
+6f7247206863726165736552206d7572 Block with 0x01 byte
+7075 Block with 0x01 byte
+, we get this number, and serialize if to get the tag:
+As said in Section 2.5, it is acceptable to generate the one time Poly1305 pseudorandomly.
+This section defines such a method.
+To generate such a key pair (r,s), we will use the ChaCha20 block function described in Section 2.3.
+This assumes that we have a 256 bit session key for the Message Authentication Code (MAC) function, such as SK ai and SK ar in Internet Key Exchange Protocol version 2 (IKEv2) ([RFC7296])
+, the integrity key in the Encapsulating Security Payload (ESP) and Authentication Header (AH), or
+the client write MAC key and server write MAC key in TLS.
+Any document that specifies the use of Poly1305 as a MAC algorithm for some protocol must specify that 256 bits are allocated for the integrity key.
+Note that in the AEAD construction defined in Section 2.8, the same key is used for encryption and key generation, so the use of
+write MAC key is only for stand alone Poly1305.
+The method is to call the block function with the following parameters:  The 256 bit session integrity key is used as the ChaCha20 key.
+The block counter is set to zero.
+The protocol will specify a 96 bit or 64 bit nonce.
+This MUST be unique per invocation with the same key, so it MUST NOT be randomly generated.
+A counter is a good way to implement this, but other methods, such as a Linear Feedback Shift Register (LFSR) are also acceptable.
+as specified here requires a 96 bit nonce.
+So if the provided nonce is only 64 bit, then the first 32 bits of the nonce will be set to a constant number.
+This will usually be zero, but for protocols with multiple senders it may be different for each sender, but should be the same for all invocations of the function with the same key by a particular sender.
+After running the block function, we have a 512 bit state.
+We take the first 256 bits or the serialized state, and use those as the one  time
+the first 128 bits are clamped and form "r", while the next 128 bits become "s".
+The other 256 bits are discarded.
+Note that while many protocols have provisions for a nonce for encryption algorithms (often called Initialization Vectors, or IVs), they usually don't have such a provision for the MAC function.
+In that case, the per invocation nonce will have to come from somewhere else, such as a message counter.
+Key Generation in Pseudocode poly1305 key gen(key,nonce):
+For this example, we'll set:
+84 85 86 87 88 89
+8a 8b 8c 8d 8e 8f
+96 97 98 99 9a 9b 9c 9d 9e
+The ChaCha state setup with key, nonce, and block counter zero: 61707865
+The ChaCha state after 20 rounds: 8ba0d58a
+Output bytes: 000  8a d5 a0 8b 90 5f 81
+40 27 4a b2 94 71
+a8 33 b6 37 e3 fd 0d a5 08 db b8 e2 fd d1 a6 46
+And that output is also the 32 byte one time key used for Poly1305. 2.7.
+A Pseudorandom Function for Crypto Suites based on ChaCha/Poly1305
+Some protocols, such as IKEv2 ([RFC7296]), require a Pseudorandom Function (PRF), mostly for key derivation.
+In the IKEv2 definition, a PRF is a function that accepts a variable length key and a variable length input, and returns a fixed length output.
+Most commonly, Hashed MAC (HMAC) constructions are used for this purpose, and often the same function is used for both message authentication and PRF.
+Poly1305 is not a suitable choice for a PRF.
+Poly1305 prohibits using the same key twice, whereas the PRF in IKEv2 is used multiple times with the same key.
+Additionally, unlike HMAC, Poly1305 is biased, so using it for key derivation would reduce the security of the symmetric encryption.
+Chacha20 could be used as a key derivation function, by generating an arbitrarily long keystream.
+However, that is not what protocols such as IKEv2 require.
+For this reason, this document does not specify a PRF and recommends that crypto suites use some other PRF such as PRF HMAC SHA2 256 (see Section 2.1.2 of [RFC4868]).
+CHACHA20 POLY1305 is an authenticated encryption with additional data algorithm.
+POLY1305 are:  A 256 bit key  A 96 bit nonce   different for each invocation with the same key
+An arbitrary length plaintext  Arbitrary length additional authenticated data (AAD)
+Some protocols may have unique per invocation inputs that are not 96 bits in length.
+For example, IPsec may specify a 64 bit nonce.
+In such a case, it is up to the protocol document to define how to transform the protocol nonce into a 96 bit nonce, for example, by concatenating a constant value.
+The ChaCha20 and Poly1305 primitives are combined into an AEAD that takes a 256 bit key and 96 bit nonce as follows:
+First, a Poly1305 one time key is generated from the 256 bit key and nonce using the procedure described in Section 2.6.
+Next, the ChaCha20 encryption function is called to encrypt the plaintext, using the same key and nonce, and with the initial counter set to 1.
+Finally, the Poly1305 function is called with the Poly1305 key calculated above, and a message constructed as a concatenation of the following:
+the padding is up to 15 zero bytes, and it brings the total length so far to an integral multiple of 16.
+If the length of the AAD was already an integral multiple of 16 bytes, this field is zero length.
+the padding is up to 15 zero bytes, and it brings the total length so far to an integral multiple of 16.
+If the length of the ciphertext was already an integral multiple of 16 bytes, this field is zero length.
+The length of the additional data in octets (as a 64 bit little endian integer).
+The length of the ciphertext in octets (as a 64 bit little  endian integer).
+The output from the AEAD is twofold:  A ciphertext of the same length as the plaintext.
+A 128 bit tag, which is the output of the Poly1305 function.
+Decryption is similar with the following differences:  The roles of ciphertext and plaintext are reversed, so the ChaCha20 encryption function is applied to the ciphertext, producing the plaintext.
+The Poly1305 function is still run on the AAD and the ciphertext, not the plaintext.
+The calculated tag is bitwise compared to the received tag.
+The message is authenticated if and only if the tags match.
+A few notes about this design: 1.
+The amount of encrypted data possible in a single invocation is 2^32 1 blocks of 64 bytes each, because of the size of the block counter field in the ChaCha20 block function.
+This gives a total of 247,877,906,880 bytes, or nearly 256 GB.
+This should be enough for traffic protocols such as IPsec and TLS, but may be too small for file and/or disk encryption.
+For such uses, we can return to the original design, reduce the nonce to 64 bits, and use the integer at position 13 as the top 32 bits of a 64 bit block counter, increasing the total message size to over a million petabytes (1,180,591,620,717,411,303,360 bytes to be exact).
+Despite the previous item, the ciphertext length field in the construction of the buffer on which Poly1305 runs limits the ciphertext (and hence, the plaintext) size to 2^64 bytes, or sixteen thousand petabytes (18,446,744,073,709,551,616 bytes to be exact).
+The AEAD construction in this section is a novel composition of ChaCha20 and Poly1305.
+A security analysis of this composition is given in [Procter].
+Here is a list of the parameters for this construction as defined in Section 4 of RFC 5116:  K LEN (key length) is 32 octets.
+P MAX (maximum size of the plaintext) is 247,877,906,880 bytes, or nearly 256 GB.
+A MAX (maximum size of the associated data) is set to 2^64 1 octets by the length field for associated data.
+Distinct AAD inputs (as described in Section 3.3 of RFC 5116) shall be concatenated into a single input to AEAD CHACHA20 POLY1305.
+It is up to the application to create a structure in the AAD input if it is needed.
+Pseudocode for the AEAD Construction pad16(x)
+: if (len(x) % 16) 0
+then return NULL else return copies(0, 16 (len(x)%16))
+chacha20 aead encrypt(aad, key, iv, constant, plaintext): nonce
+chacha20 encrypt(key, 1, nonce, plaintext)
+mac data    ciphertext   pad16(ciphertext) mac data    num to 4 le bytes(aad.length)
+mac data    num to 4 le bytes(ciphertext.length) tag   poly1305
+mac(mac data, otk) return (ciphertext, tag)
+Example and Test Vector for AEAD
+For a test vector, we will use the following inputs to the AEAD CHACHA20
+Plaintext: 000  4c 61 64 69 65 73 20 61 6e 64 20 47 65 6e 74 6c  Ladies and Gentl 016
+65 6d 65 6e 20
+20 63 6c 61 73
+emen of the clas 032  73 20
+39 39 3a 20 49
+66 20 49 20 63
+If I c 048  6f 75 6c 64 20 6f 66 66 65 72 20 79 6f 75 20 6f  ould offer you 064
+20 74 69 70 20 66
+nly one tip for 080  74 68 65 20 66 75 74 75 72 65 2c 20
+73 75 6e 73  the future, suns 096
+65 65 6e 20 77
+6f 75 6c 64 20 62 65
+20 69  creen would be i
+: 000  80 81 82 83 84 85 86 87 88 89 8a 8b 8c 8d 8e 8f
+96 97 98 99 9a 9b 9c 9d 9e
+32 bit fixed common part: 000
+Setup for generating Poly1305 one time key
+After generating Poly1305 one time key:
+ff53d53e decc7ea2  b44ddbad  e49c17d1  d8430bc9
+ac 2b 25 2d b4 47 af 09 b6 7a 55 a4
+0a e1 d6 73 10 75 d9 eb 2a 93 75 78
+b6:45:e4:ab:e6:22: 15:38 Ciphertext: 000  d3 1a 8d 34 64 8e 60 db 7b 86
+S.~. 016  a4 ad ed 51 29 6e 08 fe a9 e2 b5 a7 36
+6.b. 032  3d be a4 5e 8c a9 67 12 82 fa fb
+de 0a 9e 06 0b
+92 dd bd 7f 2d 77
+8b 8c 98 03 ae e3 28 09 1b 58
+e4 fa d6 75 94 55 85 80 8b 48 31
+51 52 53 c0 c1 c2 c3 c4 c5 c6 c7 00 00
+d3 1a 8d 34 64 8e 60 db 7b 86
+S.~. 032  a4 ad ed 51 29 6e 08
+fe a9 e2 b5 a7 36
+3d be a4 5e 8c a9 67 12 82 fa fb
+de 0a 9e 06 0b
+dd bd 7f 2d 77
+8b 8c 98 03 ae e3 28 09 1b 58
+e4 fa d6 75 94 55 85 80 8b 48 31
+K 128  61 16 00 00 00 00 00 00 00 00 00 00 00 00
+144  0c 00 00 00 00
+Each block of ChaCha20 involves 16 move operations and one increment operation for loading the state, 80 each of XOR, addition and Roll operations for the rounds, 16 more add operations and 16 XOR operations for protecting the plaintext.
+Section 2.3 describes the ChaCha block function as "adding the original input words".
+This implies that before starting the rounds on the ChaCha state, we copy it aside, only to add it in later.
+This is correct, but we can save a few operations if we instead copy the state and do the work on the copy.
+This way, for the next block you don't need to recreate the state, but only to increment the block counter.
+This saves approximately 5.5% of the cycles.
+It is not recommended to use a generic big number library such as the one in OpenSSL for the arithmetic operations in Poly1305.
+Such libraries use dynamic allocation to be able to handle an integer of any size, but that flexibility comes at the expense of performance as well as side channel security.
+More efficient implementations that run in constant time are available, one of them in D. J. Bernstein's own library, NaCl ([NaCl]).
+A constant time but not optimal approach would be to naively implement the arithmetic operations for 288 bit integers, because even a naive implementation will not exceed 2^288 in the multiplication of (acc block) and r.
+An efficient constant  time implementation can be found in the public domain library poly1305 donna ([Poly1305 Donna]).
+The ChaCha20 cipher is designed to provide 256 bit security.
+The Poly1305 authenticator is designed to ensure that forged messages are rejected with a probability of 1 (n/(2^102)) for a 16n byte message, even after sending 2^64 legitimate messages, so it is SUF CMA (strong unforgeability against chosen message attacks) in the terminology of [AE].
+Proving the security of either of these is beyond the scope of this document.
+Such proofs are available in the referenced academic papers ([ChaCha], [Poly1305], [LatinDances], [LatinDances2], and [Zhenqing2012]).
+The most important security consideration in implementing this document is the uniqueness of the nonce used in ChaCha20.
+Counters and LFSRs are both acceptable ways of generating unique nonces, as is encrypting a counter using a 64 bit cipher such as DES.
+Note that it is not acceptable to use a truncation of a counter encrypted with a 128 bit or 256 bit cipher, because such a truncation may repeat after a short time.
+Consequences of repeating a nonce: If a nonce is repeated, then both the one time Poly1305 key and the keystream are identical between the messages.
+This reveals the XOR of the plaintexts, because the XOR of the plaintexts is equal to the XOR of the ciphertexts.
+The Poly1305 key MUST be unpredictable to an attacker.
+Randomly generating the key would fulfill this requirement, except that Poly1305 is often used in communications protocols, so the receiver should know the key.
+Pseudorandom number generation such as by encrypting a counter is acceptable.
+Using ChaCha with a secret key and a nonce is also acceptable.
+The algorithms presented here were designed to be easy to implement in constant time to avoid side channel vulnerabilities.
+The operations used in ChaCha20 are all additions, XORs, and fixed rotations.
+All of these can and should be implemented in constant time.
+Access to offsets into the ChaCha state and the number of operations do not depend on any property of the key, eliminating the chance of information about the key leaking through the timing of cache misses.
+For Poly1305, the operations are addition, multiplication.
+and modulus, all on numbers with greater than 128 bits.
+This can be done in constant time, but a naive implementation (such as using some generic big number library) will not be constant time.
+For example, if the multiplication is performed as a separate operation from the modulus, the result will sometimes be under 2^256 and sometimes be above 2^256.
+Implementers should be careful about timing side  channels for Poly1305 by using the appropriate implementation of these operations.
+Validating the authenticity of a message involves a bitwise comparison of the calculated tag with the received tag.
+In most use cases, nonces and AAD contents are not "used up" until a valid message is received.
+This allows an attacker to send multiple identical messages with different tags until one passes the tag comparison.
+This is hard if the attacker has to try all 2^128 possible tags one by one.
+However, if the timing of the tag comparison operation reveals how long a prefix of the calculated and received tags is identical, the number of messages can be reduced significantly.
+For this reason, with online protocols, implementation MUST use a constant time comparison function rather than relying on optimized but insecure library functions such as the C language's memcmp().
+IANA Considerations IANA has assigned an entry in the "Authenticated Encryption with Associated Data (AEAD) Parameters" registry with 29 as the Numeric ID, "AEAD CHACHA20
+as the name, and this document as reference.
+Appendix A.  Additional Test Vectors
+The subsections of this appendix contain more test vectors for the algorithms in the sub sections of Section 2.
+The ChaCha20 Block Functions Test Vector #1:
+00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00
+ChaCha state at the end
+b8 e0 ad a0 f1 3d
+bd d2 19 b8 a0 8d ed 1a a8 36
+ef cc 8b 77 0d
+da 41 59 7c 51
+57 48 8d 77 24 e0 3f b8 d8 4a 37  .AY
+18 a1 1c c3 87 b6 69 b2 ee 65 86
+00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00
+1 ChaCha state at the end
+Keystream: 000  9f 07 e7 be 55 51 38 7a 98 ba 97 7c 73 2d 08
+29 b7 21 76 9c e6
+31 ed 1f 28 51
+00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00
+1 ChaCha state at the end
+ebdd4aa6  a0136c00 Keystream: 000  3a eb 52 24 ec f8 49 92 9b
+9d 82 8d b1 ce d4 dd
+83 20 25 e8 01
+b8 22 84 f3 c9 49
+8e ca 00 bb b4 a7 3b da d1 92 b5 c4 2f 73
+4e 27 36 44 c8 b3
+61 25 a6 4a dd eb 00
+00 ff 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00
+2 ChaCha state at the end
+fb f1 2e c4 4b 36
+26 92 df 94 13
+2 016  8f ea 8d a7 39 90 26 5e c1 bb be a1 ae 9a f0
+13 b2 5a a2 6c b4 a6 48 cb 9b 9d 1b e6 5b 2c 09  ..
+d5 45 ec 1b 73 74
+00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00
+ChaCha state at the end
+6ded1b53 Keystream: 000  c2 c6 4d 37
+8c d5 36 37 4a e2 04
+b3 df a4 96 72 ab
+76 5b 54 ee 27 c7  ..
+5c 14 f3 a8 8e 74 1b 97 c2 86
+00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00
+00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00
+b8 e0 ad a0 f1 3d
+bd d2 19 b8 a0 8d ed 1a a8 36
+ef cc 8b 77 0d
+da 41 59 7c 51
+57 48 8d 77 24 e0 3f b8 d8 4a 37  .AY
+18 a1 1c c3 87 b6 69 b2 ee 65 86
+00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00
+73 73 69 6f 6e 20
+Any submission t 016  6f 20 74 68 65 20 49 45 54 46 20 69
+the IETF inten 032  64 65 64 20 62 79 20 74 68 65 20 43 6f 6e 74
+ded by the Contr 048
+75 62 6c 69  ibutor for publi 064  63
+61 74 69 6f 6e 20 61
+73 20 61 6c 6c 20 6f 72
+cation as all or 080  20 70 61 72 74 20 6f 66 20 61 6e 20 49 45
+54 46   part of an IETF 096  20 49 6e 74
+65 72 6e 65 74
+2d 44 72 61 66 74 20
+Internet Draft 112  6f 72
+20 73  or RFC and any s 128
+74 61 74 65 6d 65 6e 74 20 6d 61 64 65 20 77 69  tatement made wi 144  74
+68 69 6e 20 74 68 65
+20 63 6f 6e 74
+78 74  thin the context
+20 61 6e 20 49
+45 54 46 20 61
+63 74 69   of an IETF acti
+76 69 74 79 20
+69 73 20 63 6f 6e
+65 72  vity is consider 192
+65 64 20 61 6e 20 22 49
+ed an "IETF Cont 208  72 69 62 75 74 69
+2e 20 53 75 63 68 20  ribution".
+Such 224  73 74 61 74 65 6d 65 6e 74 73 20 69 6e 63 6c 75
+statements inclu 240  64 65 20 6f 72 61 6c 20 73 74
+6e  de oral statemen 256  74 73 20 69 6e 20 49 45 54 46 20 73 65
+73 69  ts in IETF sessi
+6f 6e 73 2c 20
+61 73 20 77 65 6c 6c 20
+61 73 20  ons, as well as 288  77 72 69 74 74 65 6e 20 61
+20 65 6c 65 63  written and elec 304
+74 72 6f 6e 69 63 20 63
+6e 69 63 61  tronic communica 320
+74 69 6f 6e 73 20
+6d 61 64 65 20 61 74 20 61 6e
+57 bd 8c ff 2c 1d 4b 79
+2a 97 94 8b d3 72 29 15 c8 f3 d3 37
+0e 9e 96 d6 47
+b7 c3 9f 56 e0 31
+85 ec ec fa 4b 4b b5 e8 ea d0 44 0e
+2a a6 c4 05 b7 76 4d 5e 87 be a8 5a
+84 49 ed 8f 72 d0 d6 62
+42 4b c8 6d 2d f8 0e a4 1f 43 ab f9 37 d3 25 9d
+d0 df b4 8a 6c 91
+( 176  e6 35 55 3b a7 6c 5c 87 9d 7b
+35 d4 9e b2 e6
+08 71 cd ac 63 89 39 e2 5e 8a 1e
+32 8b 35 1c 3c 76 59 89 cb cf
+3d aa 8b 6c  ..
+3a af 9f 39 79
+c9 2b 37 20 fc 88
+dc 95 ed 84  .:
+240  a1 be 05 9c 64 99 b9 fd a2 36 e7 e8 18 b0 4b
+55 69 75 3f 88 12
+aa 9b 63 d1 a1 6f 80 ef 25 54 d7 18
+ca 52 c5 b8 3f a3 6f f2 16 b9 c1 d3 00 62
+b 304  be bc fd
+19 34 fd a7 9a
+98 ce d7 59 c3 ff 9b 64 77 33 8f 3d a4 f9 cd
+14 ea 99 82 cc af b3 41 b2 38 4d d9 02
+7a c6 1d d2 9c
+6f 21 ba 5b 86 2f 37 30 e3 7c fd
+47 39 17 c1 40 2b 80 09 9d
+ca 5c bc 20 70 75 c0
+00 00 00 00 00 00 00
+72 69 6c 6c 69 67 2c 20 61  '
+Twas brillig, a 016  6e 64 20 74 68 65 20 73 6c 69 74 68 79 20 74 6f
+nd the slithy to 032  76
+69 64 20 67 79
+Did gyre and 048  20 67 69 6d 62 6c 65 20 69 6e 20 74 68 65 20 77   gimble in the w 064  61 62 65 3a
+41 6c 6c 20 6d 69
+6d 73 79 20 77
+72 65 20 74 68
+20 62 6f 72 6f 67
+73 2c 0a 41 6e 64 20 74 68
+65 20 6d 6f 6d 65 20
+5f b6 91 10 04 4c 0d
+fd 84 c5 4f 9d
+65 b2 83 19 6c 7f e4 f6 05
+c4 22 34 e3 2a 35 6b
+1a 55 32 05 57 16 ea d6 96 25 68 f8 7d 3f 3f 77  .U2.W....
+04 c6 a8 d1 bc d1
+bf 4d 50 d6 15
+87 b5 8d fd 72 8a fa 36 75 7a 79 7a c1 88
+how, in test vector #2, r is equal to zero.
+The part of the Poly1305 algorithm where the accumulator is multiplied by r means that with r equal zero, the tag will be equal to s regardless of the content of the text.
+Fortunately, all the proposed methods of generating r are such that getting this particular weak key is very unlikely.
+00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00
+Text to MAC: 000  00
+00 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00
+36 e5 f6 b5 c5
+e0 60 70 f0 ef ca 96 22 7a 86
+73 73 69 6f 6e 20
+Any submission t 016  6f 20 74 68 65 20 49 45 54 46 20 69
+the IETF inten 032  64 65 64 20 62 79 20 74 68 65 20 43 6f 6e 74
+ded by the Contr 048
+75 62 6c 69  ibutor for publi 064  63
+61 74 69 6f 6e 20 61
+73 20 61 6c 6c 20 6f 72
+cation as all or 080  20 70 61 72 74 20 6f 66 20 61 6e 20 49 45
+54 46   part of an IETF 096  20 49 6e 74
+65 72 6e 65 74
+2d 44 72 61 66 74 20
+Internet Draft 112  6f 72
+20 73  or RFC and any s 128
+74 61 74 65 6d 65 6e 74 20 6d 61 64 65 20 77 69  tatement made wi 144  74
+68 69 6e 20 74 68 65
+20 63 6f 6e 74
+78 74  thin the context
+20 61 6e 20 49
+45 54 46 20 61
+63 74 69   of an IETF acti
+76 69 74 79 20
+69 73 20 63 6f 6e
+65 72  vity is consider 192
+65 64 20 61 6e 20 22 49
+ed an "IETF Cont 208  72 69 62 75 74 69
+2e 20 53 75 63 68 20  ribution".
+Such 224  73 74 61 74 65 6d 65 6e 74 73 20 69 6e 63 6c 75
+statements inclu 240  64 65 20 6f 72 61 6c 20 73 74
+6e  de oral statemen 256  74 73 20 69 6e 20 49 45 54 46 20 73 65
+73 69  ts in IETF sessi
+6f 6e 73 2c 20
+61 73 20 77 65 6c 6c 20
+61 73 20  ons, as well as 288  77 72 69 74 74 65 6e 20 61
+20 65 6c 65 63  written and elec 304
+74 72 6f 6e 69 63 20 63
+6e 69 63 61  tronic communica 320
+74 69 6f 6e 73 20
+6d 61 64 65 20 61 74 20 61 6e
+36 e5 f6 b5 c5
+e0 60 70 f0 ef ca 96 22 7a 86
+36 e5 f6 b5 c5
+e0 60 70 f0 ef ca 96 22 7a 86
+00 00 00 00 00 00 00 00 00 00
+73 73 69 6f 6e 20
+Any submission t 016  6f 20 74 68 65 20 49 45 54 46 20 69
+the IETF inten 032  64 65 64 20 62 79 20 74 68 65 20 43 6f 6e 74
+ded by the Contr 048
+75 62 6c 69  ibutor for publi 064  63
+61 74 69 6f 6e 20 61
+73 20 61 6c 6c 20 6f 72
+cation as all or 080  20 70 61 72 74 20 6f 66 20 61 6e 20 49 45
+54 46   part of an IETF 096  20 49 6e 74
+65 72 6e 65 74
+2d 44 72 61 66 74 20
+Internet Draft 112  6f 72
+20 73  or RFC and any s 128
+74 61 74 65 6d 65 6e 74 20 6d 61 64 65 20 77 69  tatement made wi 144  74
+68 69 6e 20 74 68 65
+20 63 6f 6e 74
+78 74  thin the context
+20 61 6e 20 49
+45 54 46 20 61
+63 74 69   of an IETF acti
+76 69 74 79 20
+69 73 20 63 6f 6e
+65 72  vity is consider 192
+65 64 20 61 6e 20 22 49
+ed an "IETF Cont 208  72 69 62 75 74 69
+2e 20 53 75 63 68 20  ribution".
+Such 224  73 74 61 74 65 6d 65 6e 74 73 20 69 6e 63 6c 75
+statements inclu 240  64 65 20 6f 72 61 6c 20 73 74
+6e  de oral statemen 256  74 73 20 69 6e 20 49 45 54 46 20 73 65
+73 69  ts in IETF sessi
+6f 6e 73 2c 20
+61 73 20 77 65 6c 6c 20
+61 73 20  ons, as well as 288  77 72 69 74 74 65 6e 20 61
+20 65 6c 65 63  written and elec 304
+74 72 6f 6e 69 63 20 63
+6e 69 63 61  tronic communica 320
+74 69 6f 6e 73 20
+6d 61 64 65 20 61 74 20 61 6e
+7c d9 54 17 af 89 a6
+47 39 17 c1 40 2b 80 09 9d
+ca 5c bc 20 70 75 c0
+72 69 6c 6c 69 67 2c 20 61  '
+Twas brillig, a 016  6e 64 20 74 68 65 20 73 6c 69 74 68 79 20 74 6f
+nd the slithy to 032  76
+69 64 20 67 79
+Did gyre and 048  20 67 69 6d 62 6c 65 20 69 6e 20 74 68 65 20 77   gimble in the w 064  61 62 65 3a
+41 6c 6c 20 6d 69
+6d 73 79 20 77
+72 65 20 74 68
+20 62 6f 72 6f 67
+73 2c 0a 41 6e 64 20 74 68
+65 20 6d 6f 6d 65 20
+45 41 66 9a 7e
+aa ee 61 e7 08 dc 7c bc c5 eb 62
+Test Vector #5: If one uses 130 bit partial reduction, does the code handle the case where partially reduced final result is not fully reduced?
+00 00 00 00 00 00 00 00 00 00 00 00 00 00
+S: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 data:
+FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF tag: 03 00 00 00 00 00 00 00 00 00 00 00 00
+Test Vector #6: What happens if addition of s overflows modulo 2^128?
+R: 02 00 00 00
+00 00 00 00 00 00 00
+FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF data: 02 00 00 00 00 00 00 00 00 00 00 00 00 00
+03 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+Test Vector #7: What happens if data limb is all ones and there is carry from lower limb?
+00 00 00 00 00 00 00
+S: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 data: FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF F0 FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+05 00 00 00 00 00 00 00 00 00 00 00 00
+: What happens if final result from polynomial part is exactly 2^130 5?
+00 00 00 00 00 00 00
+S: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 data:
+FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FB FE FE FE FE FE FE FE FE FE FE FE FE FE FE FE 01 01 01 01 01 01 01 01 01 01 01 01 01
+01 tag: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+Test Vector #9: What happens if final result from polynomial part is exactly 2^130 6?
+R: 02 00 00 00 00
+00 00 00 00 00 00 00
+S: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+00 data: FD FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF tag:
+FA FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF Test Vector
+#10: What happens if 5 H L type reduction produces 131 bit intermediate result?
+S: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+00 data: E3 35 94 D7 50 5E 43 B9 00 00 00 00 00 00 00 00 33 94 D7 50 5E 43 79 CD 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+14 00 00 00 00 00 00 00 55 00 00 00 00 00 00 00
+#11: What happens if 5 H L type reduction produces 131 bit final result?
+S: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+00 data: E3 35 94 D7 50 5E 43 B9 00 00 00 00 00 00 00 00 33 94 D7 50 5E 43 79 CD 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00
+The key: 000  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00
+The nonce: 000  00 00 00 00 00 00 00 00 00 00
+b8 e0 ad a0 f1 3d
+bd d2 19 b8 a0 8d ed 1a a8 36
+ef cc 8b 77 0d
+The key: 000  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00
+one time key: 000  ec fa 25 4f 84
+5f 64 74 73 d3 cb 14 0d a9 e8 76  ..
+cb 33 06 6c 44 7b 87 bc 26 66 dd e3 fb b7 39  ..3.lD{..
+47 39 17 c1 40 2b 80 09 9d
+ca 5c bc 20 70 75 c0
+The nonce: 000  00 00 00 00 00 00 00 00 00 00 00
+5e 3b c6 f9 ec 7e d9 56 08 08
+f4 d2 29 f9 4b
+ca 9b 3f cb dd 59 de aa d2
+Below we see decrypting a message.
+We receive a ciphertext, a nonce, and a tag.
+We will check the tag and then (assuming that it validates)
+In this particular protocol, we'll assume that there is no padding of the plaintext.
+47 39 17 c1 40 2b 80 09 9d
+ca 5c bc 20 70 75 c0
+75 86 1a f4 60 f0 62 c7 9b e6 43 bd
+34 5c f3 89 f1 08 67 0a c7 6c 8c b2
+4c 6c fc 18 75 5d 43 ee a0 9e e9 4e 38 2d 26
+bd b7 b7 3c 32
+1b 01 00 d4 f0 3b 7f 35
+33 2f 83 0e 71 0b
+97 ce 98 c8 a8 4a bd
+14 ad 17 6e 00
+97 a0 6e f4 f0 ef 61 c1 86 32 4e
+36 06 90 7b 6a 7c 02 b0 f9 f6 15 7b 53 c8 67 e4  6..
+{S.g. 128  b9 16 6c 76 7b 80 4d 46 a5 9b
+52 16 cd e7 a4
+90 40 c5 a4 04 33 22 5e e2 82 a1 b0 a0 6c 52 3e
+af 45 34 d7 f8 3f a1 15
+47 71 8c bc 54 6a  .E4
+2b 04 b3 56 4e ea 1b 42
+0b b2 31 60 53 fa 76 99 19 55 eb d6 31
+ae 5a 10 73 a6 72 76
+27 09 7a 10  ..NFm.
+10 94 fa 68 f0 ff 77 98 71 30
+30 5b ea ba 2e da 04
+256  a6 ad 5c b4 02 2b 02
+Received Tag: 000  ee ad 9d
+First, we calculate the one time Poly1305 key @@@
+ChaCha state with key setup
+ChaCha state after 20 rounds a94af0bd
+bd f0 4a a9 5c
+47 8f 50 c0 54 f5 63 db c0 a2 1e 26
+Next, we construct the AEAD buffer Poly1305
+Input: 000  f3 33 88 86 00 00 00 00 00
+75 86 1a f4 60 f0 62 c7 9b e6 43 bd
+`.b...C. 032  5e 80 5c fd
+34 5c f3 89 f1 08 67 0a c7 6c 8c b2
+4c 6c fc 18 75 5d 43 ee a0 9e e9 4e 38 2d 26
+bd b7 b7 3c 32
+1b 01 00 d4 f0 3b 7f 35
+97 ce 98 c8 a8 4a bd
+14 ad 17 6e 00
+97 a0 6e f4 f0 ef 61 c1 86 32 4e
+36 06 90 7b 6a 7c 02 b0 f9 f6 15 7b 53 c8 67 e4  6..
+{S.g. 144  b9 16 6c 76 7b 80 4d 46 a5 9b
+52 16 cd e7 a4
+90 40 c5 a4 04 33 22 5e e2 82 a1 b0 a0 6c 52 3e
+af 45 34 d7 f8 3f a1 15
+47 71 8c bc 54 6a  .E4
+2b 04 b3 56 4e ea 1b 42
+208  0b b2 31 60 53 fa 76 99 19 55 eb d6 31
+ae 5a 10 73 a6 72 76
+27 09 7a 10  ..NFm.
+10 94 fa 68 f0 ff 77 98 71 30
+w.q0 256  30 5b ea ba 2e da 04
+{qMlo,) 272  a6 ad 5c b4 02 2b 02 70 9b 00 00 00 00 00
+0c 00 00 00 00 00 00
+00 09 01 00 00 00
+We calculate the Poly1305 tag and find that it matches Calculated Tag: 000  ee ad 9d
+Finally, we decrypt the ciphertext Plaintext:: 000
+49 6e 74 65 72 6e 65 74
+2d 44 72 61 66 74 73 20  Internet Drafts 016
+72 61 66 74 20 64
+6f 63 75 6d 65  are draft docume 032  6e 74 73 20 76 61 6c
+6f 72 20 61 20  nts valid for a 048  6d 61 78 69 6d 75 6d 20
+20 73 69 78 20 6d
+maximum of six m 064  6f 6e 74
+20 61 6e 64 20 6d 61 79 20 62 65  onths and may be 080  20 75 70 64 61 74 65 64 2c 20 72 65 70
+6f 72 20 6f 62 73
+65 64  ed, or obsoleted 112  20 62 79 20 6f 74 68 65 72 20 64 6f 63 75 6d 65   by other docume 128  6e 74 73 20 61 74 20 61 6e 79 20 74 69 6d 65
+20 49 74 20 69
+6e 61 70 70 72 6f 70 72
+75 73 65 20 49 6e 74 65
+iate to use Inte 176  72 6e 65
+74 2d 44 72 61 66 74 73 20 61 73 20 72  rnet Drafts as r 192
+72 65 6e 63 65 20
+6d 61 74 65 72 69 61
+l or to cite the 224  6d 20 6f 74
+m other than as 240  2f e2 80 9c 77 6f 72
+73 73 2e 2f e2 80 9d
+Appendix B.  Performance Measurements of
+The following measurements were made by Adam Langley for a blog post published on February 27th, 2014.
+The original blog post was available at the time of this writing at <https://www.imperialviolet.org/2014/02/27/tlssymmetriccrypto.html

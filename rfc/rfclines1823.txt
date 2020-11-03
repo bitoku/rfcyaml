@@ -1,0 +1,260 @@
+This document defines a C language application program interface to the lightweight directory access protocol (LDAP).
+The LDAP API is designed to be powerful, yet simple to use.
+It defines compatible synchronous and asynchronous interfaces to LDAP to suit a wide variety of applications.
+This document gives a brief overview of the LDAP model, then an overview of how the API is used by an application program to obtain LDAP information.
+The API calls are described in detail, followed by an appendix that provides some example code demonstrating the use of the API.
+Overview of the LDAP Model LDAP is the lightweight directory access protocol, described in [2] and [7].
+It can provide a lightweight frontend to the X.500 directory [1], or a stand alone service.
+In either mode, LDAP is based on a client server model in which a client makes a TCP connection to an LDAP server, over which it sends requests and receives responses.
+The LDAP information model is based on the entry, which contains information about some object (e.g., a person).
+Entries are composed of attributes, which have a type and one or more values.
+Each attribute has a syntax that determines what kinds of values are allowed in the attribute (e.g., ASCII characters, a jpeg photograph, etc.) and how those values behave during directory operations (e.g., is case significant during comparisons).
+Entries are organized in a tree structure, usually based on political, geographical, and organizational boundaries.
+Each entry is uniquely named relative to its sibling entries by its relative distinguished name (RDN) consisting of one or more distinguished attribute values from the entry.
+At most one value from each attribute may be used in the RDN.
+For example, the entry for the person Babs Jensen might be named with the "Barbara Jensen" value from the commonName attribute.
+A globally unique name for an entry, called a distinguished name or DN, is constructed by concatenating the sequence of RDNs from the root of the tree down to the entry.
+For example, if Babs worked for the University of Michigan, the DN of her U M entry might be "cn Barbara Jensen, o University of Michigan, c US".
+The DN format used by LDAP is defined in [4].
+Operations are provided to authenticate, search for and retrieve information, modify information, and add and delete entries from the tree.
+The next sections give an overview of how the API is used and detailed descriptions of the LDAP API calls that implement all of these functions.
+Overview of LDAP API Use An application generally uses the LDAP API in four simple steps.
+Open a connection to an LDAP server.
+The ldap open() call returns a handle to the connection, allowing multiple connections to be open at once.
+Authenticate to the LDAP server and/or the X.500 DSA.
+() call and friends support a variety of authentication methods.
+Perform some LDAP operations and obtain some results.
+ldap search() and friends return results which can be parsed by ldap result2error()
+, ldap first entry(), ldap next entry(), etc.
+() call closes the connection.
+Operations can be performed either synchronously or asynchronously.
+Synchronous calls end in  s.
+For example, a synchronous search can be completed by calling ldap search s().
+An asynchronous search can be initiated by calling ldap search().
+All synchronous routines return an indication of the outcome of the operation (e.g, the constant LDAP SUCCESS or some other error code).
+The asynchronous routines return the message id of the operation initiated.
+This id can be used in subsequent calls to ldap result() to obtain the result(s) of the operation.
+An asynchronous operation can be abandoned by calling ldap abandon().
+Results and errors are returned in an opaque structure called LDAPMessage.
+Routines are provided to parse this structure, step through entries and attributes returned, etc.
+Routines are also provided to interpret errors.
+The next sections describe these routines in more detail.
+Calls for performing LDAP operations
+This section describes each LDAP operation API call in detail.
+All calls take a "connection handle", a pointer to an LDAP structure containing per connection information.
+Many routines return results in an LDAPMessage structure.
+These structures and others are described as needed below.
+Opening a connection ldap open() opens a connection to the LDAP server.
+( char  hostname, int portno ); Parameters are: hostname Contains a space separated list of hostnames or dotted strings representing the IP address of hosts running an LDAP server to connect to.
+The hosts are tried in the order listed, stopping with the first one to which a successful connection is made; portno   contains the TCP port number to which to connect.
+The default LDAP port can be obtained by supplying the constant LDAP PORT.
+ldap open() returns a "connection handle", a pointer to an LDAP structure that should be passed to subsequent calls pertaining to the connection.
+It returns NULL if the connection cannot be opened.
+One of the ldap bind calls described below must be completed before other operations can be performed on the connection.
+The calling program should assume nothing about the order of the fields in the LDAP structure.
+There may be other fields in the structure for internal library use.
+The fields shown above are described as needed in the description of other calls below.
+Authenticating to the directory ldap bind() and friends are used to authenticate to the directory.
+char  cred, int method )
+; int ldap bind s(
+char  cred, int method ); int ldap simple bind(
+, char  passwd ); int ldap simple bind s( LDAP  ld, char  dn, char  passwd ); int ldap kerberos bind( LDAP  ld, char  dn ); int ldap kerberos bind s( LDAP  ld, char  dn ); Parameters are: ld
+The name of the entry to bind as
+The credentials with which to authenticate; method One of LDAP AUTH SIMPLE, LDAP AUTH KRBV41, or LDAP AUTH KRBV42, indicating the authentication method to use; passwd For ldap
+simple bind(), the password to compare to the entry's userPassword attribute; There are three types of bind calls, providing simple authentication, kerberos authentication, and general routines to do either one.
+In the case of Kerberos version 4 authentication using the general ldap bind() routines, the credentials are ignored, as the routines assume a valid ticket granting ticket already exists which can be used to retrieve the appropriate service tickets.
+Synchronous versions of the routines have names that end in  s.
+These routines return the result of the bind operation, either the constant LDAP SUCCESS if the operation was successful, or another LDAP error code if it was not.
+See the section below on error handling for more information about possible errors and how to interpret them.
+Asynchronous versions of these routines return the message id of the bind operation initiated.
+A subsequent call to ldap result(), described below, can be used to obtain the result of the bind.
+In case of error, these routines will return  1, setting the ld errno field in the LDAP structure appropriately.
+Note that no other operations over the connection should be attempted before a bind call has successfully completed.
+Subsequent bind calls can be used to re authenticate over the same connection.
+Closing the connection ldap unbind() is used to unbind from the directory and close the connection.
+int ldap unbind( LDAP  ld ); Parameters are: ld
+ldap unbind() works synchronously, unbinding from the directory, closing the connection, and freeing up the ld structure before returning.
+ldap unbind() returns LDAP SUCCESS (or another LDAP error code if the request cannot be sent to the LDAP server).
+After a call to ldap unbind(), the ld connection handle is invalid.
+Searching ldap search() and friends are used to search the LDAP directory, returning a requested set of attributes for each entry matched.
+Passing NULL for this parameter causes all available attributes to be retrieved; attrsonly A boolean value that should be zero if both attribute types and values are to be returned, non zero if only types are wanted; timeout   For the ldap search st() call, this specifies the local search timeout value; res
+For the synchronous calls, this is a result parameter which will contain the results of the search upon completion of the call.
+There are three fields in the ld connection handle which control how the search is performed.
+They are: ld sizelimit A limit on the number of entries to return from the search.
+A value of zero means no limit; ld timelimit A limit on the number of seconds to spend on the search.
+, LDAP DEREF SEARCHING, LDAP DEREF FINDING, or LDAP DEREF ALWAYS, specifying how aliases should be handled during the search.
+The LDAP DEREF SEARCHING value means aliases should be dereferenced during the search but not when locating the base object of the search.
+The LDAP DEREF FINDING value means aliases should be dereferenced when locating the base object but not during the search.
+An asynchronous search is initiated by calling ldap search().
+It returns the message id of the initiated search.
+The results of the search can be obtained by a subsequent call to ldap result().
+The results can be parsed by the result parsing routines described in detail later.
+In case of error,  1 is returned and the ld errno field in the LDAP structure is set appropriately.
+A synchronous search is performed by calling ldap search s() or ldap search st().
+The routines are identical, except that ldap search st() takes an additional parameter specifying a timeout for the search.
+Both routines return an indication of the result of the search, either LDAP SUCCESS or some error indication (see Error Handling below).
+The entries returned from the search (if any) are contained in the res parameter.
+This parameter is opaque to the caller.
+Entries, attributes, values, etc., should be extracted by calling the parsing routines described below.
+The results contained in res should be freed when no longer in use by calling ldap msgfree(), described later.
+Reading an entry LDAP does not support a read operation directly.
+attrs contains the list of attributes to return.
+Listing the children of an entry LDAP does not support a list operation directly.
+attrs contains the list of attributes to return for each child entry.
+Modifying an entry The ldap modify
+() routines are used to modify an existing LDAP entry.
+The name of the entry to modify; mods
+A NULL terminated array of modifications to make to the entry.
+The fields in the LDAPMod structure have the following meanings: mod op
+The modification operation to perform.
+It should be one of LDAP MOD ADD, LDAP MOD DELETE, or LDAP MOD REPLACE.
+This field also indicates the type of values included in the mod vals union.
+It is ORed with LDAP MOD BVALUES to select the mod bvalues form.
+Otherwise, the mod values form is used; mod type
+The type of the attribute to modify; mod vals The values (if any) to add, delete, or replace.
+Only one of the mod values or mod bvalues variants should be used, selected by ORing the mod op field with the constant LDAP MOD BVALUES.
+mod values is a NULL terminated array of zero terminated strings and mod bvalues is a NULL terminated array of berval structures that can be used to pass binary values such as images.
+For LDAP MOD ADD modifications, the given values are added to the entry, creating the attribute if necessary.
+For LDAP MOD DELETE modifications, the given values are deleted from the entry, removing the attribute if no values remain.
+If the entire attribute is to be deleted, the mod vals field should be set to NULL.
+For LDAP MOD REPLACE modifications, the attribute will have the listed values after the modification, having been created if necessary.
+All modifications are performed in the order in which they are listed.
+ldap modify s() returns the LDAP error code  resulting  from the modify  operation.
+This  code  can  be interpreted by ldap perror() and friends.
+ldap modify() returns the message
+id of the request it initiates, or  1 on error.
+The result of the operation can be obtained by calling ldap result().
+Modifying the RDN of an entry The ldap modrdn() and ldap modrdn
+routines are used to change the name of an LDAP entry.
+The ldap modrdn s() routine is synchronous, returning the LDAP error code indicating the outcome of the operation.
+The ldap modrdn() routine is asynchronous, returning the message id of the operation it initiates, or  1 in case of trouble.
+The result of the operation can be obtained by calling ldap result().
+Adding an entry ldap add() and ldap add s
+() are used to add entries to the LDAP directory.
+( LDAP  ld, char  dn, LDAPMod  attrs[] )
+The name of the entry to add; attrs
+The entry's attributes, specified using the LDAPMod structure defined for ldap modify().
+The mod type and mod vals fields should be filled in.
+The mod op field is ignored unless ORed with the constant LDAP MOD BVALUES, used to select the mod bvalues case of the mod vals union.
+Note that the parent of the entry must already exist.
+() is synchronous, returning the LDAP error code indicating the outcome of the operation.
+ldap add() is asynchronous, returning the message
+id of the operation it initiates, or  1 in case of trouble.
+The result of the operation can be obtained by calling ldap result().
+Deleting an entry ldap delete() and ldap delete s() are used to delete entries from the LDAP directory.
+( LDAP  ld, char  dn ); int ldap delete s(
+LDAP  ld, char  dn ); Parameters are: ld
+The name of the entry to delete.
+Note that the entry to delete must be a leaf entry (i.e., it must have no children).
+Deletion of entire subtrees is not supported by LDAP.
+() is synchronous, returning the LDAP error code indicating the outcome of the operation.
+ldap delete() is asynchronous, returning the message
+id of the operation it initiates, or  1 in case of trouble.
+The result of the operation can be obtained by calling ldap result().
+Calls for abandoning an operation ldap abandon() is used to abandon an operation in progress.
+( LDAP  ld, int msgid ); ldap abandon() abandons the operation with message
+It returns zero if the abandon was successful,  1 otherwise.
+After a successful call to ldap abandon(), results with the given message id are never returned from a call to ldap result().
+Calls for obtaining results ldap result() is used to obtain the result of a previous asynchronously initiated operation.
+ldap msgfree() frees the results obtained from a previous call to ldap result(), or a synchronous search routine.
+If non zero it indicates that all results of a search should be retrieved before any are returned.
+If zero, search results (entries) will be returned one at a time as they arrive; timeout  A timeout specifying how long to wait for results to be returned.
+A NULL value causes ldap result() to block until results are available.
+For ldap msgfree(), the result chain to be freed, obtained from a previous call to ldap result() or ldap search s() or ldap search st().
+Upon successful completion, ldap result() returns the type of the result returned in the res parameter.
+This will be one of the following constants.
+LDAP RES BIND LDAP RES SEARCH
+ENTRY LDAP RES SEARCH RESULT LDAP RES MODIFY LDAP RES ADD
+LDAP RES DELETE LDAP RES MODRDN LDAP RES COMPARE ldap result
+() returns 0 if the timeout expired and  1 if an error occurs, in which case the ld errno field of the ld structure will be set accordingly.
+ldap msgfree() frees the result structure pointed to be res and returns the type of the message it freed.
+The following calls are used to interpret errors returned by other LDAP API routines.
+The result of an LDAP operation as returned by ldap result() or one of the synchronous API operation calls
+ldap result2error() is used to convert the LDAP result message obtained from ldap result(), or the res parameter returned by one of the synchronous API operation calls, into a numeric LDAP error code.
+It also parses the ld matched and ld error portions of the result message and puts them into the connection handle information.
+All the synchronous operation routines call ldap result2error() before returning, ensuring that these fields are set correctly.
+The relevant fields in the connection structue are: ld matched
+In the event of an LDAP NO SUCH OBJECT error return, this parameter contains the extent of the DN matched; ld error
+This parameter contains the error message sent in the result by the LDAP server.
+The LDAP error code indicating the outcome of the operation.
+It is one of the following constants:
+LDAP SUCCESS LDAP OPERATIONS ERROR LDAP PROTOCOL
+LDAP SIZELIMIT EXCEEDED LDAP COMPARE FALSE LDAP COMPARE
+NOT SUPPORTED LDAP STRONG AUTH REQUIRED LDAP
+TYPE LDAP INAPPROPRIATE MATCHING LDAP CONSTRAINT VIOLATION LDAP TYPE
+EXISTS LDAP INVALID SYNTAX LDAP
+PROBLEM LDAP INVALID DN SYNTAX LDAP IS
+LEAF LDAP ALIAS DEREF PROBLEM LDAP INAPPROPRIATE AUTH
+LDAP OBJECT CLASS VIOLATION LDAP
+NOT ALLOWED ON RDN LDAP ALREADY EXISTS LDAP
+NO OBJECT CLASS MODS LDAP RESULTS
+TOO LARGE LDAP OTHER LDAP SERVER
+DOWN LDAP LOCAL ERROR LDAP ENCODING ERROR LDAP DECODING
+UNKNOWN LDAP FILTER ERROR LDAP USER CANCELLED LDAP PARAM ERROR LDAP
+NO MEMORY ldap err2string() is used to convert a numeric LDAP error code, as returned by ldap result2error() or one of the synchronous API operation calls, into an informative NULL terminated character string message describing the error.
+It returns a pointer to static data.
+ldap perror() is used to print the message supplied in msg, followed by an indication of the error contained in the ld errno field of the ld connection handle, to standard error.
+Calls for parsing search entries The following calls are used to parse the entries returned by ldap search() and friends.
+These entries are returned in an opaque structure that should only be accessed by calling the routines described below.
+Routines are provided to step through the entries returned, step through the attributes of an entry, retrieve the name of an entry, and retrieve the values associated with a given attribute in an entry.
+Stepping through a set of entries
+The ldap first entry() and ldap
+routines are used to step through a set of entries in a search result.
+() is used to count the number of entries returned.
+LDAP  ld, LDAPMessage  res ); LDAPMesage  ldap
+LDAP  ld, LDAPMessage  entry ); int ldap count entries(
+LDAP  ld, LDAPMessage  res ); Parameters are: ld
+The search result, as obtained by a call to one of the syn  chronous search routines or ldap result(); entry  The entry returned by a previous call to ldap first entry() or ldap
+ldap first entry() and ldap next entry() will return NULL when no more entries exist to be returned.
+NULL is also returned if an error occurs while stepping through the entries, in which case the ld errno field of the ld connection handle will be set to indicate the error.
+ldap count entries() returns the number of entries contained in a chain of entries.
+It can also be used to count the number of entries that remain in a chain if called with an entry returned by ldap first entry() or ldap
+Stepping through the attributes of an entry The ldap first attribute() and ldap next attribute()
+calls are used to step through the list of attribute types returned with an entry.
+The entry whose attributes are to be stepped through, as returned by ldap first entry() or ldap next entry(); ptr
+In ldap first attribute(), the address of a pointer used internally to keep track of the current position in the entry.
+In ldap next attribute(), the pointer returned by a previous call to ldap first attribute().
+ldap first attribute() and ldap next attribute() will return NULL when the end of the attributes is reached, or if there is an error, in which case the ld errno field in the ld connection handle will be set to indicate the error.
+Both routines return a pointer to a per connection buffer containing the current attribute name.
+This should be treated like static data.
+ldap first attribute() will allocate and return in ptr a pointer to a BerElement used to keep track of the current position.
+This pointer should be passed in subsequent calls to ldap next attribute() to step through the entry's attributes.
+The attribute names returned are suitable for passing in a call to ldap get values() and friends to retrieve the associated values.
+Retrieving the values of an attribute ldap get values() and ldap get values len
+() are used to retrieve the values of a given attribute from an entry.
+ldap count values() and ldap count values len() are used to count the returned values.
+ldap value free() and ldap value free len
+() are used to free the values.
+The entry from which to retrieve values, as returned by ldap first entry() or ldap next entry(); attr
+The attribute whose values are to be retrieved, as returned by ldap first attribute() or ldap next attribute(), or a caller  supplied string (e.g., "mail"); vals
+The values returned by a previous call to ldap get values() or ldap get values len().
+Two forms of the various calls are provided.
+The first form is only suitable for use with non binary character string data only.
+The second  len form is used with any kind of data.
+Note that the values returned are malloc'ed and should be freed by calling either ldap value free() or ldap value free len
+() when no longer in use.
+Retrieving the name of an entry ldap get dn() is used to retrieve the name of an entry.
+ldap explode dn() is used to break up the name into its component parts.
+() is used to convert the name into a more "user friendly" format.
+; char   ldap explode dn( char  dn, int notypes ); char  ldap dn2ufn( char  dn ); Parameters are: ld
+A boolean parameter, if non zero indicating that the dn com  ponents should have their type information stripped off (i.e., "cn Babs" would become "Babs").
+ldap get dn() will return NULL if there is some error parsing the dn, setting ld errno in the ld connection handle to indicate the error.
+It returns a pointer to malloc'ed space that the caller should free by calling free() when it is no longer in use.
+Note the format of the DNs returned is given by [4].
+ldap explode dn() returns a char   array containing the RDN components of the DN supplied, with or without types as indicated by the notypes parameter.
+The array returned should be freed when it is no longer in use by calling ldap value free().
+ldap dn2ufn() converts the DN into the user friendly format described in [5].
+The UFN returned is malloc'ed space that should be freed by a call to free() when no longer in use.
+Security Considerations LDAP supports minimal security during connection authentication.
+The Directory: Selected Attribute Syntaxes.
+[2] Howes, T., Kille, S., Yeong, W., and C. Robbins, "The String Representation of Standard Attribute Syntaxes", University of Michigan, ISODE Consortium, Performance Systems International, NeXor Ltd., RFC 1778, March 1995.
+[3] Howes, T., "A String Representation of LDAP Search Filters", RFC 1558, University of Michigan, December 1993.
+[4] Kille, S., "A String Representation of Distinguished Names", RFC 1779, ISODE Consortium, March 1995.
+[5] Kille, S., "Using the OSI Directory to Achieve User Friendly Naming",  RFC 1781, ISODE Consortium, March 1995.
+J.I. Schiller, J.H. Saltzer, "Kerberos Authentication and Authorization System", MIT Project Athena Documentation Section  E.2.1, December 1987 [7]
+Yeong, W., Howes, T., and S. Kille, "Lightweight Directory Access Protocol," RFC 1777, Performance Systems International, University of Michigan, ISODE Consortium, March 1995.
+if ( (ld   ldap open( "dotted.host.name", LDAP PORT ))
+if ( ldap simple bind s( ld, NULL, NULL ) !
+if ( ldap search s( ld, "o University of Michigan, c US", LDAP SCOPE SUBTREE, "(cn Babs Jensen)", NULL, 0, &res ) !
+ldap get dn( ld, e ); printf( "dn:
+/ vals   ldap get values( ld, e, a ); for ( i   0; vals[i] !

@@ -1,0 +1,278 @@
+Abstract Secure Shell (SSH) is a protocol for secure remote login and other secure network services over an insecure network.
+This document describes the SSH Connection Protocol.
+It provides interactive login sessions, remote execution of commands, forwarded TCP/IP connections, and forwarded X11 connections.
+All of these channels are multiplexed into a single encrypted tunnel.
+The SSH Connection Protocol has been designed to run on top of the SSH transport layer and user authentication protocols.
+The SSH Connection Protocol has been designed to run on top of the SSH transport layer and user authentication protocols ([SSH TRANS] and [SSH USERAUTH]).
+It provides interactive login sessions, remote execution of commands, forwarded TCP/IP connections, and forwarded X11 connections.
+The 'service name' for this protocol is "ssh connection".
+This document should be read only after reading the SSH architecture document [SSH ARCH].
+This document freely uses terminology and notation from the architecture document without reference or further explanation.
+The major original contributors of this set of documents have been: Tatu Ylonen, Tero Kivinen, Timo J. Rinne, Sami Lehtinen (all of SSH Communications Security Corp), and Markku Juhani O. Saarinen (University of Jyvaskyla).
+Darren Moffat was the original editor of this set of documents and also made very substantial contributions.
+Many people contributed to the development of this document over the years.
+People who should be acknowledged include Mats Andersson, Ben Harris, Bill Sommerfeld, Brent McClure, Niels Moller, Damien Miller, Derek Fawcus, Frank Cusack, Heikki Nousiainen, Jakob Schlyter, Jeff Van Dyke, Jeffrey Altman, Jeffrey Hutzelman, Jon Bright, Joseph Galbraith, Ken Hornstein, Markus Friedl, Martin Forssen, Nicolas Williams, Niels Provos, Perry Metzger, Peter Gutmann, Simon Josefsson, Simon Tatham, Wei Dai, Denis Bider, der Mouse, and Tadayoshi Kohno.
+Listing their names here does not mean that they endorse this document, but that they have contributed to it.
+Conventions Used in This Document
+All documents related to the SSH protocols shall use the keywords "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "
+SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" to describe requirements.
+These keywords are to be interpreted as described in [RFC2119].
+The keywords "PRIVATE USE", "HIERARCHICAL ALLOCATION", "
+"EXPERT REVIEW", "SPECIFICATION REQUIRED", "IESG APPROVAL", "IETF CONSENSUS", and "STANDARDS ACTION" that appear in this document when used to describe namespace allocation are to be interpreted as described in [RFC2434].
+Protocol fields and possible values to fill them are defined in this set of documents.
+Protocol fields will be defined in the message definitions.
+As an example, SSH MSG CHANNEL DATA is defined as follows.
+SSH MSG CHANNEL DATA uint32    recipient channel string    data Throughout these documents
+, when the fields are referenced, they will appear within single quotes.
+When values to fill those fields are referenced, they will appear within double quotes.
+Using the above example, possible values for 'data' are "foo" and "bar".
+There are several kinds of requests that affect the state of the remote end globally, independent of any channels.
+An example is a request to start TCP/IP forwarding for a specific port.
+Note that both the client and server MAY send global requests at any time, and the receiver MUST respond appropriately.
+All such requests use the following format.
+SSH MSG GLOBAL REQUEST string    request name in US ASCII
+request specific data follows The value of 'request name' follows the DNS extensibility naming convention outlined in [SSH ARCH].
+The recipient will respond to this message with SSH MSG REQUEST SUCCESS or SSH MSG REQUEST FAILURE if 'want reply' is TRUE.
+response specific data Usually, the 'response specific data' is non existent.
+If the recipient does not recognize or support the request, it simply responds with SSH MSG REQUEST FAILURE.
+In general, the reply messages do not include request type identifiers.
+To make it possible for the originator of a request to identify to which request each reply refers, it is REQUIRED that replies to SSH MSG GLOBAL REQUESTS MUST be sent in the same order as the corresponding request messages.
+For channel requests, replies that relate to the same channel MUST also be replied to in the right order.
+However, channel requests for distinct channels MAY be replied to out of order.
+All terminal sessions, forwarded connections, etc., are channels.
+Either side may open a channel.
+Multiple channels are multiplexed into a single connection.
+Channels are identified by numbers at each end.
+The number referring to a channel may be different on each side.
+Requests to open a channel contain the sender's channel number.
+Any other channel  related messages contain the recipient's channel number for the channel.
+No data may be sent to a channel until a message is received to indicate that window space is available.
+When either side wishes to open a new channel, it allocates a local number for the channel.
+It then sends the following message to the other side, and includes the local channel number and initial window size in the message.
+SSH MSG CHANNEL OPEN string    channel type in US ASCII
+The 'sender channel' is a local identifier for the channel used by the sender of this message.
+The 'initial window size' specifies how many bytes of channel data can be sent to the sender of this message without adjusting the window.
+The 'maximum packet size' specifies the maximum size of an individual data packet that can be sent to the sender.
+For example, one might want to use smaller packets for interactive connections to get better interactive response on slow links.
+The remote side then decides whether it can open the channel, and responds with either SSH MSG CHANNEL OPEN CONFIRMATION or SSH MSG CHANNEL OPEN FAILURE.
+The 'recipient channel' is the channel number given in the original open request, and
+'sender channel' is the channel number allocated by the other side.
+SSH MSG CHANNEL OPEN FAILURE uint32    recipient channel uint32    reason code string    description in ISO 10646 UTF 8 encoding
+If the recipient of the SSH MSG CHANNEL OPEN message does not support the specified 'channel type', it simply responds with SSH MSG CHANNEL OPEN FAILURE.
+The client MAY show the 'description' string to the user.
+If this is done, the client software should take the precautions discussed in [SSH ARCH].
+The SSH MSG CHANNEL OPEN FAILURE 'reason code' values are defined in the following table.
+Note that the values for the 'reason code' are given in decimal format for readability, but they are actually uint32 values.
+to 0xFDFFFFFF MUST be done through the IETF CONSENSUS method, as described in [RFC2434].
+The IANA will not assign Channel Connection Failure 'reason code' values in the range of 0xFE000000 to 0xFFFFFFFF.
+Channel Connection Failure 'reason code' values in that range are left for PRIVATE USE, as described in [RFC2434].
+While it is understood that the IANA will have no control over the range of 0xFE000000 to 0xFFFFFFFF, this range will be split in two parts and administered by the following conventions.
+The range of 0xFE000000 to 0xFEFFFFFF is to be used in conjunction with locally assigned channels.
+For example, if a channel is proposed with a 'channel type' of "example session@example.com", but fails, then the response will contain either a 'reason code' assigned by the IANA (as listed above and in the range of 0x00000001 to 0xFDFFFFFF) or a locally assigned value in the range of 0xFE000000 to 0xFEFFFFFF.
+Naturally, if the server does not understand the proposed 'channel type', even if it is a locally defined 'channel type', then the 'reason code' MUST be 0x00000003, as described above, if the 'reason code' is sent.
+If the server does understand the 'channel type', but the channel still fails to open, then the server SHOULD respond with a locally assigned 'reason code' value consistent with the proposed, local 'channel type'.
+It is assumed that practitioners will first attempt to use the IANA assigned 'reason code' values and then document their locally assigned 'reason code' values.
+There are no restrictions or suggestions for the range starting with 0xFF.
+No interoperability is expected for anything used in this range.
+Essentially, it is for experimentation.
+The window size specifies how many bytes the other party can send before it must wait for the window to be adjusted.
+Both parties use the following message to adjust the window.
+SSH MSG CHANNEL WINDOW ADJUST uint32    recipient channel uint32    bytes to add After receiving this message,
+the recipient MAY send the given number of bytes more than it was previously allowed to send; the window size is incremented.
+Implementations MUST correctly handle window sizes of up to 2^32 1 bytes.
+The window MUST NOT be increased above 2^32 1 bytes.
+Data transfer is done with messages of the following type.
+SSH MSG CHANNEL DATA uint32    recipient channel string    data
+The maximum amount of data allowed is determined by the maximum packet size for the channel, and the current window size, whichever is smaller.
+The window size is decremented by the amount of data sent.
+Both parties MAY ignore all extra data sent after the allowed window is empty.
+Implementations are expected to have some limit on the SSH transport layer packet size (any limit for received packets MUST be 32768 bytes or larger, as described in [SSH TRANS]).
+The implementation of the SSH connection layer  MUST NOT advertise a maximum packet size that would result in transport packets larger than its transport layer is willing to receive.
+MUST NOT generate data packets larger than its transport layer is willing to send, even if the remote end would be willing to accept very large packets.
+Additionally, some channels can transfer several types of data.
+An example of this is stderr data from interactive sessions.
+Such data can be passed with SSH MSG CHANNEL EXTENDED DATA messages, where a separate integer specifies the type of data.
+The available types and their interpretation depend on the type of channel.
+SSH MSG CHANNEL EXTENDED DATA uint32
+recipient channel uint32    data type code string    data Data sent with these messages consumes the same window as ordinary data.
+Currently, only the following type is defined.
+Note that the value for the 'data type code' is given in decimal format for readability, but the values are actually uint32 values.
+1 Extended Channel Data Transfer 'data type code' values MUST be assigned sequentially.
+Requests for assignments of new Extended Channel Data Transfer 'data type code' values and their associated Extended Channel Data Transfer 'data' strings, in the range of 0x00000002 to 0xFDFFFFFF, MUST be done through the IETF CONSENSUS method as described in [RFC2434].
+The IANA will not assign Extended Channel Data Transfer 'data type code' values in the range of 0xFE000000 to 0xFFFFFFFF.
+Extended Channel Data Transfer 'data type code' values in that range are left for PRIVATE USE, as described in [RFC2434].
+As is noted, the actual instructions to the IANA are in [SSH NUMBERS].
+Closing a Channel When a party will no longer send more data to a channel, it SHOULD send SSH MSG CHANNEL EOF.
+No explicit response is sent to this message.
+However, the application may send EOF to whatever is at the other end of the channel.
+Note that the channel remains open after this message, and more data may still be sent in the other direction.
+This message does not consume window space and can be sent even if no window space is available.
+When either party wishes to terminate the channel, it sends SSH MSG CHANNEL CLOSE.
+Upon receiving this message, a party MUST send back an SSH MSG CHANNEL CLOSE unless it has already sent this message for the channel.
+The channel is considered closed for a party when it has both sent and received SSH MSG CHANNEL CLOSE, and the party may then reuse the channel number.
+A party MAY send SSH MSG CHANNEL CLOSE without having sent or received SSH MSG CHANNEL EOF.
+SSH MSG CHANNEL CLOSE uint32    recipient channel
+This message does not consume window space and can be sent even if no window space is available.
+It is RECOMMENDED that all data sent before this message be delivered to the actual destination, if possible.
+Many 'channel type' values have extensions that are specific to that particular 'channel type'.
+An example is requesting a pty (pseudo terminal) for an interactive session.
+All channel specific requests use the following format.
+SSH MSG CHANNEL REQUEST uint32    recipient channel string    request type in US ASCII characters
+If 'want reply' is FALSE, no response will be sent to the request.
+Otherwise, the recipient responds with either SSH MSG CHANNEL SUCCESS, SSH MSG CHANNEL FAILURE, or request specific continuation messages.
+If the request is not recognized or is not supported for the channel, SSH MSG CHANNEL FAILURE is returned.
+This message does not consume window space and can be sent even if no window space is available.
+The values of 'request type' are local to each channel type.
+The client is allowed to send further messages without waiting for the response to the request. '
+request type' names follow the DNS extensibility naming convention outlined in [SSH ARCH] and [SSH NUMBERS].
+SSH MSG CHANNEL FAILURE uint32    recipient channel
+These messages do not consume window space and can be sent even if no window space is available.
+A session is a remote execution of a program.
+The program may be a shell, an application, a system command, or some built in subsystem.
+It may or may not have a tty, and may or may not involve X11 forwarding.
+Multiple sessions can be active simultaneously.
+A session is started by sending the following message.
+maximum packet size Client implementations SHOULD reject any session channel open requests to make it more difficult for a corrupt server to attack the client.
+Requesting a Pseudo Terminal A pseudo terminal can be allocated for the session by sending the following message.
+SSH MSG CHANNEL REQUEST uint32
+" boolean   want reply string    TERM environment variable value (e.g., vt100) uint32    terminal width, characters (e.g., 80)
+uint32    terminal height, rows (e.g., 24)
+uint32    terminal width, pixels (e.g., 640)
+terminal height, pixels (e.g., 480)
+The 'encoded terminal modes' are described in Section 8.
+Zero dimension parameters MUST be ignored.
+The character/row dimensions override the pixel dimensions (when nonzero).
+Pixel dimensions refer to the drawable area of the window.
+The dimension parameters are only informational.
+The client SHOULD ignore pty requests.
+Requesting X11 Forwarding X11 forwarding may be requested for a session by sending a SSH MSG CHANNEL REQUEST message.
+SSH MSG CHANNEL REQUEST uint32
+single connection string    x11 authentication protocol string    x11 authentication cookie uint32    x11 screen number
+It is RECOMMENDED that the 'x11 authentication cookie' that is sent be a fake, random cookie, and that the cookie be checked and replaced by the real cookie when a connection request is received.
+X11 connection forwarding should stop when the session channel is closed.
+However, already opened forwardings should not be automatically closed when the session channel is closed.
+If 'single connection' is TRUE, only a single connection should be forwarded.
+No more connections will be forwarded after the first, or after the session channel has been closed.
+The 'x11 authentication protocol' is the name of the X11 authentication method used, e.g., "MIT MAGIC COOKIE 1".
+The 'x11 authentication cookie' MUST be hexadecimal encoded.
+The X Protocol is documented in [SCHEIFLER].
+X11 Channels X11 channels are opened with a channel open request.
+The resulting channels are independent of the session, and closing the session channel does not close the forwarded X11 channels.
+The recipient should respond with SSH MSG CHANNEL OPEN CONFIRMATION or SSH MSG CHANNEL OPEN FAILURE.
+Implementations MUST reject any X11 channel open requests if they have not requested X11 forwarding.
+Environment Variable Passing Environment variables may be passed to the shell/command to be started later.
+Uncontrolled setting of environment variables in a privileged process can be a security hazard.
+It is recommended that implementations either maintain a list of allowable variable names or only set environment variables after the server process has dropped sufficient privileges.
+Starting a Shell or a Command
+Once the session has been set up, a program is started at the remote end.
+The program can be a shell, an application program, or a subsystem with a host independent name.
+Only one of these requests can succeed per channel.
+This message will request that the user's default shell (typically defined in /etc/passwd in UNIX systems) be started at the other end.
+This message will request that the server start the execution of the given command.
+The 'command' string may contain a path.
+Normal precautions MUST be taken to prevent the execution of unauthorized commands.
+This last form executes a predefined subsystem.
+It is expected that these will include a general file transfer mechanism, and possibly other features.
+Implementations may also allow configuring more such mechanisms.
+As the user's shell is usually used to execute the subsystem, it is advisable for the subsystem protocol to have a "magic cookie" at the beginning of the protocol transaction to distinguish it from arbitrary output generated by shell initialization scripts, etc.
+This spurious output from the shell may be filtered out either at the server or at the client.
+The server SHOULD NOT halt the execution of the protocol stack when starting a shell or a program.
+All input and output from these SHOULD be redirected to the channel or to the encrypted tunnel.
+It is RECOMMENDED that the reply to these messages be requested and checked.
+The client SHOULD ignore these messages.
+Subsystem names follow the DNS extensibility naming convention outlined in [SSH NUMBERS].
+Session Data Transfer Data transfer for a session is done using SSH MSG CHANNEL DATA and SSH MSG CHANNEL EXTENDED DATA packets and the window mechanism.
+The extended data type SSH EXTENDED DATA STDERR has been defined for stderr data.
+When the window (terminal) size changes on the client side, it MAY send a message to the other side to inform it of the new dimensions.
+pixels A response SHOULD NOT be sent to this message.
+On many systems, it is possible to determine if a pseudo terminal is using control S/control Q flow control.
+When flow control is allowed, it is often desirable to do the flow control at the client end to speed up responses to user requests.
+This is facilitated by the following notification.
+Initially, the server is responsible for flow control.
+(Here, again, client means the side originating the session, and server means the other side.)
+The message below is used by the server to inform the client when it can or cannot perform flow control (control S/control Q processing).
+If 'client can do' is TRUE, the client is allowed to do flow control using control S and control Q.
+The client MAY ignore this message.
+boolean   client can do No response is sent to this message.
+Signals A signal can be delivered to the remote process/service using the following message.
+Some systems may not implement signals, in which case they SHOULD ignore this message.
+Returning Exit Status When the command running at the other end terminates, the following message can be sent to return the exit status of the command.
+Returning the status is RECOMMENDED.
+No acknowledgement is sent for this message.
+The channel needs to be closed with SSH MSG CHANNEL CLOSE after this message.
+The client MAY ignore these messages.
+The remote command may also terminate violently due to a signal.
+Such a condition can be indicated by the following message.
+A zero 'exit status' usually means that the command terminated successfully.
+boolean   core dumped string    error message in ISO 10646 UTF 8 encoding string    language tag
+The 'signal name' is one of the following (these are from [POSIX]).
+ABRT ALRM FPE HUP ILL INT KILL PIPE QUIT SEGV TERM USR1 USR2 Additional 'signal name' values MAY be sent in the format "sig name@xyz",
+However, it is suggested that if a 'configure' script is used, any non standard 'signal name' values it finds be encoded as "SIG@xyz.config.guess", where "SIG" is the 'signal name' without the "SIG" prefix, and "xyz" is the host type, as determined by "config.guess".
+The 'error message' contains an additional textual explanation of the error message.
+The message may consist of multiple lines separated by CRLF (Carriage Return Line Feed) pairs.
+The client software MAY display this message to the user.
+If this is done, the client software should take the precautions discussed in [SSH ARCH].
+Requesting Port Forwarding A party need not explicitly request forwardings from its own end to the other direction.
+However, if it wishes that connections to a port on the other side be forwarded to the local side, it must explicitly request this.
+" boolean   want reply string    address to bind (e.g., "0.0.0.0") uint32    port number to bind The 'address to bind' and 'port number to bind' specify the IP address (or domain name) and port on which connections for forwarding are to be accepted.
+Some strings used for 'address to bind' have special case semantics.
+"" means that connections are to be accepted on all protocol families supported by the SSH implementation.
+"0.0.0.0" means to listen on all IPv4 addresses.
+"localhost" means to listen on all protocol families supported by the SSH implementation on loopback addresses only ([RFC3330] and [RFC3513]).
+"127.0.0.1" and "::1" indicate listening on the loopback interfaces for IPv4 and IPv6, respectively.
+Note that the client can still filter connections based on information passed in the open request.
+Implementations should only allow forwarding privileged ports if the user has been authenticated as a privileged user.
+Client implementations SHOULD reject these messages; they are normally only sent by the client.
+If a client passes 0 as port number to bind and has 'want reply' as TRUE, then the server allocates the next available unprivileged port number and replies with the following message; otherwise, there is no response specific data.
+port that was bound on the server A port forwarding can be canceled with the following message.
+Note that channel open requests may be received until a reply to this message is received.
+boolean   want reply string    address to bind (e.g., "
+127.0.0.1") uint32    port number to bind Client implementations SHOULD reject these messages; they are normally only sent by the client.
+When a connection comes to a port for which remote forwarding has been requested, a channel is opened to forward the port to the other side.
+originator port Implementations MUST reject these messages unless they have previously requested a remote TCP/IP port forwarding with the given port number.
+When a connection comes to a locally forwarded TCP/IP port, the following packet is sent to the other side.
+Note that these messages MAY also be sent for ports for which no forwarding has been explicitly requested.
+The receiving side must decide whether to allow the forwarding.
+"direct tcpip" uint32    sender channel uint32    initial window size
+uint32    maximum packet size string    host to connect uint32    port to connect string    originator IP address uint32
+The 'host to connect' and 'port to connect' specify the TCP/IP host and port where the recipient should connect the channel.
+The 'host to connect' may be either a domain name or a numeric IP address.
+The 'originator IP address' is the numeric IP address of the machine from where the connection request originates, and the 'originator port' is the port on the host from where the connection originated.
+Forwarded TCP/IP channels are independent of any sessions, and closing a session channel does not in any way imply that forwarded connections should be closed.
+Client implementations SHOULD reject direct TCP/IP open requests for security reasons.
+All 'encoded terminal modes' (as passed in a pty request) are encoded into a byte stream.
+It is intended that the coding be portable across different environments.
+The stream consists of opcode  argument pairs wherein the opcode is a byte value.
+Opcodes 1 to 159 have a single uint32 argument.
+Opcodes 160 to 255 are not yet defined, and cause parsing to stop (they should only be used after any other data).
+The stream is terminated by opcode TTY OP END (0x00).
+The client SHOULD put any modes it knows about in the stream, and the server MAY ignore any modes it does not know about.
+This allows some degree of machine independence, at least between systems that use a POSIX like tty interface.
+The protocol can support other systems as well, but the client may need to fill reasonable values for a number of parameters so the server pty gets set to a reasonable mode (the server leaves all unspecified mode bits in their default values, and only some combinations make sense).
+The naming of opcode values mostly follows the POSIX terminal mode flags.
+The following opcode values have been defined.
+Note that the values given below are in decimal format for readability, but they are actually byte values.
+TTY OP END  Indicates end of options.
+Similarly for the other characters.
+Not all of these characters are supported on all systems.
+The quit character (sends SIGQUIT signal on POSIX systems).
+Additional end of line character.
+Continues paused output (normally control Q).
+18    VDISCARD    Toggles the flushing of terminal output.
+The parameter SHOULD be 0 if this flag is FALSE, and 1 if it is TRUE.
+Strip 8th bit off characters.
+Any char will restart after stop.
+even if ECHO is off.
+Newline performs a carriage return (output).
+128 TTY OP ISPEED  Specifies the input baud rate in bits per second.
+129 TTY OP OSPEED  Specifies the output baud rate in bits per second.
+The following is a summary of messages and their associated message number.
+90 SSH MSG CHANNEL OPEN CONFIRMATION
+91 SSH MSG CHANNEL OPEN FAILURE
+This document is part of a set.
+The IANA considerations for the SSH protocol as defined in [SSH ARCH], [SSH TRANS], [SSH USERAUTH], and this document, are detailed in [SSH NUMBERS].
+Security Considerations This protocol is assumed to run on top of a secure, authenticated transport.
+User authentication and protection against network level attacks are assumed to be provided by the underlying protocols.
+Full security considerations for this protocol are provided in [SSH ARCH].
+Specific to this document, it is RECOMMENDED that implementations disable all the potentially dangerous features (e.g., agent forwarding, X11 forwarding, and TCP/IP forwarding) if the host key has changed without notice or explanation.
+Trademark Notice "ssh" is a registered trademark in the United States and/or other countries.

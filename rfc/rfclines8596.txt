@@ -1,0 +1,70 @@
+Abstract This document describes how to use a Service Function Forwarder (SFF) Label (similar to a pseudowire label or VPN label) to indicate the presence of a Service Function Chaining (SFC) Network Service Header (NSH) between an MPLS label stack and the NSH original packet/frame.
+This allows SFC packets using the NSH to be forwarded between SFFs over an MPLS network.
+The label is also used to select between multiple SFFs in the destination
+As discussed in [RFC8300], a number of transport encapsulations for the Service Function Chaining (SFC)
+Network Service Header (NSH) already exist, such as Ethernet, UDP, GRE, and others.
+This document describes an MPLS transport encapsulation for the NSH and how to use a Service Function Forwarder (SFF) [RFC7665] Label to indicate the presence of the NSH in the MPLS packet payload.
+This allows SFC packets using the NSH to be forwarded between SFFs in an MPLS transport network, where MPLS is used to interconnect the network nodes that contain one or more SFFs.
+The label is also used to select between multiple SFFs in the destination MPLS node.
+From an SFC perspective, this encapsulation is equivalent to other transport encapsulations of packets using the NSH.
+This can be illustrated by adding an additional line to the example of a next hop
+: Extension to Table 1 in RFC 8300 SFF Labels are similar to other service labels at the bottom of an MPLS label stack that denote the contents of the MPLS payload being other than a normally routed IP packet, such as a Layer 2 pseudowire, an IP packet that is routed in a VPN context with a private address, or an Ethernet virtual private wire service.
+This informational document follows well established MPLS procedures and does not require any actions by IANA or any new protocol extensions.
+Note that using the MPLS label stack as a replacement for the SFC NSH, covering use cases that do not require per packet metadata, is described in [RFC8595].
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in BCP 14
+when, and only when, they appear in all capitals, as shown here.
+MPLS Encapsulation Using an SFF Label
+The encapsulation is a standard MPLS label stack [RFC3032] with an SFF Label at the bottom of the stack, followed by an NSH as defined by [RFC8300] and the NSH original packet/frame.
+Much like a pseudowire label, an SFF Label MUST be allocated by the downstream receiver of the NSH from its per platform label space, since the meaning of the label is identical, independent of which incoming interface it is received from [RFC3031].
+If a receiving node supports more than one SFF (i.e., more than one SFC forwarding instance), then the SFF Label can be used to select the proper SFF, by having the receiving node advertise more than one SFF Label to its upstream sending nodes as appropriate.
+The method used by the downstream receiving node to advertise SFF Labels to the upstream sending node is out of scope for this document.
+That said, a number of methods are possible, such as via a protocol exchange, or via a controller that manages both the sender and the receiver using the Network Configuration Protocol (NETCONF) /
+YANG, BGP, the Path Computation Element Communication Protocol (PCEP), etc.
+One such BGP based method has already been defined and is documented in [BGP NSH SFC].
+This does not constrain the further definition of other such advertisement methods in the future.
+While the SFF Label will usually be at the bottom of the label stack, there may be cases where there are additional label stack entries beneath it.
+For example, when an Associated Channel Header (ACH) is carried that applies to the SFF, a Generic Associated Channel Label (GAL)
+[RFC5586] will be in the label stack below the SFF.
+Similarly, an Entropy Label Indicator / Entropy Label (ELI/EL)
+[RFC6790] may be carried below the SFF in the label stack.
+This is identical to the situation with VPN labels.
+This document does not define the setting of the Traffic Class (TC) field [RFC5462] (formerly known as the Experimental Use (EXP) bits [RFC3032]) in the SFF Label.
+MPLS Label Stack Construction at the Sending Node
+When one SFF wishes to send an SFC packet with an NSH to another SFF over an MPLS transport network, a label stack needs to be constructed by the MPLS node that contains the sending SFF in order to transport the packet to the destination MPLS node that contains the receiving SFF.
+The label stack is constructed as follows:
+1.  Push zero or more labels that are interpreted by the destination MPLS node on to the packet, such as the GAL [RFC5586]
+The TTL for these labels is set according to the relevant standards that define these labels.
+Push the SFF Label to identify the desired SFF in the receiving MPLS node.
+The TTL for this MPLS label MUST be set to 1 to avoid mis forwarding.
+Push zero or more additional labels such that (a) the resulting label stack will cause the packet to be transported to the destination MPLS node, and
+(b) when the packet arrives at the destination node, either:
+the SFF Label will be at the top of the label stack (this is typically the case when penultimate hop popping is used at the penultimate node), or    as a part of normal MPLS processing, the SFF Label becomes the top label in the stack before the packet is forwarded to another node and before the packet is dispatched to a higher layer.
+The TTL for these labels is set by configuration or set to the defaults for normal MPLS operation in the network.
+SFF Label Processing at the Destination Node
+The destination MPLS node performs a lookup on the SFF Label to retrieve the next hop context between the SFF and SF, e.g., to retrieve the destination Media Access Control (MAC) address in the case where native Ethernet encapsulation is used between the SFF and SF.
+How the next hop context is populated is out of scope for this document.
+The receiving SFF SHOULD check that the received SFF Label has a TTL of 1 upon receipt.
+Any other values indicate a likely error condition and SHOULD result in discarding the packet.
+The receiving MPLS node then pops the SFF Label (and any labels beneath it) so that the destination SFF receives the SFC packet with the NSH at the top of the packet.
+As discussed in [RFC4928] and [RFC7325], there are ECMP considerations for payloads carried by MPLS.
+Many existing routers use deep packet inspection to examine the payload of an MPLS packet.
+If the first nibble of the payload is equal to 0x4 or 0x6, these routers (sometimes incorrectly, as discussed in [RFC4928]) assume that the payload is IPv4 or IPv6, respectively and, as a result, perform ECMP load balancing based on (presumed) information present in IP/TCP/UDP payload headers or in a combination of MPLS label stack and (presumed)
+IP/TCP/UDP payload headers in the packet.
+For SFC, ECMP may or may not be desirable.
+To prevent ECMP when it is not desired, the NSH Base Header was carefully constructed so that the NSH could not look like IPv4 or IPv6 based on its first nibble.
+See Section 2.2 of [RFC8300] for further details.
+Accordingly, the default behavior for MPLS encapsulated SFC is to not use ECMP other than by using entropy derived from the MPLS label stack.
+This results in all packets going to the same SF taking the same path regardless of the use of ECMP in the network.
+If ECMP is desired when SFC is used with an MPLS transport network, there are two possible options: entropy labels [RFC6790] and flow aware transport [RFC6391] labels.
+A recommendation regarding choosing between these options, and their proper placement in the label stack, is left for future study.
+Operations, Administration, and Maintenance (OAM)
+Considerations OAM at the SFC layer is handled by SFC defined mechanisms [RFC8300].
+However, OAM may be required at the MPLS transport layer.
+If so, then standard MPLS layer OAM mechanisms such as the GAL [RFC5586]
+may be used at the transport label layer.
+This document has no IANA actions.
+This document describes a method for transporting SFC packets using the NSH over an MPLS transport network.
+well established MPLS procedures in widespread operational use.
+It does not define any new protocol elements or allocate any new code points, and it is no more or less secure than carrying any other protocol over MPLS.
+To the MPLS network, the NSH and its contents are simply an opaque payload.
+In addition, the security considerations in [RFC8595] also apply to this document.

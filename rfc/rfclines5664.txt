@@ -1,0 +1,422 @@
+Abstract Parallel NFS (pNFS) extends
+Network File System version 4
+(NFSv4) to allow clients to directly access file data on the storage used by the NFSv4 server.
+This ability to bypass the server for data access can increase both performance and parallelism, but requires additional client functionality for data access, some of which is dependent on the class of storage used, a.k.a. the Layout Type.
+The main pNFS operations and data types in NFSv4 Minor version 1 specify a layout  type independent layer; layout type specific information is conveyed using opaque data structures whose internal structure is further defined by the particular layout type specification.
+This document specifies the NFSv4.1 Object
+Based pNFS Layout Type as a companion to the main NFSv4 Minor version 1 specification.
+In pNFS, the file server returns typed layout structures that describe where file data is located.
+There are different layouts for different storage systems and methods of arranging data on storage devices.
+This document describes the layouts used with object based storage devices (OSDs) that are accessed according to the OSD storage protocol standard (ANSI INCITS 400 2004 [1]).
+An "object" is a container for data and attributes, and files are stored in one or more objects.
+The OSD protocol specifies several operations on objects, including READ, WRITE, FLUSH, GET ATTRIBUTES, SET ATTRIBUTES, CREATE, and DELETE.
+However, using the object based layout the client only uses the READ, WRITE, GET ATTRIBUTES, and FLUSH commands.
+The other commands are only used by the pNFS server.
+An object based layout for pNFS includes object identifiers, capabilities that allow clients to READ or WRITE those objects, and various parameters that control how file data is striped across their component objects.
+The OSD protocol has a capability based security scheme that allows the pNFS server to control what operations and what objects can be used by clients.
+This scheme is described in more detail in the "Security Considerations" section (Section 13).
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119 [2].
+XDR Description of the Objects Based Layout Protocol
+This document contains the external data representation (
+XDR [3]) description of the NFSv4.1 objects layout protocol.
+The XDR description is embedded in this document in a way that makes it simple for the reader to extract into a ready to compile form.
+The reader can feed this document into the following shell script to produce the machine readable XDR description of the NFSv4.1 objects layout protocol: #!
+That is, if the above script is stored in a file called "extract.sh", and this document is in a file called "spec.txt", then the reader can do: sh extract.sh < spec.txt > pnfs osd
+The embedded XDR file header follows.
+Subsequent XDR descriptions, with the sentinel sequence are embedded throughout the document.
+Note that the XDR code contained in this document depends on types from the NFSv4.1 nfs4 prot.x file ([4]).
+This includes both nfs types that end with a 4, such as offset4, length4, etc., as well as more generic types such as uint32 t and uint64 t. 2.1.
+These Code Components are licensed according to the terms of Section 4 of "Legal Provisions Relating to IETF Documents".
+IETF Trust and the persons identified ///
+as authors of the code.
+Neither the name of Internet Society, IETF or IETF ///
+IS PROVIDED BY THE COPYRIGHT HOLDERS ///
+AS IS" AND ANY EXPRESS
+FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+EVENT SHALL THE COPYRIGHT OWNER
+NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+HOWEVER CAUSED AND ON ANY THEORY OF ///
+IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+This code was derived from RFC 5664.
+Please reproduce this note if possible.
+The following sections define basic data types and constants used by the Object Based Layout protocol.
+An object is identified by a number, somewhat like an inode number.
+The object storage model has a two level scheme, where the objects within an object storage device are grouped into partitions.
+/// struct pnfs osd objid4
+"oid device id" selects the object storage device from the set of available storage devices.
+The device is identified with the deviceid4 type, which is an index into addressing information about that device returned by the GETDEVICELIST and GETDEVICEINFO operations.
+The deviceid4 data type is defined in NFSv4.1 [6].
+Within an OSD, a partition is identified with a 64 bit number,
+Within a partition, an object is identified with a 64 bit number, "oid object id".
+Creation and management of partitions is outside the scope of this document, and is a facility provided by the object  based storage file system.
+Some of the object based layout supported RAID algorithms encode redundant information and can compensate for missing components, but the data placement algorithm needs to know what parts are missing.
+At this time, the OSD standard is at version 1.0, and we anticipate a version 2.0 of the standard
+The second generation OSD protocol has additional proposed features to support more robust error recovery, snapshots, and byte range capabilities.
+Therefore, the OSD version is explicitly called out in the information returned in the layout.
+(This information can also be deduced by looking inside the capability type at the format field, which is the first byte.
+The format value is 0x1 for an OSD v1 capability.
+However, it seems most robust to call out the version explicitly.)
+OSD CAP KEY SEC SSV
+id" identifies the component object, the "oc osd version" represents the osd protocol version, or whether that component is unavailable, and the "oc capability" and "oc capability key", along with the "oda systemid" from the pnfs osd deviceaddr4, provide the OSD security credentials needed to access that object.
+The "oc cap key sec" value denotes the method used to secure the oc capability key (see Section 13.1 for more details).
+To comply with the OSD security requirements, the capability key SHOULD be transferred securely to prevent eavesdropping (see Section 13).
+Therefore, a client SHOULD either issue the LAYOUTGET or GETDEVICEINFO operations via RPCSEC GSS with the privacy service or previously establish a secret state verifier (SSV) for the sessions via the NFSv4.1 SET SSV operation.
+The pnfs osd cap key sec4 type is used to identify the method used by the server to secure the capability key.
+OSD CAP KEY SEC NONE denotes that the oc capability key is not encrypted, in which case the client SHOULD issue the LAYOUTGET or GETDEVICEINFO operations with RPCSEC GSS with the privacy service or the NFSv4.1 transport should be secured by using methods that are external to NFSv4.1 like the use of IPsec [15] for transporting the NFSV4.1 protocol.
+PNFS OSD CAP KEY SEC SSV denotes that the oc capability key contents are encrypted using the SSV GSS context and the capability key as inputs to the GSS Wrap() function (see GSS API [7])
+with the conf req flag set to TRUE.
+The client MUST use the secret SSV key as part of the client's GSS context to decrypt the capability key using the value of the oc capability key field as the input message to the GSS unwrap() function.
+Note that to prevent eavesdropping of the SSV key, the client SHOULD issue SET SSV via RPCSEC GSS with the privacy service.
+The actual method chosen depends on whether the client established a SSV key with the server and whether it issued the operation with the RPCSEC GSS privacy method.
+Naturally, if the client did not establish an SSV key via SET SSV, the server MUST use the PNFS OSD CAP KEY SEC NONE method.
+Otherwise, if the operation was not issued with the RPCSEC GSS privacy method, the server SHOULD secure the oc capability key with the PNFS OSD CAP KEY SEC SSV method.
+The server MAY use the PNFS OSD CAP KEY SEC SSV method also when the operation was issued with the RPCSEC GSS privacy method.
+See Section 5.4 for more details.
+Addressing and Discovery Data operations to an OSD require the client to know the "address" of each OSD's root object.
+The root object is synonymous with the Small Computer System Interface (SCSI) logical unit.
+The client specifies SCSI logical units to its SCSI protocol stack using a representation local to the client.
+Because these representations are local, GETDEVICEINFO must return information that can be used by the client to select the correct local representation.
+In the block world, a set offset (logical block number or track/ sector) contains a disk label.
+This label identifies the disk uniquely.
+In contrast, an OSD has a standard set of attributes on its root object.
+For device identification purposes, the OSD System ID (root information attribute number 3) and the OSD Name (root information attribute number 9) are used as the label.
+These appear in the pnfs osd deviceaddr4 type below under the "oda systemid" and "oda osdname" fields.
+In some situations, SCSI target discovery may need to be driven based on information contained in the GETDEVICEINFO response.
+One example of this is Internet SCSI (iSCSI) targets that are not known to the client until a layout has been requested.
+The information provided as the "oda targetid", "oda targetaddr", and "oda lun" fields in the pnfs osd deviceaddr4 type described below (see Section 4.2) allows the client to probe a specific device given its network address and optionally its iSCSI Name (see iSCSI [8]), or when the device network address is omitted, allows it to discover the object storage device using the provided device name or SCSI Device Identifier (see SPC 3 [9].)
+The oda systemid is implicitly used by the client, by using the object credential signing key to sign each request with the request integrity check value.
+This method protects the client from unintentionally accessing a device if the device address mapping was changed (or revoked).
+The server computes the capability key using its own view of the systemid associated with the respective deviceid present in the credential.
+If the client's view of the deviceid mapping is stale, the client will use the wrong systemid (which must be system wide unique) and the I/
+O request to the OSD will fail to pass the integrity check verification.
+To recover from this condition the client should report the error and return the layout using LAYOUTRETURN, and invalidate all the device address mappings associated with this layout.
+The client can then ask for a new layout if it wishes using LAYOUTGET and resolve the referenced deviceids using GETDEVICEINFO or GETDEVICELIST.
+The server MUST provide the oda systemid and SHOULD also provide the oda osdname.
+When the OSD name is present, the client SHOULD get the root information attributes whenever it establishes communication with the OSD and verify that the OSD name it got from the OSD matches the one sent by the metadata server.
+To do so, the client uses the root obj cred credentials.
+The following enum specifies the manner in which a SCSI target can be specified.
+The target can be specified as a SCSI Name, or as an SCSI Device Identifier.
+enum pnfs osd targetid type4 {
+union pnfs osd targetid4 switch
+(pnfs osd targetid type4 oti type)
+When "oda targetid" is specified as an OBJ TARGET SCSI NAME, the "oti scsi name" string MUST be formatted as an "iSCSI Name" as specified in iSCSI [8] and [10].
+Note that the specification of the oti scsi name string format is outside the scope of this document.
+Parsing the string is based on the string prefix, e.g., "iqn.
+", "eui.", or "naa." and more formats MAY be specified in the future in accordance with iSCSI Names properties.
+Currently, the iSCSI Name provides for naming the target device using a string formatted as an iSCSI Qualified Name (IQN) or as an Extended Unique Identifier (EUI) [11] string.
+Those are typically used to identify iSCSI or Secure Routing Protocol (SRP)
+The Network Address Authority (NAA) string format (see [10]) provides for naming the device using globally unique identifiers, as defined in Fibre Channel Framing and Signaling (FC FS)
+These are typically used to identify Fibre Channel or SAS [18] (Serial Attached SCSI) devices.
+In particular, such devices that are dual attached both over Fibre Channel or SAS and over iSCSI.
+When "oda targetid" is specified as an OBJ TARGET SCSI DEVICE ID, the "oti scsi device i
+d" opaque field MUST be formatted as a SCSI Device Identifier as defined in SPC 3
+VPD Page 83h (Section 7.6.3. "
+If the Device Identifier is identical to the OSD System ID, as given by oda systemid, the server SHOULD provide a zero length oti scsi device id opaque value.
+Note that similarly to the "oti scsi name", the specification of the oti scsi device
+id opaque contents is outside the scope of this document and more formats MAY be specified in the future in accordance with SPC 3.
+The OBJ TARGET ANON pnfs osd targetid type4
+MAY be used for providing no target identification.
+In this case, only the OSD System ID, and optionally the provided network address, are used to locate the device.
+The optional "oda targetaddr" field MAY be provided by the server as a hint to accelerate device discovery over, e.g., the iSCSI transport protocol.
+The network address is given with the netaddr4 type, which specifies a TCP/IP based endpoint (as specified in NFSv4.1 [6]).
+When given, the client SHOULD use it to probe for the SCSI device at the given network address.
+The client MAY still use other discovery mechanisms such as Internet Storage Name Service (iSNS) [12] to locate the device using the oda targetid.
+In particular, such an external name service SHOULD be used when the devices may be attached to the network using multiple connections, and/or multiple storage fabrics (e.g., Fibre Channel and iSCSI).
+The "oda lun" field identifies the OSD 64 bit Logical Unit Number, formatted in accordance with SAM 3 [13].
+The client uses the Logical Unit Number to communicate with the specific OSD Logical Unit.
+Its use is defined in detail by the SCSI transport protocol, e.g., iSCSI [8].
+The layout4 type is defined in the NFSv4.1 [6] as follows:
+The NFSv4.1 [6] specifies the loc body structure as an XDR type "opaque".
+The opaque layout is uninterpreted by the generic pNFS client layers, but obviously must be interpreted by the object storage layout driver.
+This section defines the structure of this opaque value, pnfs osd layout4.
+pnfs osd data map4 ///
+struct pnfs osd data map4 {
+Instead of limiting the system to simple striping scheme where loss of a single component object results in data loss, the map parameters support mirroring and more complicated schemes that protect against loss of a component object.
+"odm num comps" is the number of component objects the file is striped over.
+The server MAY grow the file by adding more components to the stripe while clients hold valid layouts until the file has reached its final stripe width.
+The file length in this case MUST be limited to the number of bytes in a full stripe.
+The "odm stripe unit" is the number of bytes placed on one component before advancing to the next one in the list of components.
+The number of bytes in a full stripe is odm stripe unit times the number of components.
+In some RAID schemes, a stripe includes redundant information (i.e., parity) that lets the system recover from loss or damage to a component object.
+The "odm group width" and "odm group depth" parameters allow a nested striping pattern (see Section 5.3.2 for details).
+If there is no nesting, then odm group width and odm group depth MUST be zero.
+The size of the components array MUST be a multiple of odm group width.
+The "odm mirror cnt" is used to replicate a file by replicating its component objects.
+If there is no mirroring, then odm mirror cnt MUST be 0.
+If odm mirror cnt is greater than zero, then the size of the component array MUST be a multiple of (odm mirror cnt 1).
+See Section 5.3 for more details.
+The "olo components" field is an array of object identifiers and security credentials that grant access to each object.
+The organization of the data is defined by the pnfs osd data map4 type that specifies how the file's data is mapped onto the component objects (i.e., the striping pattern).
+The data placement algorithm that maps file data onto component objects assumes that each component object occurs exactly once in the array of components.
+Therefore, component objects MUST appear in the olo components array only once.
+The components array may represent all objects comprising the file, in which case "olo comps index" is set to zero and the number of entries in the olo components array is equal to olo map.odm num comps.
+The server MAY return fewer components than odm num comps, provided that the returned components are sufficient to access any byte in the layout's data range (e.g., a sub stripe of "odm group width" components).
+In this case, olo comps index represents the position of the returned components array within the full array of components that comprise the file.
+Note that the layout depends on the file size, which the client learns from the generic return parameters of LAYOUTGET, by doing GETATTR commands to the metadata server.
+The client uses the file size to decide if it should fill holes with zeros or return a short read.
+Striping patterns can cause cases where component objects are shorter than other components because a hole happens to correspond to the last part of the component object.
+This section describes the different data mapping schemes in detail.
+The object layout always uses a "dense" layout as described in NFSv4.1 [6].
+This means that the second stripe unit of the file starts at offset 0 of the second component, rather than at offset stripe unit bytes.
+After a full stripe has been written, the next stripe unit is appended to the first component object in the list without any holes in the component objects.
+Simple Striping The mapping from the logical offset within a file (L) to the component object C and object specific offset O is defined by the following equations:
+L   logical offset into the file
+W   total number of components S   W   stripe unit N   L / S C
+(N stripe unit) (L%stripe unit)
+In these equations, S is the number of bytes in a full stripe, and N is the stripe number.
+C is an index into the array of components, so it selects a particular object storage device.
+Both N and C count from zero.
+O is the offset within the object that corresponds to the file offset.
+Note that this computation does not accommodate the same object appearing in the olo components array multiple times.
+For example, consider an object striped over four devices, <D0 D1 D2 D3
+The stripe unit is 4096 bytes.
+The stripe width S is thus 4
+N   4096 / 16384   0
+N   9000 / 16384   0
+N   132000 / 16384   8
+C   (132000 (8 16384)) /
+The odm group width and odm group depth parameters allow a nested striping pattern.
+odm group width defines the width of a data stripe and odm group depth defines how many stripes are written before advancing to the next group of components in the list of component objects for the file.
+The math used to map from a file offset to a component object and offset within that object is shown below.
+The computations map from the logical offset L to the component index C and offset relative O within that component object.
+logical offset into the file
+W   total number of components S   stripe unit   group depth   W T   stripe unit
+group depth   group width U   stripe unit   group width M   L / S G
+group width O   L % stripe unit   N   stripe unit
+M   group depth   stripe unit In these equations
+, S is the number of bytes striped across all component objects before the pattern repeats.
+T is the number of bytes striped within a group of component objects before advancing to the next group.
+U is the number of bytes in a stripe within a group.
+M is the "major" (i.e., across all components) stripe number, and N is the "minor" (i.e., across the group) stripe number.
+G counts the groups from the beginning of the major stripe, and H is the byte offset within the group.
+For example, consider an object striped over 100 devices with a group width of 10, a group depth of 50, and a stripe unit of 1 MB.
+In this scheme, 500 MB are written to the first 10 components, and 5000 MB are written before the pattern wraps back around to the first component in the array.
+MB T   1 MB   50   10
+MB U   1 MB   10   10
+0 / 5000 MB   0
+G   (0 (0   5000 MB))
+0 / 10 MB   0
+C   (0 (0   10 MB))
+0 % 1 MB   0   1
+M   27 MB / 5000 MB   0
+(27 MB (0   5000 MB)) /
+MB / 10 MB   2
+O   27 MB % 1 MB   2   1 MB   0
+MB   2 MB Offset 7232
+MB / 5000 MB   1
+(7232 MB (1   5000 MB)) /
+MB / 10 MB   23
+(232 MB (23   10 MB)) /
+MB % 1 MB   23
+The odm mirror cnt is used to replicate a file by replicating its component objects.
+If there is no mirroring, then odm mirror cnt MUST be 0.
+If odm mirror cnt is greater than zero, then the size of the olo components array MUST be a multiple of (odm mirror cnt 1).
+Thus, for a classic mirror on two objects, odm mirror cnt is one.
+Note that mirroring can be defined over any RAID algorithm and striping pattern (either simple or nested).
+If odm group width is also non zero, then the size of the olo components array MUST be a multiple of odm group width   (odm mirror cnt 1).
+Replicas are adjacent in the olo components array, and the value C produced by the above equations is not a direct index into the olo components array.
+Instead, the following equations determine the replica component index RCi, where i ranges from 0 to odm mirror cnt.
+C   component index for striping or two level striping i ranges from 0 to odm mirror cnt, inclusive RCi
+osd raid algorithm4 determines the algorithm and placement of redundant data.
+This section defines the different redundancy algorithms.
+: The term "RAID" (Redundant Array of Independent Disks) is used in this document to represent an array of component objects that store data for an individual file.
+The objects are stored on independent object based storage devices.
+File data is encoded and striped across the array of component objects using algorithms developed for block based RAID systems.
+PNFS OSD RAID 0 means there is no parity data,
+so all bytes in the component objects are data bytes located by the above equations for C and O.
+If a component object is marked as PNFS OSD MISSING, the pNFS client MUST either return an I/O error if this component is attempted to be read or, alternatively, it can retry the READ against the pNFS server.
+PNFS OSD RAID 4 means that the last component object, or the last in each group (if odm group width is greater than zero), contains parity information computed over the rest of the stripe with an XOR operation.
+If a component object is unavailable, the client can read the rest of the stripe units in the damaged stripe and recompute the missing stripe unit by XORing the other stripe units in the stripe.
+Or the client can replay the READ against the pNFS server that will presumably perform the reconstructed read on the client's behalf.
+When parity is present in the file, then there is an additional computation to map from the file offset L to the offset that accounts for embedded parity, L'.
+First compute L', and then use L' in the above equations for C and O. L   file offset, not accounting for parity P   number of parity devices in each stripe W   group width, if not zero, else size of olo components array N
+(L % (W P   stripe unit)) 5.4.3.
+PNFS OSD RAID 5 means that the position of the parity data is rotated on each stripe or each group (if odm group width is greater than zero).
+In the first stripe, the last component holds the parity.
+In the second stripe, the next to last component holds the parity, and so on.
+In this scheme, all stripe units are rotated so that I/O is evenly spread across objects as the file is read sequentially.
+The rotated parity layout is illustrated here, with numbers indicating the stripe unit.
+0 1 2 P 4 5 P 3 8 P 6 7 P 9 a b
+To compute the component object C, first compute the offset that accounts for parity L' and use that to compute C.
+Then rotate C to get C'.
+Finally, increase C' by one if the parity information comes at or before C' within that stripe.
+The following equations illustrate this by computing I, which is the index of the component that contains parity for a given stripe.
+L   file offset, not accounting for parity W   odm group width, if not zero, else size of olo components array N
+L / (W 1   stripe unit)
+(Compute L' as describe above)
+(Compute C based on L' as described above)
+OSD RAID PQ PNFS OSD RAID PQ is a double parity scheme that uses the Reed Solomon P Q encoding scheme [19].
+In this layout, the last two component objects hold the P and Q data, respectively.
+P is parity computed with XOR, and Q is a more complex equation that is not described here.
+The equations given above for embedded parity can be used to map a file offset to the correct component object by setting the number of parity components to 2 instead of 1 for RAID4 or RAID5.
+Clients may simply choose to read data through the metadata server if two components are missing or damaged.
+Usage and Implementation Notes RAID layouts with redundant data in their stripes require additional serialization of updates to ensure correct operation.
+Otherwise, if two clients simultaneously write to the same logical range of an object, the result could include different data in the same ranges of mirrored tuples, or corrupt parity information.
+It is the responsibility of the metadata server to enforce serialization requirements such as this.
+For example, the metadata server may do so by not granting overlapping write layouts within mirrored objects.
+Object Based Layout Update layoutupdate4 is used in the LAYOUTCOMMIT operation to convey updates to the layout and additional information to the metadata server.
+It is defined in the NFSv4.1 [6] as follows:
+If the lou type layout type is LAYOUT4 OSD2 OBJECTS, then the lou body opaque value is defined by the pnfs osd layoutupdate4 type.
+Object Based pNFS clients are not allowed to modify the layout.
+Therefore, the information passed in pnfs osd layoutupdate4 is used only to update the file's attributes.
+In addition to the generic information the client can pass to the metadata server in LAYOUTCOMMIT such as the highest offset the client wrote to and the last time it modified the file, the client MAY use pnfs osd layoutupdate4 to convey the capacity consumed (or released) by writes using the layout, and to indicate that I/
+O errors were encountered by such writes.
+For the file system to properly maintain capacity used information, it needs to track how much capacity was consumed by WRITE operations performed by the client.
+The pNFS server can choose to trust this information coming from the clients and therefore avoid querying the OSDs at the time of LAYOUTCOMMIT.
+If the client is unable to obtain this information from the OSD, it simply returns invalid olu delta space used.
+The "olu ioerr flag" is used when I/
+O errors were encountered while writing the file.
+The client MUST report the errors using the pnfs osd ioerr4 structure (see Section 8.1) at LAYOUTRETURN time.
+If the client updated the file successfully before hitting the I/O errors, it MAY use LAYOUTCOMMIT to update the metadata server as described above.
+Typically, in the error free case, the server MAY turn around and update the file's attributes on the storage devices.
+O errors were encountered, the server better not attempt to write the new attributes on the storage devices until it receives the I/O error report; therefore, the client MUST set the olu ioerr flag to true.
+Note that in this case, the client SHOULD send both the LAYOUTCOMMIT and LAYOUTRETURN operations in the same COMPOUND RPC. 7.
+The pNFS client may encounter errors when directly accessing the object storage devices.
+However, it is the responsibility of the metadata server to handle the I/O errors.
+When the LAYOUT4 OSD2 OBJECTS layout type is used, the client MUST report the I/O errors to the server at LAYOUTRETURN time using the pnfs osd ioerr4 structure (see Section 8.1).
+The metadata server analyzes the error and determines the required recovery operations such as repairing any parity inconsistencies, recovering media failures, or reconstructing missing objects.
+The metadata server SHOULD recall any outstanding layouts to allow it exclusive write access to the stripes being recovered and to prevent other clients from hitting the same error condition.
+In these cases, the server MUST complete recovery before handing out any new layouts to the affected byte ranges.
+Although it MAY be acceptable for the client to propagate a corresponding error to the application that initiated the I/O operation and drop any unwritten data, the client SHOULD attempt to retry the original I/O operation by requesting a new layout using LAYOUTGET and retry the
+I/O operation(s) using the new layout, or the client MAY just retry the I/O
+operation(s) using regular NFS READ or WRITE operations via the metadata server.
+The client SHOULD attempt to retrieve a new layout and retry the I/O operation using OSD commands first and only if the error persists, retry the I/O operation via the metadata server.
+Object Based Layout Return layoutreturn file4 is used in the LAYOUTRETURN operation to convey layout type specific information to the server.
+It is defined in the NFSv4.1 [6] as follows:
+The pnfs osd layoutreturn4 type allows the client to report I/O error information back to the metadata server as defined below.
+/// pnfs osd errno4 is used to represent error types when read/write errors are reported to the metadata server.
+The error codes serve as hints to the metadata server that may help it in diagnosing the exact reason for the error and in repairing it.
+PNFS OSD ERR EIO indicates the operation failed because the object storage device experienced a failure trying to access the object.
+The most common source of these errors is media errors, but other internal errors might cause this as well.
+In this case, the metadata server should go examine the broken object more closely; hence, it should be used as the default error code.
+NOT FOUND indicates the object ID specifies an object that does not exist on the object storage device.
+NO SPACE indicates the operation failed because the object storage device ran out of free capacity during the operation.
+PNFS OSD ERR BAD CRED indicates the security parameters are not valid.
+The primary cause of this is that the capability has expired, or the access policy tag (a.k.a., capability version number) has been changed to revoke capabilities.
+The client will need to return the layout and get a new one with fresh capabilities.
+NO ACCESS indicates the capability does not allow the requested operation.
+This should not occur in normal operation because the metadata server should give out correct capabilities, or none at all.
+PNFS OSD ERR UNREACHABLE indicates the client did not complete the I/O operation at the object storage device due to a communication failure.
+Whether or not the I/
+O operation was executed by the OSD is undetermined.
+PNFS OSD ERR RESOURCE indicates the client did not issue the I/O operation due to a local problem on the initiator (i.e., client) side, e.g., when running out of memory.
+The client MUST guarantee that the OSD command was never dispatched to the OSD.
+These are hints to the metadata server that there are problems with that object.
+For each error, "oer component", "oer comp offset", and "oer comp length" represent the object and byte range within the component object in which the error occurred; "oer iswrite" is set to "true" if the failed OSD operation was data modifying, and "oer errno" represents the type of error.
+Component byte ranges in the optional pnfs osd ioerr4 structure are used for recovering the object and MUST be set by the client to cover all failed I/O operations to the component.
+O operations failed, "olr ioerr report<>" is used to report these errors to the metadata server as an array of elements of type pnfs osd ioerr4.
+Each element in the array represents an error that occurred on the object specified by oer component.
+If no errors are to be reported, the size of the olr ioerr report
+<> array is set to zero.
+Object Based Creation Layout Hint
+The layouthint4 type is defined in the NFSv4.1 [6] as follows:
+The layouthint4 structure is used by the client to pass a hint about the type of layout it would like created for a particular file.
+If the loh type layout type is LAYOUT4 OSD2 OBJECTS, then the loh body opaque value is defined by the pnfs osd layouthint4 type.
+max comps hint4 switch (
+pnfs osd max comps hint4
+All parameters are optional so the client can give values for only the parameters it cares about, e.g. it can provide a hint for the desired number of mirrored components, regardless of the RAID algorithm selected for the file.
+The server should make an attempt to honor the hints, but it can ignore any or all of them at its own discretion and without failing the respective CREATE operation.
+The "olh max comps hint" can be used to limit the total number of component objects comprising the file.
+All other hints correspond directly to the different fields of pnfs osd data map4.
+The pnfs layout operations operate on logical byte ranges.
+There is no requirement in the protocol for any relationship between byte ranges used in LAYOUTGET to acquire layouts and byte ranges used in CB LAYOUTRECALL, LAYOUTCOMMIT, or LAYOUTRETURN.
+However, using OSD byte range capabilities poses limitations on these operations since the capabilities associated with layout segments cannot be merged or split.
+The following guidelines should be followed for proper operation of object based layouts.
+In general, the object based layout driver should keep track of each layout segment it got, keeping record of the segment's iomode, offset, and length.
+The server should allow the client to get multiple overlapping layout segments but is free to recall the layout to prevent overlap.
+In response to CB LAYOUTRECALL, the client should return all layout segments matching the given iomode and overlapping with the recalled range.
+When returning the layouts for this byte range with LAYOUTRETURN, the client MUST NOT return a sub range of a layout segment it has; each LAYOUTRETURN sent MUST completely cover at least one outstanding layout segment.
+The server, in turn, should release any segment that exactly matches the clientid, iomode, and byte range given in LAYOUTRETURN.
+If no exact match is found, then the server should release all layout segments matching the clientid and iomode and that are fully contained in the returned byte range.
+If none are found and the byte range is a subset of an outstanding layout segment with for the same clientid and iomode, then the client can be considered malfunctioning and the server SHOULD recall all layouts from this client to reset its state.
+If this behavior repeats, the server SHOULD deny all LAYOUTGETs from this client.
+LAYOUTCOMMIT LAYOUTCOMMIT is only used by object based pNFS to convey modified attributes hints and/or to report the presence of I/O errors to the metadata server (MDS).
+Therefore, the offset and length in LAYOUTCOMMIT4args are reserved for future use and should be set to 0.
+The object based metadata server should recall outstanding layouts in the following cases:  When the file's security policy changes, i.e., Access Control Lists (ACLs) or permission mode bits are set.
+When the file's aggregation map changes, rendering outstanding layouts invalid.
+When there are sharing conflicts.
+For example, the server will issue stripe aligned layout segments for RAID 5 objects.
+To prevent corruption of the file's parity, multiple clients must not hold valid write layouts for the same stripes.
+An outstanding READ/WRITE (RW) layout should be recalled when a conflicting LAYOUTGET is received from a different client for LAYOUTIOMODE4 RW and for a byte range overlapping with the outstanding layout segment.
+The metadata server can use the CB RECALL ANY callback operation to notify the client to return some or all of its layouts.
+The NFSv4.1 [6] defines the following types:
+The craa type mask bitmap specifies the type of resources that are recalled and the craa objects to keep value specifies how many of the recalled objects the client is allowed to keep.
+The object based layout type mask flags are defined as follows.
+They represent the iomode of the recalled layouts.
+In response, the client SHOULD return layouts of the recalled iomode that it needs the least, keeping at most craa objects to keep object based layouts.
+enum pnfs osd cb recall any mask
+Similarly, the PNFS OSD RCA4 TYPE
+MASK RW flag notifies the client to return layouts of iomode LAYOUTIOMODE4 RW.
+When both mask flags are set, the client is notified to return layouts of either iomode.
+In cases where clients are uncommunicative and their lease has expired or when clients fail to return recalled layouts within a lease period at the least (see "Recalling a Layout"[6]), the server MAY revoke client layouts and/or device address mappings and reassign these resources to other clients.
+To avoid data corruption, the metadata server MUST fence off the revoked clients from the respective objects as described in Section 13.4. 13.
+The pNFS extension partitions the NFSv4 file system protocol into two parts, the control path and the data path (storage protocol).
+The control path contains all the new operations described by this extension; all existing NFSv4 security mechanisms and features apply to the control path.
+The combination of components in a pNFS system is required to preserve the security properties of NFSv4 with respect to an entity accessing data via a client, including security countermeasures to defend against threats that NFSv4 provides defenses for in environments where these threats are considered significant.
+The metadata server enforces the file access control policy at LAYOUTGET time.
+The client should use suitable authorization credentials for getting the layout for the requested iomode (READ or RW) and the server verifies the permissions and ACL for these credentials, possibly returning NFS4ERR ACCESS if the client is not allowed the requested iomode.
+If the LAYOUTGET operation succeeds the client receives, as part of the layout, a set of object capabilities allowing it I/
+O access to the specified objects corresponding to the requested iomode.
+When the client acts on I/O operations on behalf of its local users, it MUST authenticate and authorize the user by issuing respective OPEN and ACCESS calls to the metadata server, similar to having NFSv4 data delegations.
+If access is allowed, the client uses the corresponding (READ or RW) capabilities to perform the I/O operations at the object storage devices.
+When the metadata server receives a request to change a file's permissions or ACL, it SHOULD recall all layouts for that file and it MUST change the capability version attribute on all objects comprising the file to implicitly invalidate any outstanding capabilities before committing to the new permissions and ACL.
+Doing this will ensure that clients re authorize their layouts according to the modified permissions and ACL by requesting new layouts.
+Recalling the layouts in this case is courtesy of the server intended to prevent clients from getting an error on I
+/Os done after the capability version changed.
+The object storage protocol MUST implement the security aspects described in version 1 of the T10 OSD protocol definition [1].
+The standard defines four security methods: NOSEC, CAPKEY, CMDRSP, and ALLDATA.
+To provide minimum level of security allowing verification and enforcement of the server access control policy using the layout security credentials, the NOSEC security method MUST NOT be used for any I/O operation.
+The remainder of this section gives an overview of the security mechanism described in that standard.
+The goal is to give the reader a basic understanding of the object security model.
+Any discrepancies between this text and the actual standard are obviously to be resolved in favor of the OSD standard.
+There are three main data types associated with object security: a capability, a credential, and security parameters.
+The capability is a set of fields that specifies an object and what operations can be performed on it.
+A credential is a signed capability.
+Only a security manager that knows the secret device keys can correctly sign a capability to form a valid credential.
+In pNFS, the file server acts as the security manager and returns signed capabilities (i.e., credentials) to the pNFS client.
+The security parameters are values computed by the issuer of OSD commands (i.e., the client) that prove they hold valid credentials.
+The client uses the credential as a signing key to sign the requests it makes to OSD, and puts the resulting signatures into the security parameters field of the OSD command.
+The object storage device uses the secret keys it shares with the security manager to validate the signature values in the security parameters.
+The security types are opaque to the generic layers of the pNFS client.
+The credential contents are defined as opaque within the pnfs osd object cred4 type.
+Instead of repeating the definitions here, the reader is referred to Section 4.9.2.2 of the OSD standard.
+The object storage protocol relies on a cryptographically secure capability to control accesses at the object storage devices.
+Capabilities are generated by the metadata server, returned to the client, and used by the client as described below to authenticate their requests to the object based storage device.
+Capabilities therefore achieve the required access and open mode checking.
+They allow the file server to define and check a policy (e.g., open mode) and the OSD to enforce that policy without knowing the details (e.g., user IDs and ACLs).
+Since capabilities are tied to layouts, and since they are used to enforce access control, when the file ACL or mode changes the outstanding capabilities MUST be revoked to enforce the new access permissions.
+The server SHOULD recall layouts to allow clients to gracefully return their capabilities before the access permissions change.
+Each capability is specific to a particular object, an operation on that object, a byte range within the object (in OSDv2), and has an explicit expiration time.
+The capabilities are signed with a secret key that is shared by the object storage devices and the metadata managers.
+Clients do not have device keys so they are unable to forge the signatures in the security parameters.
+The combination of a capability, the OSD System ID, and a signature is called a "credential" in the OSD specification.
+The details of the security and privacy model for object storage are defined in the T10 OSD standard.
+The following sketch of the algorithm should help the reader understand the basic model.
+LAYOUTGET returns a CapKey and a Cap, which, together with the OSD System ID, are also called a credential.
+It is a capability and a signature over that capability and the SystemID.
+The OSD Standard refers to the CapKey as the "Credential integrity check value" and to the ReqMAC as the "Request integrity check value".
+The client uses CapKey to sign all the requests it issues for that object using the respective Cap.
+In other words, the Cap appears in the request to the storage device, and that request is signed with the CapKey as follows:
+Request   {Cap, Req, ReqNonce, ReqMAC}
+The following is sent to the OSD: {Cap, Req, ReqNonce, ReqMAC}.
+The OSD uses the SecretKey it shares with the metadata server to compare the ReqMAC the client sent with a locally computed value:
+and if they match the OSD assumes that the capabilities came from an authentic metadata server and allows access to the object, as allowed by the Cap.
+Protocol Privacy Requirements Note that if the server LAYOUTGET reply, holding CapKey and Cap, is snooped by another client, it can be used to generate valid OSD requests (within the Cap access restrictions).
+To provide the required privacy requirements for the capability key returned by LAYOUTGET,
+the GSS API [7] framework can be used, e.g., by using the RPCSEC GSS privacy method to send the LAYOUTGET operation or by using the SSV key to encrypt the oc capability key using the GSS Wrap() function.
+Two general ways to provide privacy in the absence of GSS API that are independent of NFSv4 are either an isolated network such as a VLAN or a secure channel provided by IPsec [15].
+At any time, the metadata server may invalidate all outstanding capabilities on an object by changing its POLICY ACCESS TAG attribute.
+The value of the POLICY ACCESS TAG is part of a capability, and it must match the state of the object attribute.
+If they do not match, the OSD rejects accesses to the object with the sense key set to ILLEGAL REQUEST and an additional sense code set to INVALID FIELD IN CDB.
+When a client attempts to use a capability and is rejected this way, it should issue a LAYOUTCOMMIT for the object and specify PNFS OSD BAD CRED in the olr ioerr report parameter.
+The client may elect to issue a compound LAYOUTRETURN/LAYOUTGET (or LAYOUTCOMMIT/LAYOUTRETURN/LAYOUTGET) to attempt to fetch a refreshed set of capabilities.
+The metadata server may elect to change the access policy tag on an object at any time, for any reason (with the understanding that there is likely an associated performance penalty, especially if there are outstanding layouts for this object).
+The metadata server MUST revoke outstanding capabilities when any one of the following occurs:  the permissions on the object change,  a conflicting mandatory byte range lock is granted, or  a layout is revoked and reassigned to another client.
+A pNFS client will typically hold one layout for each byte range for either READ or READ/WRITE.
+The client's credentials are checked by the metadata server at LAYOUTGET time and it is the client's responsibility to enforce access control among multiple users accessing the same file.
+It is neither required nor expected that the pNFS client will obtain a separate layout for each user accessing a shared object.
+The client SHOULD use OPEN and ACCESS calls to check user permissions when performing I
+O so that the server's access control policies are correctly enforced.
+The result of the ACCESS operation may be cached while the client holds a valid layout as the server is expected to recall layouts when the file's access permissions or ACL change.
+As described in NFSv4.1 [6], new layout type numbers have been assigned by IANA.
+This document defines the protocol associated with the existing layout type number, LAYOUT4 OSD2 OBJECTS, and it requires no further actions for IANA.

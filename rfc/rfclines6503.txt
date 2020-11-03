@@ -1,0 +1,1289 @@
+Abstract The Centralized Conferencing Manipulation Protocol (CCMP) allows a Centralized Conferencing (XCON) system client to create, retrieve, change, and delete objects that describe a centralized conference.
+CCMP is a means to control basic and advanced conference features such as conference state and capabilities, participants, relative roles, and details.
+CCMP is a stateless, XML based, client server protocol that carries, in its request and response messages, conference information in the form of XML documents and fragments conforming to the centralized conferencing data model schema.
+Introduction "A Framework for Centralized Conferencing" [RFC5239]
+(XCON framework) defines a signaling agnostic framework, naming conventions, and logical entities required for building advanced conferencing systems.
+The XCON framework introduces the conference object as a logical representation of a conference instance, representing the current state and capabilities of a conference.
+The Centralized Conferencing Manipulation Protocol (CCMP) defined in this document allows authenticated and authorized users to create, manipulate, and delete conference objects.
+Operations on conferences include adding and removing participants, changing their roles, as well as adding and removing media streams and associated endpoints.
+CCMP implements the client server model within the XCON framework, with the conferencing client and conference server acting as client and server, respectively.
+[RFC2616] as the protocol to transfer requests and responses, which contain the domain specific XML encoded data objects defined in [RFC6501] "Conference Information Data Model for Centralized Conferencing (XCON)
+Section 2 clarifies the conventions and terminology used in the document.
+Section 3 provides an overview of the conference control functionality of the XCON framework, together with a description of the main targets CCMP deals with, namely conference objects and conference users.
+A general description of the operations associated with protocol messages is given in Section 4 together with implementation details.
+Section 5 delves into the details of specific CCMP messages.
+A complete, non normative, example of the operation of CCMP, describing a typical call flow associated with conference creation and manipulation, is provided in Section 6.
+A survey of the methods that can be used to locate a conference server is provided in Section 7, and Section 8 discusses potential approaches to notifications management.
+CCMP transport over HTTP is highlighted in Section 9.
+Security considerations are presented in Section 10.
+Finally, Section 11 provides the XML schema.
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC2119].
+In addition to the terms defined in "A Framework for Centralized Conferencing" [RFC5239], this document uses the following terms and acronyms: XCON aware client:
+An XCON conferencing system client that is able to issue CCMP requests.
+A request issued by the client to manipulate its own conferencing data.
+A request issued by a client to manipulate the conference data of another client.
+XCON Conference Control System Architecture CCMP supports the XCON framework.
+Figure 1 depicts a subset of the "Conferencing System Logical Decomposition" architecture from the XCON framework document.
+It illustrates the role that CCMP assumes within the overall centralized architecture.
+C O N F E R E N C E
+C O N F E R E N C E
+N F E R E N C E
+Figure 1: Conferencing Client Interaction
+The Centralized Conferencing Manipulation Protocol (CCMP) allows the conference control client (conferencing client) to interface with the conference object maintained by the conferencing system, as depicted in Figure 1.
+Note that additional functionality of the conferencing client and conferencing system is discussed in the XCON framework and related documents.
+This section provides details of the identifiers REQUIRED to address and manage the clients associated with a conferencing system using CCMP.
+Conference Objects Conference objects feature a simple dynamic inheritance and override mechanism.
+Conference objects are linked into a tree known as a "cloning tree" (see Section 7.1 of [RFC5239]).
+Each cloning tree node inherits attributes from its parent node.
+The roots of these inheritance trees are conference templates also known as "blueprints".
+Nodes in the inheritance tree can be active conferences or simply descriptions that do not currently have any resources associated with them (i.e., conference reservations).
+An object can mark certain of its properties as unalterable, so that they cannot be overridden.
+Per the framework, a client may specify a parent object (a conference or blueprint) from which to inherit values when a conference is created using the conference control protocol.
+Conference objects are uniquely identified by the XCON URI within the scope of the conferencing system.
+The XCON URI is introduced in the XCON framework and defined in the XCON common data model.
+Conference objects are comprehensively represented through XML documents compliant with the XML schema defined in the XCON data model [RFC6501].
+The root element of such documents, called <conference info>, is of type "conference type".
+It encompasses other XML elements describing different conference features and users as well.
+Using CCMP, conferencing clients can use these XML structures to express their preferences in creating or updating a conference.
+A conference server can convey conference information back to the clients using the XML elements.
+Each conference can have zero or more users.
+All conference participants are users, but some users may have only administrative functions and do not contribute or receive media.
+Users are added one user at a time to simplify error reporting.
+When a conference is cloned from a parent object, users are inherited as well, so that it is easy to set up a conference that has the same set of participants or a common administrator.
+The conference server creates individual users, assigning them a unique conference user identifier (XCON  USERID).
+The XCON USERID as identifier of each conferencing system client is introduced in the XCON framework and defined in the XCON common data model.
+Each CCMP request, with an exception pointed out in Section 5.3.6 representing the case of a user at his first entrance in the system as a conference participant, must carry the XCON USERID of the requestor in the proper <confUserID> parameter.
+The XCON USERID acts as a pointer to the user's profile as a conference actor, e.g., her signaling URI and other XCON protocol URIs in general, her role (moderator, participant, observer, etc.), her display text, her joining information, and so on.
+A variety of elements defined in the common <conference info> element as specified in the XCON data model are used to describe the users related to a conference including the <users> element, as well as each <user> element included within it.
+For example, it is possible to determine how a specific user expects and is allowed to join a conference by looking at the <allowed users list> in <users>: each <target> element involved in such a list
+represents a user and shows a 'method' attribute defining how the user is expected to join the conference, i.e., "dial in" for users that are allowed to dial, "dial out" for users that the conference focus will be trying to reach (with "dial in" being the default mode).
+If the conference is currently active, dial out users are contacted immediately; otherwise, they are contacted at the start of the conference.
+CCMP, acting as the conference control protocol, provides a means to manipulate these and other kinds of user related features.
+As a consequence of an explicit user registration to a specific XCON conferencing system, conferencing clients are usually provided (besides the XCON USERID) with log in credentials (i.e., username and password).
+Such credentials can be used to authenticate the XCON  aware client issuing CCMP requests.
+Thus, both username and password should be carried in a CCMP request as part of the "subject" parameter whenever a registered conferencing client wishes to contact a CCMP server.
+CCMP does not maintain a user's subscriptions at the conference server; hence, it does not provide any specific mechanism allowing clients to register their conferencing accounts.
+The "subject" parameter is just used for carrying authentication data associated with pre registered clients, with the specific registration modality outside the scope of this document.
+Protocol Overview CCMP is a client server, XML based protocol for user creation, retrieval, modification, and deletion of conference objects.
+CCMP is a stateless protocol, such that implementations can safely handle transactions independently from each other.
+CCMP messages are XML documents or XML document fragments compliant with the XCON data model representation [RFC6501].
+Section 4.1 specifies the basic operations that can create, retrieve, modify, and delete conference related information in a centralized conference.
+The core set of objects manipulated by CCMP includes conference blueprints, the conference object, users, and sidebars.
+Each operation in the protocol model, as summarized in Section 4.1, is atomic and either succeeds or fails as a whole.
+The conference server MUST ensure that the operations are atomic in that the operation invoked by a specific conferencing client completes prior to another client's operation on the same conference object.
+While the details for this data locking functionality are out of scope for the CCMP specification and are implementation specific for a conference server, some core functionality for ensuring the integrity of the data is provided by CCMP as described in Section 4.2.
+While the XML documents that are carried in CCMP need to comply with the XCON data model, there are situations in which the values for mandatory elements are unknown by the client.
+The mechanism for ensuring compliance with the data model in these cases is described in Section 4.3.
+CCMP is completely independent from underlying protocols, which means that there can be different ways to carry CCMP messages from a conferencing client to a conference server.
+The specification describes the use of HTTP as a transport solution, including CCMP requests in HTTP POST messages and CCMP responses in HTTP 200 OK replies.
+This implementation approach is further described in Section 4.4.
+The main operations provided by CCMP belong in four general categories: create:  for the creation of a conference object, a conference user, a sidebar, or a blueprint.
+retrieve:  to get information about the current state of either a conference object (be it an actual conference, a blueprint, or a sidebar) or a conference user.
+A retrieve operation can also be used to obtain the XCON URIs of the current conferences (active or registered) handled by the conferencing server and/or the available blueprints.
+update:  to modify the current features of a specified conference or conference user.
+delete:  to remove from the system a conference object or a conference user.
+The XCON framework defines a model whereby the conference server centralizes and maintains the conference information.
+Since multiple clients can modify the same conference objects, a conferencing client might not have the latest version of a specific conference object when it initiates operations.
+To determine whether the client has the most up to date conference information, CCMP defines a versioning approach.
+Each conference object is associated with a version number.
+All CCMP response messages containing a conference document (or a fragment thereof) MUST contain a <version> parameter.
+When a client sends an update message to the server, which includes modifications to a conference object, if the modifications are all successfully applied, the server MUST return a response, with a <response code> of "200", containing the version number of the modified object.
+With this approach, a client working on version "X" of a conference object that receives a response, with a <response  code
+> of "200", with a version number that is "X 1" can be certain that the version it manipulated was the most up to date.
+However, if the response contains a version that is at least "X 2", the client knows that the object modified by the server was more up to date than the object the client was manipulating.
+In order to ensure that the client always has the latest version of the modified object, the client can send a request to the conference server to retrieve the conference object.
+The client can then update the relevant data elements in the conference object prior to invoking a specific operation.
+Note that a client subscribed to the XCON event package [RFC6502] notifications about conference object modifications, will receive the most up to date version of that object upon receipt of a notification.
+The "version" parameter is OPTIONAL for requests, since it is not needed by the server: as long as the required modifications can be applied to the target conference object without conflicts, the server does not care whether the client has stored an up to date view of the information.
+In addition, to ensure the integrity of the data, the conference server first checks all the parameters, before making any changes to the internal representation of the conference object.
+For example, it would be undesirable to change the <subject> of the conference, but then detect an invalid URI in one of the <service  uris> and abort the remaining updates.
+The XCON data model [RFC6501] identifies some elements and attributes as mandatory.
+Since the XML documents carried in the body of the CCMP requests and responses need to be compliant with the XCON data model, there can be a problem in cases of client initiated operations, such as the initial creation of conference objects and cases whereby a client updates a conference object adding new elements, such as a new user.
+In such cases, not all of the mandatory data can be known in advance by the client issuing a CCMP request.
+As an example, a client cannot know, at the time it issues a conference creation request, the XCON URI that the server will assign to the yet to be created conference; hence, it is not able to populate the mandatory 'entity' attribute of the conference document contained in the request with the correct value.
+To solve this issue, the CCMP client fills all mandatory data model fields, for which no value is available at the time the request is constructed, with placeholder values in the form of a wildcard string, AUTO GENERATE X (all uppercase), with X being a unique numeric index for each data model field for which the value is unknown.
+This form of wildcard string is chosen, rather than the use of random unique strings (e.g., FOO BAR LA) or
+non numeric values for X, to simplify processing at the server.
+The values of AUTO GENERATE X are only unique within the context of the specific request.
+The placeholder AUTO GENERATE X values MUST be within the value part of an attribute or element
+(e.g., <userinfo entity "xcon userid:
+When the server receives requests containing values in the form of AUTO GENERATE X, the server does the following: (a)  Generates the proper identifier for each instance of AUTO GENERATE X in the document.
+If an instance of AUTO GENERATE X is not within the value part of the attribute/ element, the server MUST send a <response code> of "400 Bad Request".
+In cases where AUTO GENERATE X appears only in the user part of a URI (i.e., in the case of XCON USERIDs or XCON  URIs), the server needs to ensure that the domain name is one that is within the server's domain of responsibility.
+If the domain name is not within the server's domain of responsibility, then the server MUST send a <response code> of "427 Invalid Domain Name".
+The server MUST replace each instance of a specific wildcard field (e.g., AUTO GENERATE 1) with the same identifier.
+The identifiers MUST be unique for each instance of AUTO GENERATE X within the same XML document received in the request; for example, the value that replaces AUTO GENERATE 1
+MUST NOT be the same as the value that replaces AUTO GENERATE 2.
+Note that the values that replace the instances of AUTO GENERATE X are not the same across all conference objects; for example, different values can be used to replace AUTO GENERATE 1 in two different documents.
+(b)  Sends a response in which all values of AUTO GENERATE X received in the request have been replaced by the newly created one(s).
+With this approach, compatibility with the data model requirements is maintained, while allowing for client initiated manipulation of conference objects at the server's side.
+Note that the use of this mechanism could be avoided in come cases by using multiple operations, such as creating a new user and then adding the new user to an existing conference.
+However, the AUTO GENERATE X mechanism allows a single operation to be used to effect the same change on the conference object.
+Implementation Approach CCMP is implemented using HTTP, placing the CCMP request messages into the body of an HTTP POST operation and placing the CCMP responses into the body of the HTTP response messages.
+A non  exhaustive summary of the other approaches that were considered and the perceived advantages of the HTTP solution described in this document are provided in Appendix A. Most CCMP commands can pend indefinitely, thus increasing the potential that pending requests can continue to increase when a server is receiving more requests than it can process within a specific time period.
+In this case, a server SHOULD return a <response code> of "510" to the pending requests.
+In addition, to mitigate the situation, clients MUST NOT wait indefinitely for a response and MUST implement a timer such that when it expires, the client MUST close the connection.
+Thirty seconds is RECOMMENDED as the default value for this timer.
+Sixty seconds is considered a reasonable upper range.
+Note that there may be cases where a response message is lost and a request has been successful (e.g., user added to a conference); yet, the client will be unaware and close the connection.
+However, as described in Section 4.2, there is a versioning mechanism for the conference objects; thus, there is a mechanism for the conference object stored by the client to be brought up to date.
+CCMP messages have a MIME type of "application/ccmp xml", which appears inside the Content Type and Accept header fields of HTTP requests and responses.
+The XML documents in the CCMP messages MUST be encoded in UTF 8.
+This specification follows the recommendations and conventions described in [RFC3023], including the naming convention of the type (' xml' suffix) and the usage of the 'charset' parameter.
+The 'charset' parameter MUST be included with the XML document.
+Section 9 provides the complete requirements for an HTTP implementation to support CCMP.
+CCMP Messages CCMP messages are either requests or responses.
+The general CCMP request message is defined in Section 5.1.
+The general CCMP response message is defined in Section 5.2.
+The details of the specific message type that is carried in the CCMP request and response messages are described in Section 5.3.
+CCMP response codes are listed in Section 5.4.
+CCMP Request Message Type A CCMP request message is comprised of the following parameters: subject:  An OPTIONAL parameter containing the username and password of the client registered at the conferencing system.
+Each user who subscribes to the conferencing system is assumed to be equipped with those credentials and SHOULD enclose them in each CCMP request she issues.
+These fields can be used to control that the user sending the CCMP request has the authority to perform the requested operation.
+The same fields can also be used for other authorization and authentication procedures.
+An OPTIONAL parameter containing the XCON USERID of the client.
+The XCON USERID is used to identify any conferencing client within the context of the conferencing system and it is assigned by the conference server for each conferencing client who interacts with it.
+> parameter is REQUIRED in the CCMP request and response messages with the exception of the case of a user who has no XCON USERID and who wants to enter, via CCMP, a conference whose identifier is known.
+In such case, a side effect of the request is that the user is provided with an appropriate XCON USERID.
+An example of the aforementioned case will be provided in Section 5.3.6.
+An OPTIONAL parameter containing the XCON URI of the target conference object.
+operation:  An OPTIONAL parameter refining the type of specialized request message.
+The <operation> parameter is REQUIRED in all requests except for the blueprintsRequest and confsRequest specialized messages.
+The parameter is OPTIONAL except that it MUST be inserted in all requests whose target conference object is password protected i.e., contains the <conference password> element in [RFC6501]).
+A CCMP <response code> of "423" MUST be returned if a conference password is not included in the request when required.
+This is a specialization of the generic request message (e.g., blueprintsRequest), containing parameters that are dependent on the specific request sent to the server.
+A specialized request message MUST be included in the CCMP request message.
+The details for the specialized messages and associated parameters are provided in Section 5.3. <!
+Definition of CCMP Request   <xs:
+element name "ccmpRequest" type "ccmp request type" /
+Definition of ccmp request type  <xs:
+complexType name "ccmp request type"> <xs:sequence> <xs:element name "ccmpRequest" type "ccmp request message type" /
+Definition of ccmp request message type
+<xs:complexType abstract "true" name "ccmp request message type"> <xs:sequence
+<xs:element name "subject" type "subject type" minOccurs "
+element name "confUserID" type "xs:string" minOccurs "0" maxOccurs "1" />
+element name "confObjID" type "xs:string" minOccurs "0" maxOccurs "1" />
+element name "operation" type "operationType" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+/xs:complexType> Figure 2: Structure of CCMP Request Messages 5.2.
+CCMP Response Message Type A CCMP response message is comprised of the following parameters: confUserID:
+A REQUIRED parameter in CCMP response messages containing the XCON USERID of the conferencing client that issued the CCMP request message.
+An OPTIONAL parameter containing the XCON URI of the target conference object.
+operation:  An OPTIONAL parameter for CCMP response messages.
+This parameter is REQUIRED in all responses except for the "blueprintsResponse" and "confsResponse" specialized messages.
+response code:  A REQUIRED parameter containing the response code associated with the request.
+The response code MUST be chosen from the codes listed in Section 5.4.
+response string:  An OPTIONAL reason string associated with the response.
+In case of an error, in particular, this string can be used to provide the client with detailed information about the error itself.
+version:  An OPTIONAL parameter reflecting the current version number of the conference object referred by the confObjID.
+This number is contained in the 'version' attribute of the <conference info> element related to that conference.
+This parameter is REQUIRED in CCMP response messages and SHOULD NOT be included in CCMP request messages.
+This is specialization of the generic response message, containing parameters that are dependent on the specific request sent to the server (e.g., "blueprintsResponse").
+A specialized response message SHOULD be included in the CCMP response message, except in an error situation where the CCMP request message did not contain a valid specialized message.
+In this case, the conference server MUST return a <response code> of "400".
+The details for the specialized messages and associated parameters are provided in Section 5.3. <!
+Definition of CCMP Response   <xs:element name "ccmpResponse" type "ccmp response type" /
+Definition of ccmp response type
+complexType name "ccmp response type"> <xs:sequence> <xs:element name "ccmpResponse" type "ccmp response message type" /
+Definition of ccmp response message type
+<xs:complexType abstract "true" name "ccmp response message type"> <xs:sequence
+element name "confUserID" type "xs:string
+"confObjID" type "xs:string" minOccurs "0" maxOccurs "1" />
+<xs:element name "operation" minOccurs "0" maxOccurs "1" /
+element name "response code" type "response codeType
+"response string" type "xs:string" minOccurs "0" maxOccurs "1" />
+<xs:element name "version" type "xs:
+positiveInteger" minOccurs "0" maxOccurs "1
+anyAttribute namespace "##any" processContents "lax"/
+Structure of CCMP Response Message 5.3.
+Based on the request and response message structures described in Sections 5.1 and 5.2, the following summarizes the specialized CCMP request and response types described in this document: 1.
+These CCMP request/response pairs use the fundamental CCMP operations as defined in Section 4.1 to manipulate the conference data.
+These request/response pairs are included in an IANA registry as defined in Section 12.5.
+Table 1 summarizes the remaining CCMP operations and corresponding actions that are valid for a specific CCMP request type, noting that neither the blueprintsRequest/blueprintsResponse nor confsRequest/confsResponse require an <operation> parameter.
+An entity MUST support the response message for each of the request messages that is supported.
+The corresponding response message MUST contain the same <operation> parameter.
+Note that some entries are labeled "N/A", indicating that the operation is invalid for that request type.
+In the case of an "N/A " label, the operation MAY be allowed for specific privileged users or system administrators but is not part of the functionality included in this document.
+These operations are not allowed for a usersRequest message, since the <users> section, which is the target element of such a request, is created and removed in conjunction with the creation and deletion, respectively, of the associated conference document.
+Thus, "update" and "retrieve" are the only semantically correct operations for such message.
+This operation can involve the creation of an XCON USERID, if the sender does not add it in the <confUserID> parameter and/or if the entity field of the <userInfo> parameter is void.
+Additional parameters included in the specialized CCMP request and response messages are detailed in the subsequent sections.
+If a required parameter is not included in a request, the conference server MUST return a <response code> of "400" per Section 5.4.
+(Figure 4) message is sent to request the list of XCON URIs associated with the available blueprints from the conference server.
+These XCON URIs can be subsequently used by the client to access detailed information about a specified blueprint with a specific blueprintRequest message per Section 5.3.3.
+The <confUserID> parameter MUST be included in every blueprintsRequest/Response message and reflect the XCON USERID of the conferencing client issuing the request.
+Since a blueprintsRequest message is not targeted to a specific conference instance and is a "retrieve only" request, the <confObjID> and <operation
+> parameters MUST NOT be included in the blueprintsRequest/Response messages.
+In order to obtain a specific subset of the available blueprints, a client may specify a selection filter providing an appropriate xpath query in the OPTIONAL "xpathFilter" parameter of the request.
+The information in the blueprints typically represents general capabilities and characteristics.
+For example, to select blueprints having both audio and video stream support, a possible xpathFilter value could be: "/conference info[conference description/ available media/entry/type 'audio' and conference description/ available media/entry/type 'video']".
+A conference server SHOULD NOT provide any sensitive information (e.g., passwords) in the blueprints.
+The associated blueprintsResponse message SHOULD contain, as shown in Figure 4, a "blueprintsInfo" parameter containing the above mentioned XCON URI list.
+complexType name "ccmp blueprints request message type"> <xs:complexContent>
+extension base "tns:ccmp request message type">
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+ccmp blueprints response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+Structure of the blueprintsRequest and blueprintsResponse Messages 5.3.2.
+confsRequest and confsResponse A confsRequest message is used to retrieve, from the server, the list of XCON URIs associated with active and registered conferences currently handled by the conferencing system.
+The <confUserID> parameter MUST be included in every confsRequest/Response message and reflect the XCON USERID of the conferencing client issuing the request.
+The <confObjID> parameter MUST NOT be included in the confsRequest message.
+The confsRequest message is of a retrieve only type, since the sole purpose is to collect information available at the conference server.
+Thus, an <operation> parameter MUST NOT be included in a confsRequest message.
+In order to retrieve a specific subset of the available conferences, a client may specify a selection filter providing an appropriate xpath query in the OPTIONAL "xpathFilter" parameter of the request.
+For example, to select only the registered conferences, a possible xpathFilter value could be "/ conference info[conference description/conference state/ active 'false']".
+The associated confsResponse message SHOULD contain the list of XCON URIs in the "confsInfo" parameter.
+A user, upon receipt of the response message, can interact with the available conference objects through further CCMP messages. <!
+complexType name "ccmp confs request message type"> <xs:complexContent>
+extension base "tns:ccmp request message type">
+<xs:element name "confsRequest" type "confsRequestType" />
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp confs response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+element name "confsInfo" type "info:uris type" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+Structure of the confsRequest and confsResponse Messages 5.3.3.
+Through a blueprintRequest, a client can manipulate the conference object associated with a specified blueprint.
+> parameter, the request MUST include the <confObjID> and the <operation> parameters.
+Again, the <confUserID> parameter MUST be included in every blueprintRequest/Response message and reflect the XCON USERID of the conferencing client issuing the request.
+The <confObjID> parameter MUST contain the XCON URI of the blueprint, which might have been previously retrieved through a blueprintsRequest message.
+The blueprintRequest message SHOULD NOT contain an <operation> parameter with a value other than "retrieve".
+An <operation> parameter with a value of "create", "update", or "delete" SHOULD NOT be included in a blueprintRequest message except in the case of privileged users (e.g., the conference server administration staff), who might authenticate themselves by the mean of the "subject" request parameter.
+A blueprintRequest/retrieve carrying a <confObjID> parameter whose value is not associated with one of the available system's blueprints, will generate, on the server's side, a blueprintResponse message containing a <response code> of "404".
+This also holds for the case in which the mentioned <confObjID> parameter value is related to an existing conference document stored at the server, but associated with an actual conference (be it active or registered) or with a sidebar rather than a blueprint.
+For a <response code> of "200" in a "retrieve" operation, the <blueprintInfo> parameter MUST be included in the blueprintResponse message.
+The <blueprintInfo> parameter contains the conference document associated with the blueprint as identified by the <confObjID> parameter specified in the blueprintRequest.
+complexType name "ccmp blueprint request message type"> <xs:complexContent>
+extension base "tns:ccmp request message type">
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp blueprint response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+element name "blueprintResponse" type "blueprintResponseType"/>
+element name "blueprintInfo" type "info:conference type" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "unbounded"
+anyAttribute namespace "##any" processContents "lax"/
+Structure of the blueprintRequest and blueprintResponse Messages 5.3.4.  confRequest and confResponse With a confRequest message, CCMP clients can manipulate conference objects associated with either active or registered conferences.
+The <confUserID> parameter MUST be included in every confRequest/Response message and reflect the XCON USERID of the conferencing client issuing the request.
+confRequest and confResponse messages MUST also include an <operation> parameter.
+ConfResponse messages MUST return to the requestor a <response code
+> and MAY contain a <response  string
+Depending upon the type of operation, a <confObjID> and <confInfo> parameter MAY be included in the confRequest and response.
+For each type of operation, the text below describes whether the <confObjID> and <confInfo> parameters need to be included in the confRequest and confResponse messages.
+The creation case deserves care.
+To create a new conference through a confRequest message, two approaches can be considered: 1.
+Creation through explicit cloning: the <confObjID> parameter MUST contain the XCON URI of the blueprint or of the conference to be cloned, while the <confInfo> parameter MUST NOT be included in the confRequest.
+Note that cloning of an active conference is only done in the case of a sidebar operation per the XCON framework and as described in Section 5.3.8.
+Creation through implicit cloning (also known as "direct creation"): the <confObjID> parameter MUST NOT be included in the request and the CCMP client can describe the desired conference to be created using the <confInfo> parameter.
+If no <confInfo> parameter is provided in the request, the new conference will be created as a clone of the system default blueprint.
+In both creation cases, the confResponse, for a successful completion of a "create" operation, contains a <response code> of "200" and MUST contain the XCON URI of the newly created conference in the <confObjID> parameter, in order to allow the conferencing client to manipulate that conference through following CCMP requests.
+In addition, the <confInfo> parameter containing the conference document created MAY be included, at the discretion of the conferencing system implementation, along with the REQUIRED <version> parameter initialized at "1", since, at creation time, the conference object is at its first version.
+In the case of a confRequest with an <operation> parameter of "retrieve", the <confObjID> parameter representing the XCON URI of the target conference MUST be included and the <confInfo> parameter MUST NOT be included in the request.
+The conference server MUST ignore any <confInfo> parameter that is received in a confRequest "retrieve" operation.
+If the confResponse for the retrieve operation contains a <response code> of "200", the <confInfo> parameter MUST be included in the response.
+The <confInfo> parameter MUST contain the entire conference document describing the target conference object in its current state.
+The current state of the retrieved conference object MUST also be reported in the proper "version" response parameter.
+In case of a confRequest with an <operation> parameter of "update", the <confInfo> and <confObjID> parameters MUST be included in the request.
+The <confInfo> represents an object of type "conference type" containing all the changes to be applied to the conference whose identifier has the same value as the <confObjID> parameter.
+Note that, in such a case, though the <confInfo> parameter indeed has to follow the rules indicated in the XCON data model, it does not represent the entire updated version of the target conference, since it conveys just the modifications to apply to that conference.
+</display text> </conference description> </confInfo
+Modifying the Title of a Conference Similarly, to remove the title of an existing conference, a confRequest/update carrying the following <confInfo> parameter would do the job.
+> <conference description> <display text/
+Removing the Title of a Conference In the case of a confResponse/update with a <response code> of "200", no additional information is REQUIRED in the response message, which means the return of a <confInfo> parameter is OPTIONAL.
+A subsequent confRequest/retrieve transaction might provide the CCMP client with the current status of the conference after the modification, or the notification protocol might address that task as well.
+> of "200" indicates that the conference object has been changed according to the request by the conference server.
+The <version> parameter MUST be enclosed in the confResponse/update message, in order to let the client understand what is the current conference  object version, upon the applied modifications.
+A <response code> of "409
+" indicates that the changes reflected in the <confInfo> parameter of the request are not feasible.
+This could be due to policies, requestor roles, specific privileges, unacceptable values, etc., with the reason specific to a conferencing system and its configuration.
+Together with a <response code> of "409", the <version> parameter MUST be attached in the confResponse/update, allowing the client to later retrieve the current version of the target conference if the one she attempted to modify was not the most up to date.
+In the case of a confRequest with an <operation> parameter of "delete", the <confObjID> parameter representing the XCON URI of the target conference MUST be included while the <confInfo> parameter MUST NOT be included in the request.
+The conference server MUST ignore any <confInfo> parameter that is received within such a request.
+The confResponse MUST contain the same value for the <confObjID> parameter that was included in the confRequest.
+If the confResponse/delete operation contains a <response code> of "200", the conference indicated in the <confObjID> parameter has been successfully deleted.
+/delete with a <response code> of "200" MUST NOT contain the <confInfo> parameter.
+> parameter SHOULD NOT be returned in any confResponse/delete.
+If the conference server cannot delete the conference referenced by the <confObjID> parameter received in the confRequest because it is the parent of another conference object that is in use, the conference server MUST return a <response code> of "425".
+A confRequest with an <operation> parameter of "retrieve", "update", or "delete" carrying a <confObjID> parameter which is not associated with one of the conferences (active or registered) that the system is holding will generate, on the server's side, a confResponse message containing a <response code> of "404".
+This also holds for the case in which the mentioned <confObjID
+> parameter is related to an existing conference object stored at the server, but associated with a blueprint or with a sidebar rather than an actual conference.
+The schema for the confRequest/confResponse pair is shown in Figure 9. <!
+complexType name "ccmp conf request message type"> <xs:complexContent>
+extension base "tns:ccmp request message type">
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp conf response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+element name "confResponse" type "confResponseType" />
+element name "confInfo" type "info:conference type" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+Structure of the confRequest and confResponse
+The usersRequest message allows a client to manipulate the <users> element of the conference object represented by the <confObjID> parameter.
+The <users> element contains the list of <user> elements associated with conference participants, the list of the users to which access to the conference is allowed/denied, conference participation policies, etc.
+The <confObjID> parameter MUST be included in a usersRequest message.
+A <usersInfo> parameter MAY be included in a usersRequest message depending upon the operation.
+If the <usersInfo> parameter is included in the usersRequest message, the parameter MUST be compliant with the <users> field of the XCON data model.
+Two operations are allowed for a usersRequest message: 1.
+"retrieve": In this case the request MUST NOT include a <usersInfo> parameter, while the successful response MUST contain the desired <users> element in the <usersInfo> parameter.
+The conference server MUST ignore a <usersInfo> parameter if it is received in a request with an <operation> parameter of "retrieve".
+In this case, the <usersInfo> parameter MUST contain the modifications to be applied to the <users> element indicated.
+If the <response code> is "200", then the <usersInfo> parameter SHOULD NOT be returned.
+Any <usersInfo> parameter that is returned SHOULD be ignored.
+A <response code> of "426" indicates that the conferencing client is not allowed to make the changes reflected in the <usersInfo> contained in the usersRequest message.
+This could be due to policies, roles, specific privileges, etc., with the reason being specific to a conferencing system and its configuration.
+Operations of "create" and "delete" are not applicable to a usersRequest message and MUST NOT be considered by the server, which means that a <response code> of "403" MUST be included in the usersResponse message.
+complexType name "ccmp users request message type"> <xs:complexContent>
+extension base "tns:ccmp request message type">
+element name "usersRequest" type "usersRequestType" /
+element name "usersInfo" type "info:users type" minOccurs "0" /
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp users response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+:element name "usersResponse" type "usersResponseType" /
+element name "usersInfo" type "info:users type" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+Structure of the usersRequest and usersResponse Messages 5.3.6.
+A userRequest message is used to manipulate <user> elements inside a conference document associated with a conference identified by the <confObjID> parameter.
+Besides retrieving information about a specific conference user, the message is used to request that the conference server either create, modify, or delete information about a user.
+A userRequest message MUST include the <confObjID> and the <operation> parameters, and it MAY include a <userInfo> parameter containing the detailed user's information depending upon the operation and whether the <userInfo> has already been populated for a specific user.
+Note that a user may not necessarily be a conferencing control client (i.e., some participants in a conference are not "XCON aware").
+USERID SHOULD be assigned to each and every user subscribed to the system.
+In such a way, a user who is not a conference participant can make requests (provided she has successfully passed authorization and authentication checks), like creating a conference or retrieving conference information.
+Conference users can be created in a number of different ways.
+In each of these cases, the <operation> parameter MUST be set to "create" in the userRequest message.
+Each of the userResponse messages for these cases MUST include the <confObjID>, <confUserID>, <operation>, and <response code> parameters.
+In the case of a <response code> of "200", the userResponse message MAY include the <userInfo> parameter depending upon the manner in which the user was created:  A conferencing client with an XCON USERID adds itself to the conference: In this case, the <userInfo> parameter MAY be included in the userRequest.
+The <userInfo> parameter MUST contain a <user> element (compliant with the XCON data model) and the 'entity' attribute MUST be set to a value that represents the XCON USERID of the user initiating the request.
+No additional parameters beyond those previously described are required in the userResponse message, in the case of a <response code> of "200".
+A conferencing client acts on behalf of another user whose XCON  USERID is known: In this case, the <userInfo> parameter MUST be included in the userRequest.
+The <userInfo> parameter MUST contain a <user> element and the 'entity' attribute value MUST be set to the XCON USERID of the other user in question.
+No additional parameters beyond those previously described are required in the userResponse message, in the case of a <response  code
+A conferencing client who has no XCON USERID and who wants to enter, via CCMP, a conference whose identifier is known: In this case, a side effect of the request is that the user is provided with a new XCON USERID (created by the server) carried inside the <confUserID
+> parameter of the response.
+This is the only case in which a CCMP request can be valid though carrying a void <confUserID
+A <userInfo> parameter MUST be enclosed in the request, providing at least a contact URI of the joining client, in order to let the focus initiate the signaling phase needed to add her to the conference.
+The mandatory 'entity' attribute of the <userInfo> parameter in the request MUST be filled with a placeholder value with the user part of the XCON
+USERID containing a value of AUTO GENERATE X as described in Section 4.3, to conform to the rules contained in the XCON data model XML schema.
+The messages (userRequest and userResponse) in this case should look like the following:
+Request fields: confUserID null; confObjID confXYZ; operation create; userInfo
+Response fields (in case of success):
+confUserID user345; confObjID confXYZ; operation create; response code 200; userInfo null;
+the entire userInfo object Figure 11: userRequest and userResponse in the Absence of an xcon
+A conferencing client is unaware of the XCON USERID of a third user:
+In this case, the XCON USERID in the request, <confUserID
+>, is the sender's and
+the 'entity' attribute of the attached <userInfo> parameter is filled with the placeholder value "xcon userid:AUTO GENERATE 1@example.com".
+The XCON USERID for the third user MUST be returned to the client issuing the request in the 'entity' attribute of the response <userInfo> parameter, if the <response code> is "200".
+This scenario is intended to support both the case where a brand new conferencing system user is added to a conference by a third party (i.e., a user who has not yet been provided with an XCON USERID) and the case where the CCMP client issuing the request does not know the to be added user's XCON USERID (which means such an identifier could already exist on the server's side for that user).
+In this last case, the conference server is in charge of avoiding XCON URI duplicates for the same conferencing client, looking at key fields in the request provided <userInfo> parameter, such as the signaling URI.
+If the joining user is brand new, then the generation of a new XCON USERID is needed; otherwise, if that user exists already, the server must recover the corresponding XCON USERID.
+In the case of a userRequest with an <operation> parameter of "retrieve", the <confObjID> parameter representing the XCON URI of the target conference MUST be included.
+The <confUserID>, containing the CCMP client's XCON USERID, MUST also be included in the userRequest message.
+If the client wants to retrieve information about her profile in the specified conference, no <userInfo> parameter is needed in the retrieve request.
+On the other hand, if the client wants to obtain someone else's info within the given conference, she MUST include in the userRequest/retrieve a <userInfo> parameter whose 'entity' attribute conveys the desired user's XCON
+If the userResponse for the retrieve operation contains a <response code> of "200", the <userInfo> parameter MUST be included in the response.
+In case of a userRequest with an <operation> parameter of "update", the <confObjID>, <confUserID>, and <userInfo> parameters MUST be included in the request.
+The <userInfo> parameter is of type "user  type" and contains all the changes to be applied to a specific <user> element in the conference object identified by the <confObjID> parameter in the userRequest message.
+The user to be modified is identified through the 'entity' attribute of the <userInfo> parameter included in the request.
+In the case of a userResponse with a <response code> of "200", no additional information is required in the userResponse message.
+A <response code> of "200" indicates that the referenced <user> element has been updated by the conference server.
+A <response code> of "426" indicates that the conferencing client is not allowed to make the changes reflected in the <userInfo> in the initial request.
+This could be due to policies, roles, specific privileges, etc., with the reason specific to a conferencing system and its configuration.
+In the case of a userRequest with an <operation> parameter of "delete", the <confObjID> representing the XCON URI of the target conference MUST be included.
+> parameter, containing the CCMP client's XCON USERID, MUST be included in the userRequest message.
+If the client wants to exit the specified conference, no <userInfo> parameter is needed in the delete request.
+On the other hand, if the client wants to remove another participant from the given conference, she MUST include in the userRequest/delete a <userInfo> parameter whose 'entity' attribute conveys the XCON USERID of that participant.
+The userResponse MUST contain the same value for the <confObjID> parameter that was included in the <confObjID> parameter in the userRequest.
+The userResponse MUST contain a <response code> of "200" if the target <user> element has been successfully deleted.
+If the userResponse for the delete operation contains a <response code> of "200", the userResponse MUST NOT contain the <userInfo> parameter.
+complexType name "ccmp user request message type"> <xs:complexContent>
+extension base "tns:ccmp request message type">
+element name "userRequest" type "userRequestType" /
+<xs:element name "userInfo" type "info:user type" minOccurs "0" />
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp user response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+element name "userResponse" type "userResponseType" /
+<xs:element name "userInfo" type "info:user type" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+Structure of the userRequest and userResponse Messages 5.3.7.
+A sidebarsByValRequest message is used to execute a retrieve only operation on the <sidebars by val> field of the conference object represented by the <confObjID>.
+The sidebarsByValRequest message is of a retrieve only type, so an <operation> parameter MUST NOT be included in a sidebarsByValRequest message.
+As with blueprints and conferences, CCMP allows for the use of xpath filters whenever a selected subset of the sidebars available at the server's side has to be retrieved by the client.
+This applies both to sidebars by reference and sidebars by value.
+A sidebarsByValResponse message with a <response code> of "200" MUST contain a <sidebarsByValInfo> parameter containing the desired <sidebars by val
+A sidebarsByValResponse message MUST return to the client a <version> element related to the current version of the main conference object (i.e., the one whose identifier is contained in the <confObjID> field of the request) with which the sidebars in question are associated.
+The <sidebarsByValInfo> parameter contains the list of the conference objects associated with the sidebars by value derived from the main conference.
+The retrieved sidebars can then be updated or deleted using the sidebarByValRequest message, which is described in Section 5.3.8. <!
+complexType name "ccmp sidebarsByVal request message type"> <xs:complexContent>
+extension base "tns:ccmp request message type">
+element name "sidebarsByValRequest" type "sidebarsByValRequestType" /
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp sidebarsByVal response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+element name "sidebarsByValInfo" type "info:sidebars by val type" minOccurs "0"/
+> <xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+Structure of the sidebarsByValRequest and sidebarsByValResponse Messages 5.3.8.
+A sidebarByValRequest message MUST contain the <operation> parameter, which distinguishes among retrieval, creation, modification, and deletion of a specific sidebar.
+The other required parameters depend upon the type of operation.
+In the case of a "create" operation, the <confObjID> parameter MUST be included in the sidebyValRequest message.
+In this case, the <confObjID> parameter contains the XCON URI of the main conference in which the sidebar has to be created.
+If no "sidebarByValInfo" parameter is included, the sidebar is created by cloning the main conference, as envisioned in the XCON framework [RFC5239] following the implementation specific cloning rules.
+Otherwise, similar to the case of direct creation, the sidebar conference object is built on the basis of the "sidebarByValInfo" parameter provided by the requestor.
+As a consequence of a sidebar by val creation, the conference server MUST update the main conference object reflected by the <confObjID> parameter in the sidebarbyValRequest/create message introducing the new sidebar object as a new <entry> in the proper section <sidebars by val
+The newly created sidebar conference object MAY be included in the sidebarByValResponse in the <sidebarByValInfo
+> parameter, if the <response code> is "200".
+The XCON URI of the newly created sidebar MUST appear in the <confObjID> parameter of the response.
+The conference server can notify any conferencing clients that have subscribed to the conference event package and that are authorized to receive the notification of the addition of the sidebar to the conference.
+In the case of a sidebarByValRequest message with an <operation> parameter of "retrieve", the URI for the conference object created for the sidebar (received in response to a create operation or in a sidebarsByValResponse message) MUST be included in the <confObjID> parameter in the request.
+This retrieve operation is handled by the conference server in the same manner as in the case of an <operation> parameter of "retrieve" included in a confRequest message, as described in Section 5.3.4.
+In the case of a sidebarByValRequest message with an <operation> parameter of "update", the <sidebarByValInfo> MUST also be included in the request.
+The <confObjID> parameter contained in the request message identifies the specific sidebar instance to be updated.
+An update operation on the specific sidebar instance contained in the <sidebarByValInfo> parameter is handled by the conference server in the same manner as an update operation on the conference instance as reflected by the <confInfo> parameter included in a confRequest message as detailed in Section 5.3.4.
+A sidebarByValResponse message MUST return to the client a <version> element related to the current version of the sidebar whose identifier is contained in the <confObjID> field of the request.
+If an <operation> parameter of "delete" is included in the sidebarByVal request, the <sidebarByValInfo
+> parameter MUST NOT be included in the request.
+> included in the request MUST be ignored by the conference server.
+The URI for the conference object associated with the sidebar MUST be included in the <confObjID> parameter in the request.
+If the specific conferencing user, as reflected by the <confUserID
+> parameter, in the request is authorized to delete the conference, the conference server deletes the conference object reflected by the <confObjID> parameter and updates the data in the conference object from which the sidebar was cloned.
+The conference server can notify any conferencing clients that have subscribed to the conference event package and that are authorized to receive the notification of the deletion of the sidebar from the conference.
+If a sidebarByValRequest with an <operation> parameter of "retrieve", "update", or "delete" carries a <confObjID> parameter which is not associated with any existing sidebar by val, a confResponse message containing a <response code> of "404" will be generated on the server's side.
+This also holds for the case in which the mentioned <confObjID
+> parameter is related to an existing conference object stored at the server, but associated with a blueprint or with an actual conference or with a sidebar by ref rather than a sidebar by  val.
+complexType name "ccmp sidebarByVal request message type"> <xs:complexContent>
+extension base "tns:ccmp request message type">
+<xs:element name "sidebarByValRequest" type "sidebarByValRequestType" /
+element name "sidebarByValInfo" type "info:conference type" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp sidebarByVal response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+<xs:element name "sidebarByValResponse" type "sidebarByValResponseType" /
+element name "sidebarByValInfo" type "info:conference type" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+Structure of the sidebarByValRequest and sidebarByValResponse Messages 5.3.9.
+sidebarsByRefRequest and sidebarsByRefResponse Similar to the sidebarsByValRequest,
+a sidebarsByRefRequest can be invoked to retrieve the <sidebars by ref> element of the conference object identified by the <confObjID> parameter.
+The sidebarsByRefRequest message is of a retrieve only type, so an <operation> parameter MUST NOT be included in a sidebarsByRefRequest message.
+In the case of a <response code> of "200", the <sidebarsByRefInfo> parameter, containing the <sidebars by ref> element of the conference object, MUST be included in the response.
+The <sidebars by ref> element represents the set of URIs of the sidebars associated with the main conference, whose description (in the form of a standard XCON conference document) is external to the main conference itself.
+Through the retrieved URIs, it is then possible to access single sidebars using the sidebarByRefRequest message, described in Section 5.3.10.
+A sidebarsByRefResponse message MUST carry back to the client a <version> element related to the current version of the main conference object (i.e., the one whose identifier is contained in the <confObjId> field of the request) with which the sidebars in question are associated.
+complexType name "ccmp sidebarsByRef request message type"> <xs:complexContent>
+extension base "tns:ccmp request message type">
+complexType name "sidebarsByRefRequestType"> <xs:sequence> <xs:element name
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp sidebarsByref response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+:element name "sidebarsByRefResponse" type "sidebarsByRefResponseType"
+element name "sidebarsByRefInfo" type "info:uris type" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+Structure of the sidebarsByRefRequest and sidebarsByRefResponse
+sidebarByValResponse message MUST return to the client a <version> element related to the current version of the sidebar whose identifier is contained in the <confObjID> field of the request.
+In the case of a create operation, the <confObjID> parameter MUST be included in the sidebyRefRequest message.
+In this case, the <confObjID> parameter contains the XCON URI of the main conference in which the sidebar has to be created.
+If no <sidebarByRefInfo> parameter is included, following the XCON framework [RFC5239], the sidebar is created by cloning the main conference, observing the implementation specific cloning rules.
+Otherwise, similar to the case of direct creation, the sidebar conference object is built on the basis of the <sidebarByRefInfo> parameter provided by the requestor.
+If the creation of the sidebar is successful, the conference server MUST update the <sidebars by ref> element in the conference object from which the sidebar was created (i.e., as identified by the <confObjID> in the original sidebarByRefRequest), with the URI of the newly created sidebar.
+The newly created conference object MAY be included in the response in the <sidebarByRefInfo> parameter with a <response code> of "200".
+The URI for the conference object associated with the newly created sidebar object MUST appear in the <confObjID> parameter of the response.
+The conference server can notify any conferencing clients that have subscribed to the conference event package and that are authorized to receive the notification of the addition of the sidebar to the conference.
+In the case of a sidebarByRefRequest message with an <operation> parameter of "retrieve", the URI for the conference object created for the sidebar MUST be included in the <confObjID> parameter in the request.
+A retrieve operation on the <sidebarByRefInfo> is handled by the conference server in the same manner as a retrieve operation on the confInfo included in a confRequest message as detailed in Section 5.3.4.
+In the case of a sidebarByRefRequest message with an <operation> parameter of "update", the URI for the conference object created for the sidebar MUST be included in the <confObjID> parameter in the request.
+The <sidebarByRefInfo> MUST also be included in the request in the case of an "update" operation.
+An update operation on the <sidebarByRefInfo> is handled by the conference server in the same manner as an update operation on the <confInfo> included in a confRequest message as detailed in Section 5.3.4.
+A sidebarByRefResponse message MUST carry back to the client a <version> element related to the current version of the sidebar whose identifier is contained in the <confObjID> field of the request.
+If an <operation> parameter of "delete" is included in the sidebarByRefRequest, the <sidebarByRefInfo> parameter MUST NOT be included in the request.
+Any <sidebarByRefInfo> included in the request MUST be ignored by the conference server.
+The URI for the conference object for the sidebar MUST be included in the <confObjID> parameter in the request.
+If the specific conferencing user as reflected by the <confUserID> parameter in the request is authorized to delete the conference, the conference server SHOULD delete the conference object reflected by the <confObjID> parameter and SHOULD update the <sidebars by ref> element in the conference object from which the sidebar was originally cloned.
+The conference server can notify any conferencing clients that have subscribed to the conference event package and that are authorized to receive the notification of the deletion of the sidebar.
+If a sidebarByRefRequest with an <operation> parameter of "retrieve", "update", or "delete" carries a <confObjID> parameter that is not associated with any existing sidebar by ref, a confResponse message containing a <response code> of "404" will be generated on the server's side.
+This also holds for the case in which the value of the mentioned <confObjID> parameter is related to an existing conference object stored at the server, but associated with a blueprint or with an actual conference or with a sidebar by val rather than a sidebar by ref.
+complexType name "ccmp sidebarByRef request message type"> <xs:complexContent>
+extension base "tns:ccmp request message type">
+element name "sidebarByRefRequest" type "sidebarByRefRequestType" /
+element name "sidebarByRefInfo" type "info:conference type" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp sidebarByRef response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+element name "sidebarByRefInfo" type "info:conference type" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+/xs:complexType> Figure 16: Structure of the sidebarByRefRequest and sidebarByRefResponse Messages 5.3.11.
+In order to allow specifying new request and response pairs for conference control, CCMP defines the extendedRequest and extendedResponse messages.
+Such messages constitute a CCMP skeleton in which implementers can transport the information needed to realize conference control mechanisms not explicitly envisioned in the CCMP specification; these mechanisms are called, in this context, "extensions".
+Each extension is assumed to be characterized by an appropriate name that MUST be carried in the extendedRequest/ extendedResponse pair in the provided <extensionName> field.
+Extension specific information can be transported in the form of schema defined XML elements inside the <any> element present in both extendedRequest and extendedResponse.
+The conferencing client SHOULD be able to determine the extensions supported by a CCMP server and to recover the XML schema defining the related specific elements by means of an optionsRequest/ optionsResponse CCMP transaction (see Section 5.3.12).
+The meaning of the common CCMP parameters inherited by the extendedRequest and extendedResponse from the basic CCMP request and response messages SHOULD be preserved and exploited appropriately while defining an extension.
+complexType name "ccmp extended request message type"> <xs:complexContent>
+extension base "tns:ccmp request message type">
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "unbounded" /
+complexType name "ccmp extended response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "unbounded" /
+Structure of the extendedRequest and extendedResponse
+The optionsRequest message (Figure 18) retrieves general information about conference server capabilities.
+These capabilities include the standard CCMP messages (request/response pairs) and potential extension messages supported by the conference server.
+As such, it is a basic CCMP message, rather than a specialization of the general CCMP request.
+The optionsResponse returns, in the appropriate <options> field, a list of the supported CCMP message pairs as defined in this specification.
+These messages are in the form of a list: <standard  message list> including each of the supported messages as reflected by <standard message> elements.
+The optionsResponse message also allows for an <extended message list>, which is a list of additional message types in the form of <extended message list> elements that are currently undefined, to allow for future extensibility.
+The following information is provided for both types of messages:  <name> (REQUIRED): in case of standard messages, it can be one of the 10 standard message names defined in this document (i.e., "blueprintsRequest", "confsRequest", etc.).
+In case of extensions, this element MUST carry the same value of the <extension name>
+inserted in the corresponding extendedRequest/ extendedResponse message pair.
+this field is a list of <operation> entries, each representing the Create, Read, Update, Delete (CRUD) operation supported by the server for the message.
+If this element is absent, the client SHOULD assume the server is able to handle the entire set of CRUD operations or, in case of standard messages, all the operations envisioned for that message in this document.
+since all CCMP messages can potentially contain XML elements not envisioned in the CCMP schema (due to the presence of <any> elements and attributes), a reference to a proper schema definition specifying such new elements/attributes can also be sent back to the clients by means of such field.
+If this element is absent, no new elements are introduced in the messages other than those explicitly defined in the CCMP specification.
+human readable information about the related message.
+The only parameter needed in the optionsRequest is the sender confUserID, which is mirrored in the same parameter of the corresponding optionsResponse.
+The CCMP server MUST include the <standard message list> containing at least one <operation> element in the optionsResponse, since a CCMP server is REQUIRED to be able to handle both the request and response messages for at least one of the operations.
+complexType name "ccmp options request message type"> <xs:complexContent>
+complexType name "ccmp options response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+element name "optionsResponse" type "optionsResponseType" />
+<xs:element name "options" type "options type" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "options type"> <xs:sequence> <xs:element name "standard message list" type "standard message list type" minOccurs "
+element name "extended message list" type "extended message list type" minOccurs "0"/
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "standard message list type"> <xs:sequence> <xs:element name
+"standard message" type "standard message type" minOccurs "1" maxOccurs "
+> <xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "standard message type"> <xs:sequence> <xs:
+element name "name" type "standard message name type" minOccurs "
+<xs:element name "operations" type "operations type" minOccurs "
+:element name "description" type "xs:string" minOccurs "0"/
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+simpleType name "standard message name type"
+restriction base "xs:token"> <xs:enumeration value "confsRequest"/
+complexType name "operations type"> <xs:sequence> <xs:element name "operation" type "operationType" minOccurs "1" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+Structure of the optionsRequest and optionsResponse Messages 5.4.
+All CCMP response messages MUST include a <response code
+This document defines an IANA registry for the CCMP response codes, as described in Section 12.5.2.
+The following summarizes the CCMP response codes: 200 Success:
+Successful completion of the requested operation.
+400 Bad Request: Syntactically malformed request.
+401 Unauthorized: User not allowed to perform the required operation.
+403 Forbidden: Operation not allowed (e.g., cancellation of a blueprint).
+: The target conference object does not exist at the server (The object in the error message refers to the <confObjID> parameter in the generic request message).
+A generic error associated with all those situations in which a requested client operation cannot be successfully completed by the server.
+An example of such a situation is when the modification of an object cannot be applied due to conflicts arising at the server's side, e.g., because the client version of the object is an obsolete one and the requested modifications collide with the up to date state of the object stored at the server.
+Such code would also be used if a client attempts to create an object (conference or user) with an entity that already exists.
+User Not Found: Target user missing at the server (it is related to the XCON  USERID in the 'entity' attribute of the <userInfo> parameter when it is included in userRequests).
+User does not exist at the server (This code is returned for requests where the <confUserID> parameter is invalid).
+The password for the target conference object contained in the request is wrong.
+423 Conference Password Required: "conference password" missing in a request to access a password  protected conference object.
+User's authentication information is missing or invalid.
+Cancel operation failed since the target object is a parent of child objects that depend on it, or because it affects, based on the "parent enforceable" mechanism, the corresponding element in a child object.
+Update refused by the server because the target element cannot be modified due to its implicit dependence on the value of a parent object ("parent enforceable" mechanism).
+The domain name in an AUTO GENERATE X instance in the conference object is not within the CCMP server's domain of responsibility.
+500 Server Internal Error: The server cannot complete the required service due to a system internal error.
+Operation defined by the protocol, but not implemented by this server.
+The time required to serve the request has exceeded the configured service threshold.
+511 Resources Not Available: This code is used when the CCMP server cannot execute a command because of resource issues, e.g., it cannot create a sub  conference because the system has reached its limits on the number of sub conferences, or if a request for adding a new user fails because the max number of users has been reached for the conference or the max number of users has been reached for the conferencing system.
+The handling of a <response code> of "404", "409", "420", "421", "425", "426", or "427" is only applicable to specific operations for specialized message responses and the details are provided in Section 5.3.
+The following table summarizes these response codes and the specialized message and operation to which they are applicable:
+In the case above, if instead it is the <confUserID
+> parameter of the sender of the request that is invalid, a <response code> of "421" is returned to the client.
+In the case of a <response code> of "510", a conferencing client MAY re attempt the request within a period of time that would be specific to a conferencing client or conference server.
+A <response code> of "400" indicates that the conferencing client sent a malformed request, which is indicative of an error in the conferencing client or in the conference server.
+The handling is specific to the conferencing client implementation (e.g., generate a log, display an error message, etc.).
+It is NOT RECOMMENDED that the client re attempt the request in this case.
+A <response code> of "401" or "403" indicates the client does not have the appropriate permissions, or there is an error in the permissions:
+re attempting the request would likely not succeed and thus it is NOT RECOMMENDED.
+Any unexpected or unknown <response code
+SHOULD be treated by the client in the same manner as a <response code> of "500", the handling of which is specific to the conferencing client implementation.
+A Complete Example of CCMP in Action
+In this section a typical, non normative, scenario in which CCMP comes into play is described, by showing the actual composition of the various CCMP messages.
+In the call flows of the example, the conferencing client is a CCMP enabled client, and the conference server is a CCMP enabled server.
+The XCON USERID of the client, Alice, is "xcon userid:alice@example.com" and it appears in the <confUserID
+> parameter in all requests.
+The sequence of operations is as follows:
+Alice retrieves the list of available blueprints from the server (Section 6.1); 2.  Alice asks for detailed information about a specific blueprint (Section 6.2); 3.
+Alice decides to create a new conference by cloning the retrieved blueprint (Section 6.3); 4.
+Alice modifies information (e.g., XCON URI, name, and description) associated with the newly created blueprint (Section 6.4); 5.
+Alice specifies a list of users to be contacted when the conference is activated (Section 6.5);
+Alice joins the conference (Section 6.6); 7.
+Alice lets a new user, Ciccio, (whose XCON USERID is "xcon userid:Ciccio@example.com") join the conference (Section 6.7).
+Alice asks for the CCMP server capabilities (Section 6.8); 9.
+Alice exploits an extension of the CCMP server (Section 6.9).
+Note that the examples do not include any details beyond the basic operation.
+In the following sections, we deal with each of the aforementioned actions separately.
+Alice Retrieves the Available Blueprints
+This section illustrates the transaction associated with retrieval of the blueprints, together with a dump of the two messages exchanged (blueprintsRequest and blueprintsResponse).
+As shown in the figure, the blueprintsResponse message contains, in the <blueprintsInfo> parameter, information about the available blueprints, in the form of the standard XCON URI of the blueprint, plus additional (and optional) information, like its display text and purpose.
+xml version "1.0" encoding "UTF 8" standalone "yes"?
+xmlns:info "urn:ietf:params:xml:ns:conference info" xmlns:ccmp "urn:ietf:params:xml:ns:xcon ccmp" xmlns:xcon
+xsi "http://www.w3.org/2001/XMLSchema instance" xsi:type "ccmp:
+ccmp blueprints request message type"> <confUserID>
+blueprintsResponse message from the server: <?
+xml version "1.0" encoding "UTF 8" standalone "yes"?
+xcon "urn:ietf:params:xml:ns:xcon conference info" xmlns:info
+xsi "http://www.w3.org/2001/XMLSchema instance" xsi:type "ccmp:
+ccmp blueprints response message type"> <confUserID>
+AudioRoom@example.com</info:uri> <info:display text>AudioRoom</info:display text> <info:purpose>Simple Room: conference room with public access, where only audio is available,
+more users can talk at the same time and the requests for the AudioFloor are automatically accepted.
+> <info:display text>VideoRoom</info:display text> <info:purpose
+>Video Room: conference room with public access, where both audio and video are available, 8 users can talk and be seen at the same time, and the floor requests are automatically accepted.
+:display text> <info:purpose>Public Audio Conference: conference with public access, where only audio is available,
+only one user can talk at the same time, and the requests for the AudioFloor MUST be accepted by a Chair.
+Public Video Conference: conference where both audio and video are available, only one user can talk.
+:display text> <info:purpose>Basic Audio Conference: conference with private access, where only audio is available
+, only one user can talk at the same time, and the requests for the AudioFloor MUST be accepted by a Chair.
+Getting Blueprints from the Server 6.2.
+Alice Gets Detailed Information about a Specific Blueprint
+This section illustrates the second transaction in the overall flow.
+In this case, Alice, who now knows the XCON URIs of the blueprints available at the server, makes a drill down query, in the form of a CCMP blueprintRequest message, to get detailed information about one of them (the one called with XCON URI "xcon:AudioRoom@example.com").
+The picture shows such a transaction.
+Notice that the response contains, in the <blueprintInfo> parameter, a document compliant with the standard XCON data model.
+xml version "1.0" encoding "UTF 8" standalone "yes"?
+xmlns:info "urn:ietf:params:xml:ns:conference info" xmlns:ccmp "urn:ietf:params:xml:ns:xcon ccmp" xmlns:xcon
+xsi "http://www.w3.org/2001/XMLSchema instance" xsi:type "ccmp:
+ccmp blueprint request message type"> <confUserID>
+blueprintResponse message from the server: <?
+xml version "1.0" encoding "UTF 8" standalone "yes"?
+xcon "urn:ietf:params:xml:ns:xcon conference info" xmlns:info
+xsi "http://www.w3.org/2001/XMLSchema instance" xsi:type "ccmp:
+ccmp blueprint response message type"> <confUserID>
+> <ccmp:blueprintResponse> <blueprintInfo entity "xcon:AudioRoom@example.com"
+> <info:display text>AudioRoom</info:display text> <info:available media
+> <info:entry label "audioLabel"> <info:display text>audio stream</info:display text>
+>audio</info:type> </info:entry> </info:available media> </info:
+join handling> </info:users> <xcon:floor information> <
+floor request handling> <xcon:conference floor policy>
+<xcon:floor id "audioFloor"> <xcon:media label
+floor> </xcon:conference floor policy> </xcon:floor information> </blueprintInfo> </ccmp
+Getting Information about a Specific Blueprint 6.3.
+Alice Creates a New Conference through a Cloning Operation
+This section illustrates the third transaction in the overall flow.
+Alice decides to create a new conference by cloning the blueprint having XCON URI "xcon:AudioRoom@example.com", for which she just retrieved detailed information through the blueprintRequest message.
+This is achieved by sending a confRequest/create message having the blueprint's URI in the <confObjID> parameter.
+The picture shows such a transaction.
+Notice that the response contains, in the <confInfo> parameter, the document associated with the newly created conference, which is compliant with the standard XCON data model.
+The <confObjID> parameter in the response is set to the XCON URI of the new conference (in this case, "xcon:8977794@example.com").
+We also notice that this value is equal to the value of the 'entity' attribute of the <conference info> element of the document representing the newly created conference object.
+xml version "1.0" encoding "UTF 8" standalone "yes"?
+xmlns:info "urn:ietf:params:xml:ns:conference info" xmlns:ccmp "urn:ietf:params:xml:ns:xcon ccmp" xmlns:xcon
+xsi "http://www.w3.org/2001/XMLSchema instance" xsi:type "ccmp:ccmp conf request message type"> <confUserID>
+confResponse message from the server: <?
+xml version "1.0" encoding "UTF 8" standalone "yes"?
+xcon "urn:ietf:params:xml:ns:xcon conference info" xmlns:info
+xsi "http://www.w3.org/2001/XMLSchema instance" xsi:type "ccmp:ccmp conf response message type"> <confUserID>
+> <response string>Success</response string> <version>1</version
+> <ccmp:confResponse> <confInfo entity "xcon:8977794@example.com"> <info:conference description> <info:
+display text> New conference by Alice cloned from AudioRoom </info:display text> <info:available media> <info:entry label "333"> <info:
+display text>audio stream</info:display text> <info:type>audio</info:type> </info:entry> </info:available media> </info:conference description
+join handling> </info:users> <xcon:floor information> <
+floor request handling> <xcon:conference floor policy>
+floor> </xcon:conference floor policy> </xcon:floor information> </confInfo
+Creating a New Conference by Cloning a Blueprint 6.4.
+This section illustrates the fourth transaction in the overall flow.
+Alice decides to modify some of the details associated with the conference she just created.
+More precisely, she changes the <display text> element under the <conference description> element of the document representing the conference.
+This is achieved through a confRequest/update message carrying the fragment of the conference document to which the required changes have to be applied.
+As shown in the picture, the response contains a code of "200", which acknowledges the modifications requested by the client, while also updating the conference version number from 1 to 2, as reflected in the "version" parameter.
+Alice updates information about the conference she just created:
+xml version "1.0" encoding "UTF 8" standalone "yes"?
+xmlns:info "urn:ietf:params:xml:ns:conference info" xmlns:ccmp "urn:ietf:params:xml:ns:xcon ccmp" xmlns:xcon
+xsi "http://www.w3.org/2001/XMLSchema instance" xsi:type "ccmp:ccmp conf request message type"> <confUserID>
+> <ccmp:confRequest> <confInfo entity "xcon:8977794@example.com"
+Alice's conference </info:display text> </info:conference description> </confInfo
+confResponse message from the server: <?
+xml version "1.0" encoding "UTF 8" standalone "yes"?
+xcon "urn:ietf:params:xml:ns:xcon conference info" xmlns:info
+xsi "http://www.w3.org/2001/XMLSchema instance" xsi:type "ccmp:ccmp conf response message type"> <confUserID>
+> <response string>Success</response string> <version>2</version
+Alice Inserts a List of Users into the Conference Object
+This section illustrates the fifth transaction in the overall flow.
+Alice modifies the <allowed users list> under the <users> element in the document associated with the conference she created.
+To achieve this, she makes use of the usersRequest message provided by CCMP.
+Alice updates information about the list of users to whom access to the conference is permitted:
+xml version "1.0" encoding "UTF 8" standalone "yes"?
+xcon "urn:ietf:params:xml:ns:xcon conference info" xmlns:info
+xsi "http://www.w3.org/2001/XMLSchema instance" xsi:type "ccmp:
+ccmp users request message type"> <confUserID>
+> <xcon:allowed users list> <xcon:
+target method "dial out" uri "
+<xcon:target method "refer" uri "tel:
+<xcon:target method "refer" uri "sip:
+usersResponse message from the server: <?
+xml version "1.0" encoding "UTF 8" standalone "yes"?
+xcon "urn:ietf:params:xml:ns:xcon conference info" xmlns:info
+xsi "http://www.w3.org/2001/XMLSchema instance" xsi:type "ccmp:
+ccmp users response message type"> <confUserID>
+Updating the List of Allowed Users for the Conference 'xcon:8977794@example.com' 6.6.
+This section illustrates the sixth transaction in the overall flow.
+Alice uses CCMP to add herself to the newly created conference.
+This is achieved through a userRequest/create message containing, in the <userInfo> parameter, a <user> element compliant with the XCON data model representation.
+Notice that such an element includes information about the user's Addresses of Record, as well as her current endpoint.
+The picture below shows the transaction.
+Notice how the <confUserID> parameter is equal to the 'entity' attribute of the <userInfo> element, which indicates that the request issued by the client is a first party one.
+Alice joins the conference by issuing a userRequest/create message with her own ID to the server:
+xml version "1.0" encoding "UTF 8" standalone "yes"?
+xmlns:info "urn:ietf:params:xml:ns:conference info" xmlns:ccmp "urn:ietf:params:xml:ns:xcon ccmp" xmlns:xcon
+xsi "http://www.w3.org/2001/XMLSchema instance" xsi:type "ccmp:ccmp user request message type"> <confUserID>
+> <info:associated aors> <info:entry> <info:uri> mailto:Alice83@example.com </info:uri> <info:display text>email</info:
+display text> </info:entry> </info:associated aors> <info:
+userResponse message from the server: <?
+xml version "1.0" encoding "UTF 8" standalone "yes"?
+xcon "urn:ietf:params:xml:ns:xcon conference info" xmlns:info
+xsi "http://www.w3.org/2001/XMLSchema instance" xsi:type "ccmp:ccmp user response message type"> <confUserID>
+> <response string>Success</response string> <version>4</version
+Alice Joins the Conference through CCMP 6.7.
+Alice Adds a New User to the Conference
+This section illustrates the seventh and last transaction in the overall flow.
+Alice uses CCMP to add a new conferencing system user, Ciccio, to the conference.
+This "third party" request is realized through a userRequest/create message containing, in the <userInfo> parameter, a <user> element compliant with the XCON data model representation.
+Notice that such an element includes information about Ciccio's Addresses of Record, as well as his current endpoint, but has a placeholder 'entity' attribute, "AUTO GENERATE 1@example.com" as discussed in Section 4.3, since the XCON USERID is initially unknown to Alice.
+Thus, the conference server is in charge of generating a new XCON USERID for the user Alice indicates (i.e., Ciccio), and returning it in the 'entity' attribute of the <userInfo> parameter carried in the response, as well as adding the user to the conference.
+The picture below shows the transaction.
+Alice adds user "Ciccio" to the conference by issuing a third party userRequest/create message to the server:
+xml version "1.0" encoding "UTF 8" standalone "yes"?
+xmlns:info "urn:ietf:params:xml:ns:conference info" xmlns:ccmp "urn:ietf:params:xml:ns:xcon ccmp" xmlns:xcon
+xsi "http://www.w3.org/2001/XMLSchema instance" xsi:type "ccmp:ccmp user request message type"> <confUserID>
+AUTO GENERATE 1@example.com"> <info:associated aors> <info:entry> <info:uri
+:display text> </info:entry> </info:associated aors> <info:
+"third party" userResponse message from the server: <?
+xml version "1.0" encoding "UTF 8" standalone "yes"?
+ccmpResponse xmlns:info "urn:ietf:params:xml:ns:conference info" xmlns:ccmp "urn:
+xsi "http://www.w3.org/2001/XMLSchema instance" xsi:type "ccmp:ccmp user response message type"> <confUserID>
+<userInfo entity "xcon userid:Ciccio@example.com"> <info:associated aors
+:display text> </info:entry> </info:associated aors> <info:
+Alice Adds a New User to the Conference through CCMP 6.8.
+Alice Asks for the CCMP Server Capabilities
+This section illustrates how Alice can discover which standard CCMP messages and what extensions are supported by the CCMP server with which she interacts through an optionsRequest/optionsResponse transaction.
+To prepare the optionsRequest, Alice just puts her XCON USERID in the <confUserID
+> element in the received optionsResponse, Alice infers the following server capabilities as regards standard CCMP messages:
+the server doesn't support sidebarsByValRequest nor the sidebarByValRequest messages, since they do not appear in the <standard message list>;
+the only implemented operation for the blueprintRequest message is "retrieve", since no other <operation> entries are included in the related <operations> field.
+By analyzing the <extended message list>, Alice discovers the server implements a bluePrint extension, referred to as "confSummaryRequest" in this example.
+This extension allows Alice to recover via CCMP a brief description of a specific conference; the XML elements involved in this extended conference control transaction are available at the URL indicated in the <schema ref> element, and the only operation provided by this extension is "retrieve".
+To better understand how Alice can exploit the "confSummaryRequest" extension via CCMP, see Section 6.9.
+The figure below shows the optionsRequest/optionsResponse message exchange between Alice and the CCMP server.
+xml version "1.0" encoding "UTF 8" standalone "yes"?
+xmlns:info "urn:ietf:params:xml:ns:conference info" xmlns:ccmp "urn:ietf:params:xml:ns:xcon ccmp" xmlns:xcon
+xsi "http://www.w3.org/2001/XMLSchema instance" xsi:type "ccmp:
+ccmp options request message type"> <confUserID>
+(the server returns the list of its conference control capabilities) <?
+xml version "1.0" encoding "UTF 8" standalone "yes"?
+ccmpResponse xmlns:info "urn:ietf:params:xml:ns:conference info" xmlns:ccmp "urn:
+xsi "http://www.w3.org/2001/XMLSchema instance" xsi:type "ccmp:
+ccmp options response message type"> <confUserID>
+<response code>200</response code> <response string
+success</response string> <ccmp:optionsResponse> <options> <standard message list
+> </standard message> <standard message
+confRequest</name> </standard message> <standard message>
+> </standard message> <standard message
+> </standard message> <standard message
+sidebarByRefRequest</name> </standard message> </standard message list
+> <extended message list> <extended message>
+<schema def> http://example.com/ccmp extension schema.xsd </schema def
+> confSummaryRequest is intended to allow the requestor to retrieve a brief description of the conference indicated in the confObjID request parameter </description> </extended message> </extended message list> </options> </ccmp:optionsResponse
+Alice Asks for the Server Control Capabilities 6.9.
+Makes Use of a CCMP Server Extension
+In this section, a very simple example of CCMP extension support is provided.
+Alice can recover information about this and other server  supported extensions by issuing an optionsRequest (see Section 6.8).
+The extension in question is named "confSummaryRequest" and allows a CCMP client to obtain from the CCMP server synthetic information about a specific conference.
+The conference summary is carried in the form of an XML element as follows: <?
+xml version "1.0" encoding "UTF 8"?
+<xs:element name "title" type "xs:
+<xs:element name "status" type "xs:string"/
+element name "public" type "
+> <xs:element name "media" type "xs:string"/
+:schema> Figure 27: Example of XML Schema defining an extension parameter (ccmp extension
+As can be inferred from the schema file, the <confSummary> element contains conference information related to the following:  title  status (active or registered)
+participation modality (if everyone is allowed to participate, the boolean <public> element is set to "true")
+In order to retrieve a conference summary related to the conference she participates in, Alice sends to the CCMP server an extendedRequest with a "confSummaryRequest"
+<extensionName>, specifying the conference XCON URI in the confObjID request parameter, as depicted in the figure below.
+xml version "1.0" encoding "UTF 8" standalone "yes"?
+xmlns:info "urn:ietf:params:xml:ns:conference info" xmlns:ccmp "urn:ietf:params:xml:ns:xcon ccmp" xmlns:xcon
+"urn:ietf:params:xml:ns:xcon conference info" xmlns:example "http://example.com/ccmp extension"> <ccmpRequest
+xsi "http://www.w3.org/2001/XMLSchema instance" xsi:type "ccmp:
+ccmp extended request message type"> <confUserID>
+(the server provides Alice with a brief description of the desired conference) <?
+xml version "1.0" encoding "UTF 8" standalone "yes"?
+ccmpResponse xmlns:info "urn:ietf:params:xml:ns:conference info" xmlns:ccmp "urn:
+"urn:ietf:params:xml:ns:xcon conference info" xmlns:example "http://example.com/ccmp extension"> <
+xsi "http://www.w3.org/2001/XMLSchema instance" xsi:type "ccmp:
+ccmp extended response message type"> <confUserID>
+> <response code>200</response code> <response string
+Alice's conference </title> <status> active </status> <public> true </public> <media
+Alice Exploits the 'confSummaryRequest' Extension 7.
+If a conferencing client is not pre configured to use a specific conference server for the requests, the client MUST first discover the conference server before it can send any requests.
+The result of the discovery process, is the address of the server supporting conferencing.
+In this document, the result is an http: or https: URI, which identifies a conference server.
+DNS is RECOMMENDED to be used to locate a conference server in the case that the client is not pre configured to use a specific conference server.
+URI Enabled NAPTR (U NAPTR) resolution for conferencing takes a domain name as input and produces a URI that identifies the conference server.
+This process also requires an Application Service tag and an Application Protocol tag, which differentiate conferencing related NAPTR records from other records for that domain.
+Section 12.4.1 defines an Application Service tag of "XCON", which is used to identify the centralized conferencing (XCON) server for a particular domain.
+The Application Protocol tag "CCMP", defined in Section 12.4.2, is used to identify an XCON server that understands CCMP.
+The NAPTR records in the following example (Figure 29) demonstrate the use of the Application Service and Application Protocol tags.
+Iterative NAPTR resolution is used to delegate responsibility for the conferencing service from "zonea.example.com."
+Sample XCON CCMP Service NAPTR Records Details for the "XCON" Application Service tag and the "CCMP" Application Protocol tag are included in Section 12.4.
+As per [RFC5239], CCMP is one of the following four protocols, which have been formally identified within the XCON framework: Conference Control Protocol:
+mediates between conference and media control client (conferencing client) and conference server.
+This document describes such a protocol.
+operates between the floor control client and the floor control server.
+An example of such a protocol is the Binary Floor Control Protocol (BFCP), specified in [RFC4582].
+operates between the Call Signaling Client and the focus.
+Examples of call signaling protocols include SIP, H.323 and IAX.
+Such protocols are capable of negotiating a conferencing session.
+Notification Protocol: operates between the Notification Client and the XCON Notification Service.
+This specification does not define a new notification protocol.
+For clients that use SIP as the call signaling protocol, the XCON event package [RFC6502] MUST be used by the client for notifications of changes in the conference data as described below.
+The protocol specified in this document is a proactive one and is used by a conferencing client to send requests to a conference server in order to retrieve information about the conference objects stored by the server and to possibly manipulate them.
+However, a complete conferencing solution is not prohibited from providing clients with a means for receiving asynchronous updates about the status of the objects available at the server.
+The notification protocol, while conceptually independent of all the mentioned companion protocols, can nonetheless be chosen in a way that is consistent with the overall protocol architecture characterizing a specific deployment, as discussed in the following.
+When the conferencing control client uses SIP [RFC3261] as the signaling protocol to participate in the conference, SIP event notification can be used.
+In such a case, the conferencing control client MUST implement the conference event package for XCON [RFC6502].
+This is the default mechanism for conferencing clients as is SIP for signaling per the XCON framework [RFC5239].
+In the case where the interface to the conference server is entirely web based, there is a common mechanism for web based systems that could be used   a "call back".
+With this mechanism, the conferencing client provides the conference server with an HTTP URL that is invoked when a change occurs.
+This is a common implementation mechanism for e commerce.
+This works well in the scenarios whereby the conferencing client is a web server that provides the graphical HTML user interface and uses CCMP as the back  end interface to the conference server.
+This model can coexist with the SIP event notification model.
+PC based clients behind NATs could provide a SIP event URI, whereas web based clients using CCMP in the back end would probably find the HTTP call back approach much easier.
+The details of this approach are out of scope for CCMP; thus, we expect a future specification will document this solution.
+This section describes the use of HTTP [RFC2616] and HTTP over TLS [RFC2818] as transport mechanisms for CCMP, which a conforming conference server and conferencing client MUST support.
+Although CCMP uses HTTP as a transport, it uses a strict subset of HTTP features, and due to the restrictions of some features, a conferencing server might not be a fully compliant HTTP server.
+It is intended that a conference server can easily be built using an HTTP server with extensibility mechanisms, and that a conferencing client can trivially use existing HTTP libraries.
+This subset of requirements helps implementers avoid ambiguity with the many options the full HTTP protocol offers.
+Support of HTTP authentication [RFC2617] and cookies [RFC6265] is OPTIONAL for a conferencing client that conforms to this specification.
+These mechanisms are unnecessary because CCMP requests carry their own authentication information (in the "subject" field; see Section 5.1).
+A conferencing client SHOULD include support for HTTP proxy authentication.
+A CCMP request is carried in the body of an HTTP POST request.
+The conferencing client MUST include a Host header in the request.
+The MIME type of CCMP request and response bodies is "application/ ccmp xml".
+The conference server and conferencing client MUST provide this value in the HTTP Content Type and Accept header fields.
+If the conference server does not receive the appropriate Content  Type and Accept header fields, the conference server SHOULD fail the request, returning a 406 (Not Acceptable) response.
+CCMP responses SHOULD include a Content Length header.
+Conferencing clients MUST NOT use the Expect header or the Range header in CCMP requests.
+The conference server MAY return 501 (Not Implemented) errors if either of these HTTP features are used.
+In the case that the conference server receives a request from the conferencing client containing an If   (conditional) header, the conference server SHOULD return a 412 (precondition failed) response.
+The POST method is the only method REQUIRED for CCMP.
+If a conference server chooses to support GET or HEAD, it SHOULD consider the kind of application doing the GET.
+Since a conferencing client only uses a POST method, the GET or HEAD MUST be either a URL that was found outside its normal context
+(e.g., somebody found a URL in protocol traces or log files and fed it into their browser) or somebody is testing or debugging a system.
+The conference server could provide information in the CCMP response indicating that the URL corresponds to a conference server and only responds to CCMP POST requests or the conference server could instead try to avoid any leak of information by returning a very generic HTTP error message such as 405 (Method Not Allowed).
+The conference server populates the HTTP headers of responses so that they are consistent with the contents of the message.
+In particular, the CacheControl header SHOULD be set to disable caching of any conference information by HTTP intermediaries.
+Otherwise, there is the risk of stale information and/or the unauthorized disclosure of the information.
+The HTTP status code MUST indicate a 2xx series response for all CCMP Response and Error messages.
+The conference server MAY redirect a CCMP request.
+A conference server MUST NOT include CCMP responses in a 3xx response.
+A conferencing client MUST handle redirects by using the Location header provided by the server in a 3xx response.
+When redirecting, the conferencing client MUST observe the delay indicated by the Retry After header.
+The conferencing client MUST authenticate the server that returns the redirect response before following the redirect.
+A conferencing client SHOULD authenticate the conference server indicated in a redirect.
+The conference server SHOULD support persistent connections and request pipelining.
+If pipelining is not supported, the conference server MUST NOT allow persistent connections.
+The conference server MUST support termination of a response by the closing of a connection.
+Implementations of CCMP that implement HTTP transport MUST implement transport over TLS [RFC2818].
+TLS provides message integrity and confidentiality between the conferencing client and the conference server.
+The conferencing client MUST implement the server authentication method described in HTTPS [RFC2818].
+The device uses the URI obtained during conference server discovery to authenticate the server.
+The details of this authentication method are provided in Section 3.1 of HTTPS [RFC2818].
+When TLS is used, the conferencing client SHOULD fail a request if server authentication fails.
+Security Considerations As identified in the XCON framework [RFC5239], there are a wide variety of potential attacks related to conferencing, due to the natural involvement of multiple endpoints and the capability to manipulate the data on the conference server using CCMP.
+Examples of attacks include the following: an endpoint attempting to listen to conferences in which it is not authorized to participate, an endpoint attempting to disconnect or mute other users, and an endpoint theft of service in attempting to create conferences it is not allowed to create.
+The following summarizes the security considerations for CCMP:
+The client MUST determine the proper conference server.
+The conference server discovery is described in Section 7.
+The client MUST connect to the proper conference server.
+The mechanisms for addressing this security consideration are described in Section 10.1.
+The protocol MUST support a confidentiality and integrity mechanism.
+As described in Section 9, implementations of CCMP MUST implement the HTTP transport over TLS [RFC2818].
+There are security issues associated with the authorization to perform actions on the conferencing system to invoke specific capabilities.
+A conference server SHOULD ensure that only authorized entities can manipulate the conference data.
+The mechanisms for addressing this security consideration are described in Section 10.2.
+The privacy and security of the identity of a user in the conference MUST be assured.
+The mechanisms to ensure the security and privacy of identity are discussed in Section 10.3.
+A final issue is related to Denial of Service (DoS) attacks on the conference server itself.
+The recommendations to minimize the potential and impact of DoS attacks are discussed in Section 10.4.
+Of the considerations listed above, items 1 and 3 are addressed within the referenced sections earlier in this document.
+The remaining security considerations are addressed in detail in the following sections.
+That the Proper Conference Server Has Been Contacted Section 7 describes a mechanism using DNS by which a conferencing client discovers a conference server.
+A primary concern is spoofed DNS replies; thus, the use of DNS Security (DNSSEC) is RECOMMENDED to ensure that the client receives a valid response from the DNS server in cases where this is a concern.
+When the CCMP transaction is conducted using TLS [RFC5246], the conference server can authenticate its identity, either as a domain name or as an IP address, to the conferencing client by presenting a certificate containing that identifier as a subjectAltName (i.e., as an iPAddress or dNSName, respectively).
+Any implementation of CCMP MUST be capable of being transacted over TLS so that the client can request the above authentication.
+Note that, in order for the presented certificate to be valid at the client, the client MUST be able to validate the certificate following the procedures in [RFC2818] in the case of HTTP as a transport.
+In particular, the validation path of the certificate must end in one of the client's trust anchors, even if that trust anchor is the conference server certificate itself.
+If the client has external information as to the expected identity or credentials of the proper conference server, the authentication checks described above MAY be omitted.
+User Authentication and Authorization Many policy authorization decisions are based on the identity of the user or the role that a user may have.
+The conference server MUST implement mechanisms for authentication of users to validate their identity.
+There are several ways that a user might authenticate its identity to the system.
+For users joining a conference using one of the call signaling protocols, the user authentication mechanisms for the specific protocol can be used.
+For example, in the case of a user joining the conference using SIP signaling, the user authentication as defined in [RFC3261] MUST be used.
+For the case of users joining the conference using CCMP, the CCMP Request messages provide a subject field that contains a username and password, which can be used for authentication.
+Since the CCMP messages are RECOMMENDED to be carried over TLS, this information can be sent securely.
+The XCON framework [RFC5239] provides an overview of other authorization mechanisms.
+In the cases where a user is authorized via multiple mechanisms, it is RECOMMENDED that the conference server associate the authorization of the CCMP interface with other authorization mechanisms; for example, Public Switched Telephone Network (PSTN) users that join with a PIN and control the conference using CCMP.
+When a conference server presents the identity of authorized users, it MAY provide information about the way the identity was proven or verified by the system.
+A conference server can also allow a completely unauthenticated user into the system
+this information SHOULD also be communicated to interested parties.
+Once a user is authenticated and authorized through the various mechanisms available on the conference server, the conference server MUST allocate a conference user identifier (XCON USERID) and SHOULD associate the XCON USERID with any signaling specific user identifiers that were used for authentication and authorization.
+This XCON USERID can be provided to a specific user through the conference notification interface and MUST be provided to users that interact with the conferencing system using CCMP (i.e., in the appropriate CCMP response messages).
+The XCON USERIDs for each user/ participant in the conference are contained in the 'entity' attribute in the <user> element in the conference object.
+The XCON USERID is REQUIRED for any subsequent operations by the user on the conference object and is carried in the confUserID parameter in the CCMP requests and responses.
+Note that the policy management of an XCON compliant conferencing system is out of the scope of this document, as well as of the XCON working group (WG).
+However, the specification of a policy management framework is realizable with the overall XCON architecture, in particular with regard to a Role Based Access Control (RBAC) approach.
+In RBAC, the following elements are identified:
+(i) Users; (ii) Roles; (iii) Objects; (iv) Operations; (v) Permissions.
+For all of the above elements, a direct mapping exists onto the main XCON entities.
+As an example, RBAC objects map onto XCON data model objects and RBAC operations map onto CCMP operations.
+Future documents can define an RBAC framework for XCON, by first focusing on the definition of roles and then specifying the needed permission policy sets and role policy sets (used to associate policy permission sets with specific roles).
+With these policies in place, access to a conference object compliant with the XCON data model can be appropriately controlled.
+As far as assigning users to roles, the Users in the RBAC model relate directly to the <users> element in the conference object.
+The <users> element is comprised of <user> elements representing a specific user in the conferencing system.
+Each <user> element contains an 'entity' attribute with the XCON  USERID and a <role> element.
+Thus, each authorized user (as represented by an XCON USERID) can be associated with a <role> element.
+10.3.  Security and Privacy of Identity
+An overview of the required privacy and anonymity for users of a conferencing system are provided in the XCON framework [RFC5239].
+The security of the identity in the form of the XCON USERID is provided in CCMP through the use of TLS.
+The conference server SHOULD support the mechanism to ensure the privacy of the XCON USERID.
+The conferencing client indicates the desired level of privacy by manipulation of the <provide anonymity> element defined in the XCON data model [RFC6501].
+> element controls the degree to which a user reveals their identity.
+The following summarizes the values for the <provide  anonymity
+> element that the client includes in their requests: "hidden": Ensures that other participants are not aware that there is an additional participant (i.e., the user issuing the request) in the conference.
+This could be used in cases of users that are authorized with a special role in a conference (e.g., a supervisor in a call center environment).
+"anonymous": Ensures that other participants are aware that there is another participant (i.e., the user issuing the request); however, the other participants are not provided information as to the identity of the user.
+"semi private": Ensures that the user's identity is only to be revealed to other participants or users that have a higher level authorization (e.g., a conferencing system can be configured such that a human administrator can see all users).
+If the client desires privacy, the conferencing client SHOULD include the <provide anonymity> element in the <confInfo> parameter in a CCMP confRequest message with an <operation> parameter of "update" or "create" or in the <userInfo> parameter in a CCMP userRequest message with an <operation> parameter of "update" or "create".
+If the <provide anonymity> element is not included in the conference object, then other users can see the participant's identity.
+Participants are made aware of other participants that are "anonymous" or "semi  private" when they perform subsequent operations on the conference object or retrieve the conference object or when they receive subsequent notifications.
+Note that independent of the level of anonymity requested by the user, the identity of the user is always known by the conferencing system as that is required to perform the necessary authorization as described in Section 10.2.
+The degree to which human administrators can see the information can be controlled using policies (e.g., some information in the data model can be hidden from human administrators).
+Mitigating DoS Attacks [RFC4732] provides an overview of possible DoS attacks.
+In order to minimize the potential for DoS attacks, it is RECOMMENDED that conferencing systems require user authentication and authorization for any client participating in a conference.
+This can be accomplished through the use of the mechanisms described in Section 10.2, as well as by using the security mechanisms associated with the specific signaling (e.g., Session Initiation Protocol Secure (SIPS)) and media protocols (e.g., Secure Realtime Transport Protocol (SRTP)).
+In addition, Section 4.4 describes the use of a timer mechanism to alleviate the situation whereby CCMP messages pend indefinitely, thus increasing the potential that pending requests continue to increase when is a server is receiving more requests than it can process.
+This section gives the XML schema definition [W3C.REC xmlschema 1 20041028]
+[W3C.REC xmlschema 2 20041028] of the "application/ccmp xml" format.
+This is presented as a formal definition of the "application/ccmp xml" format.
+A new XML namespace, a new XML schema, and the MIME type for this schema are registered with IANA as described in Section 12.
+Note that this XML Schema Definition is not intended to be used with on the fly validation of the presence XML document.
+Whitespaces are included in the schema to conform to the line length restrictions of the RFC format without having a negative impact on the readability of the document.
+Any conforming processor should remove leading and trailing white spaces.
+xml version "1.0" encoding "utf 8"?
+xcon ccmp" xmlns:xsi "http://www.w3.org/2001/XMLSchema instance"
+xcon ccmp" xmlns:tns "urn:ietf:params:xml:ns:xcon ccmp" xmlns:dm "urn:ietf:params:xml:ns:xcon conference info" xmlns:info
+import namespace "urn:ietf:params:xml:ns:xcon conference info" schemaLocation "
+import namespace "urn:ietf:params:xml:ns:conference info" schemaLocation "
+complexType name "ccmp request type"> <xs:sequence> <xs:element name "ccmpRequest" type "ccmp request message type" /
+<xs:complexType abstract "true" name "ccmp request message type"> <xs:sequence
+<xs:element name "subject" type "subject type" minOccurs "
+element name "confUserID" type "xs:string" minOccurs "0" maxOccurs "1" />
+element name "confObjID" type "xs:string" minOccurs "0" maxOccurs "1" />
+element name "operation" type "operationType" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp response type"> <xs:sequence> <xs:element name "ccmpResponse" type "ccmp response message type" /
+<xs:complexType abstract "true" name "ccmp response message type"> <xs:sequence
+element name "confUserID" type "xs:string
+"confObjID" type "xs:string" minOccurs "0" maxOccurs "1" />
+element name "operation" type "operationType" minOccurs "
+"response string" type "xs:string" minOccurs "0" maxOccurs "1" />
+<xs:element name "version" type "xs:
+positiveInteger" minOccurs "0" maxOccurs "1
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp blueprints request message type"> <xs:complexContent>
+extension base "tns:ccmp request message type">
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp blueprint request message type"> <xs:complexContent>
+extension base "tns:ccmp request message type">
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp confs request message type"> <xs:complexContent>
+extension base "tns:ccmp request message type">
+<xs:element name "confsRequest" type "confsRequestType" />
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp conf request message type"> <xs:complexContent>
+extension base "tns:ccmp request message type">
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp users request message type"> <xs:complexContent>
+extension base "tns:ccmp request message type">
+element name "usersRequest" type "usersRequestType" /
+element name "usersInfo" type "info:users type" minOccurs "0" /
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp user request message type"> <xs:complexContent>
+extension base "tns:ccmp request message type">
+element name "userRequest" type "userRequestType" /
+<xs:element name "userInfo" type "info:user type" minOccurs "0" />
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp sidebarsByVal request message type"> <xs:complexContent>
+extension base "tns:ccmp request message type">
+element name "sidebarsByValRequest" type "sidebarsByValRequestType" /
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp sidebarsByRef request message type"> <xs:complexContent>
+extension base "tns:ccmp request message type">
+complexType name "sidebarsByRefRequestType"> <xs:sequence> <xs:element name
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp sidebarByVal request message type"> <xs:complexContent>
+extension base "tns:ccmp request message type">
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp sidebarByRef request message type"> <xs:complexContent>
+extension base "tns:ccmp request message type">
+element name "sidebarByRefRequest" type "sidebarByRefRequestType" /
+element name "sidebarByRefInfo" type "info:conference type" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp extended request message type"> <xs:complexContent>
+extension base "tns:ccmp request message type">
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "unbounded" /
+complexType name "ccmp options request message type"> <xs:complexContent>
+ccmp blueprints response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp blueprint response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+element name "blueprintResponse" type "blueprintResponseType"/>
+element name "blueprintInfo" type "info:conference type" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp confs response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+element name "confsInfo" type "info:uris type" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp conf response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+element name "confResponse" type "confResponseType" />
+element name "confInfo" type "info:conference type" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp users response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+:element name "usersResponse" type "usersResponseType" /
+element name "usersInfo" type "info:users type" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp user response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+element name "userResponse" type "userResponseType" /
+<xs:element name "userInfo" type "info:user type" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp sidebarsByVal response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+element name "sidebarsByValInfo" type "info:sidebars by val type" minOccurs "0"/
+> <xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp sidebarsByRef response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+:element name "sidebarsByRefResponse" type "sidebarsByRefResponseType"
+element name "sidebarsByRefInfo" type "info:uris type" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp sidebarByVal response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+<xs:element name "sidebarByValResponse" type "sidebarByValResponseType" /
+element name "sidebarByValInfo" type "info:conference type" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp sidebarByRef response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+element name "sidebarByRefInfo" type "info:conference type" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "ccmp extended response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "unbounded" /
+complexType name "ccmp options response message type"> <xs:complexContent>
+extension base "tns:ccmp response message type">
+element name "optionsResponse" type "optionsResponseType" />
+<xs:element name "options" type "options type" minOccurs "
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+"response codeType"> <xs:restriction base "xs:positiveInteger"> <xs:pattern value "[0 9][0 9][0 9]" /
+complexType name "subject type"> <xs:sequence> <xs:element name
+"username" type "xs:string" minOccurs "0" maxOccurs "1" />
+<xs:element name "password" type "xs:string" minOccurs "0" maxOccurs "1" />
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "options type"> <xs:sequence> <xs:element name "standard message list" type "standard message list type" minOccurs "
+element name "extended message list" type "extended message list type" minOccurs "0"/
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "standard message list type"> <xs:sequence> <xs:element name
+"standard message" type "standard message type" minOccurs "1" maxOccurs "
+> <xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+complexType name "standard message type"> <xs:sequence> <xs:
+element name "name" type "standard message name type" minOccurs "
+<xs:element name "operations" type "operations type" minOccurs "
+:element name "description" type "xs:string" minOccurs "0"/
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+simpleType name "standard message name type"
+restriction base "xs:token"> <xs:enumeration value "confsRequest"/
+complexType name "operations type"> <xs:sequence> <xs:element name "operation" type "operationType" minOccurs "1" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+<xs:complexType name "extended message list type"> <xs:sequence
+element name "extended message" type "extended message type" minOccurs "0"/
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+<xs:complexType name "extended message type"> <xs:sequence
+<xs:element name "name" type "xs:string" /
+<xs:element name "operations" type "operations type" minOccurs "
+element name "description" type "xs:string
+<xs:any namespace "##other" processContents "lax" minOccurs "0" maxOccurs "
+anyAttribute namespace "##any" processContents "lax"/
+:schema> Figure 30: CCMP XML Schema 12.
+This document registers a new XML namespace, a new XML schema, and the MIME type for the schema.
+This document also registers the "XCON" Application Service tag and the "CCMP" Application Protocol tag and defines registries for the CCMP operation types and response codes.
+This section registers a new XML namespace, "urn:ietf:params:xml:ns:xcon ccmp".
+IETF XCON working group (xcon@ietf.org), Mary Barnes (mary.ietf.barnes@gmail.com).
+Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1 strict.dtd"> <html xmlns "http://www.w3.org/1999/xhtml" xml:lang "en"> <head>
+This section registers an XML schema per the guidelines in [RFC3688].
+IETF XCON working group (xcon@ietf.org), Mary Barnes (mary.ietf.barnes@gmail.com).
+The XML for this schema can be found as the entirety of Section 11 of this document.
+MIME Media Type Registration for 'application/ccmp xml'
+This section registers the "application/ccmp xml" MIME type.
+Subject:  Registration of MIME media type application/ccmp
+xml MIME media type name:
+ccmp xml Required parameters:  (none)
+charset Same as the charset parameter of "application/xml" as specified in [RFC3023], Section 3.2.
+Encoding considerations:  Same as the encoding considerations of "application/xml" as specified in [RFC3023], Section 3.2.
+This content type is designed to carry protocol data related to conference control.
+Some of the data could be considered private.
+This media type does not provide any protection and thus other mechanisms such as those described in Section 10 are required to protect the data.
+This media type does not contain executable content.
+Applications that use this media type:  Centralized Conferencing control clients and servers.
+Additional Information:  Magic Number(s): (none
+): TEXT Person & email address to contact for further information:  Mary Barnes <mary.ietf.barnes@gmail.com
+This media type is a specialization of application/xml [RFC3023], and many of the considerations described there also apply to application/ccmp xml.
+DNS Registrations Section 12.4.1 defines an Application Service tag of "XCON", which is used to identify the centralized conferencing (XCON) server for a particular domain.
+The Application Protocol tag "CCMP", defined in Section 12.4.2, is used to identify an XCON server that understands CCMP.
+Registration of a Conference Server Application Service Tag
+This section registers a new S NAPTR/U NAPTR Application Service tag for XCON, as mandated by [RFC3958].
+Application Service Tag: XCON Intended usage:
+Identifies a server that supports centralized conferencing.
+Defining publication: RFC 6503 Contact information: The authors of this document
+Author/Change controller: The IESG 12.4.2.
+Registration of a Conference Server Application Protocol Tag for CCMP
+This section registers a new S NAPTR/U NAPTR Application Protocol tag for CCMP, as mandated by [RFC3958].
+Identifies the Centralized Conferencing (XCON) Manipulation Protocol.
+XCON Terminal NAPTR Record Type(s): U Defining Publication:
+The authors of this document Author/Change Controller: The IESG 12.5.
+The IANA has created a new registry for CCMP: http://www.iana.org/assignments/ccmp parameters.
+The document creates initial sub registries for CCMP operation types and response codes.
+The following summarizes the registry for CCMP messages
+CCMP Message Types Registry Defining RFC:  RFC 6503.
+Following the policies outlined in [RFC5226], the IANA policy for assigning new values for the CCMP message types for CCMP is Specification Required.
+Registrant Contact:  IETF XCON working group (xcon@ietf.org), Mary Barnes (mary.ietf.barnes@gmail.com).
+This specification establishes the Message sub registry under http://www.iana.org/assignments/ccmp messages.
+The initial Message table is populated using the CCMP messages described in Section 4.1 and defined in the XML schema in Section 11.
+Used by a conferencing client
+[RFC6503] to query a conference server for its capabilities, in terms of supported messages.
+Used by a conferencing client
+[RFC6503] to query a conference server for its capabilities, in terms of available conference blueprints.
+Returns a list of blueprints supported
+[RFC6503] by the specific conference server.
+associated with a specific blueprint.
+blueprintResponse    Returns the conference object
+[RFC6503] associated with a specific blueprint.
+[RFC6503] to query a conference server for its scheduled/active conferences.
+and/or to request an operation on the conference object as a whole.
+Indicates the result of the operation
+[RFC6503] on the conference object as a whole.
+Indicates the result of the requested   [RFC6503] operation on the <user> element in the conference object.
+Used to manipulate the <users> element
+[RFC6503] in the conference object, including parameters such as the <allowed users list>, <join handling>, etc.
+sidebarsByValRequest Used to retrieve the <sidebars by val>
+[RFC6503] element of the target conference object.
+sidebarsByValResponse Returns the list of the sidebar by val [RFC6503] conferences within the target conference object.
+sidebarsByRefRequest  Used to retrieve the <sidebars by ref>
+[RFC6503] element of the target conference object.
+sidebarsByRefResponse Returns the list of the sidebar by ref [RFC6503] conferences associated with the target conference object.
+sidebarByValResponse Indicates the result of the request to  [RFC6503] manipulate a sidebar by val conference.
+sidebarByRefResponse Indicates the result of the request to  [RFC6503] manipulate a sidebar by ref conference.
+The following summarizes the requested registry for CCMP response codes: Related Registry:
+CCMP Response Code Registry Defining RFC:  RFC 6503.
+Following the policies outlined in [RFC5226], the IANA policy for assigning new values for the Response codes for CCMP shall be Specification Required.
+Registrant Contact:  IETF XCON working group (xcon@ietf.org), Mary Barnes (mary.ietf.barnes@gmail.com).
+This specification establishes the Response code sub registry under http://www.iana.org/assignments/ccmp parameters.
+The initial Response code table is populated using the Response codes defined in Section 5.4 as follows:
+The request was badly formed in
+The user was not authorized for
+the specific operation on the conference object.
+A requested operation cannot be
+[RFC6503] successfully completed by the server.
+For example, the modification of an object cannot be applied because the client version of the object is obsolete and the requested modifications collide with the up to date state of the object stored at the server.
+> parameter of the [RFC6503] sender in the request is invalid.
+The server wants to authenticate
+AUTO GENERATE X instance in the conference object is not within the conference server's domain of responsibility.
+The conference server experienced [
+Appendix A.  Evaluation of Other Protocol Models and
+This section provides some background as to the selection of HTTP as the transport for the CCMP requests/responses.
+In addition to HTTP, the operations on the objects can be implemented in at least two different ways, namely as remote procedure calls   using SOAP as described in Appendix A.1 and by defining resources following a RESTful architecture Appendix A.2.
+In both the SOAP and RESTFUL approaches, servers will have to recreate their internal state representation of the object with each update request, checking parameters and triggering function invocations.
+In the SOAP approach, it would be possible to describe a separate operation for each atomic element, but that would greatly increase the complexity of the protocol.
+A coarser grained approach to CCMP does require that the server process XML elements in updates that have not changed and that there can be multiple changes in one update.
+For CCMP, the resource (REST) model might appear more attractive, since the conference operations fit the CRUD approach.
+However, neither of these approaches were considered ideal.
+SOAP was considered to bring additional overhead.
+It is quite awkward to apply a RESTful approach since CCMP requires a more complex request/ response protocol in order to maintain the data both in the server and at the client.
+This doesn't map very elegantly to the basic request/response model, whereby a response typically indicates whether the request was successful or not, rather than providing additional data to maintain the synchronization between the client and server data.
+In addition, the CCMP clients may also receive the data in notifications.
+While the notification method or protocol used by some conferencing clients can be independent of CCMP, the same data in the server is used for both CCMP and notifications this requires a server application above the transport layer (e.g., HTTP) for maintaining the data, which in the CCMP model is transparent to the transport protocol.
+Thus, the solution for CCMP defined in this document is viewed as a good compromise amongst the most notable past candidates and is referred to as "HTTP single verb transport plus CCMP body".
+With this approach, CCMP is able to take advantage of existing HTTP functionality.
+As with SOAP, CCMP uses a "single HTTP verb" for transport (i.e., a single transaction type for each request/response pair); this allows decoupling CCMP messages from HTTP messages.
+Similarly, as with any RESTful approach, CCMP messages are inserted directly in the body of HTTP messages, thus avoiding any unnecessary processing and communication burden associated with further intermediaries.
+With this approach, no modification to the CCMP messages/operations is required to use a different transport protocol.
+CCMP A remote procedure call (RPC) mechanism for CCMP could use SOAP (Simple Object Access Protocol [W3C.REC soap12 part1 20070427] [W3C.REC soap12 part2 20070427]), where conferences and the other objects are modeled as services with associated operations.
+Conferences and other objects are selected by their own local identifiers, such as email like names for users.
+This approach has the advantage that it can easily define atomic operations that have well defined error conditions.
+All SOAP operations would use a single HTTP verb.
+While the RESTful approach requires the use of a URI for each object, SOAP can use any token.
+A RESTful Approach for CCMP Conference objects can also be modeled as resources identified by URIs, with the basic CRUD operations mapped to the HTTP methods POST/ PUT for creating objects, GET for reading objects, PATCH/POST/PUT for changing objects, and DELETE for deleting them.
+Many of the objects, such as conferences, already have natural URIs.
+CCMP can be mapped into the CRUD (Create, Read, Update, Delete) design pattern.
+The basic CRUD operations are used to manipulate conference objects, which are XML documents containing the information characterizing a specified conference instance, be it an active conference or a conference blueprint used by the conference server to create new conference instances through a simple clone operation.
+Following the CRUD approach, CCMP could use a general purpose protocol such as HTTP
+[RFC2616] to transfer domain specific XML
+encoded data objects defined in the "Conference Information Data Model for Centralized Conferencing" [RFC6501].
+Following on the CRUD approach, CCMP could follow the well known REST (REpresentational State Transfer)
+CCMP could map onto the REST philosophy, by specifying resource URIs, resource formats, methods supported at each URI and status codes that have to be returned when a certain method is invoked on a specific URI.
+A REST style approach must ensure sure that all operations can be mapped to HTTP operations.
+The following summarizes the specific HTTP method that could be used for each of the CCMP Requests:
+HTTP GET could be used on XCON URIs, so that clients can obtain data about conference objects in the form of XML data model documents.
+HTTP PUT could be used to create a new object as identified by the XCON URI or XCON USERID.
+Either HTTP PATCH or HTTP POST could be used to change the conference object identified by the XCON URI.
+HTTP DELETE could be used to delete conference objects and parameters within conference objects identified by the XCON URI.

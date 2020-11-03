@@ -1,0 +1,72 @@
+Abstract This memo defines an extension to the SMTP service whereby a client may mark a message for future tracking.
+The model used for Message Tracking is described in [RFC MTRK MODEL].
+Doing a Message Tracking query is intended as a "last resort" mechanism.
+Normally, Delivery Status Notifications (DSNs) [RFC DSN  SMTP] and Message Disposition Notifications (MDNs) [RFC MDN] would provide the primary delivery status.
+Only if the message is not received, or there is no response from either of these mechanisms should a Message Tracking query be issued.
+The definition of the base64 token is imported from section 6.8 of [RFC MIME].
+39 / %x41 5a / %x61 7a
+The definition of the DIGIT token is imported from [RFC MSGFMT].
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in BCP 14, RFC 2119 [RFC KEYWORDS].
+The Message Tracking SMTP service extension uses the SMTP service extension mechanism described in [RFC ESMTP].
+The following service extension is hereby defined:
+The name of the SMTP service extension is "Message Tracking".
+The EHLO keyword value associated with this extension is "MTRK".
+No parameters are allowed with this EHLO keyword value.
+Future documents may extend this specification by specifying parameters to this keyword value.
+(4)   One optional parameter using the keyword "MTRK" is added to the MAIL command.
+In addition, the ENVID parameter of the MAIL command (as defined in RFC 3461) MUST be supported, with extensions as described below.
+The ORCPT parameter of the RCPT command (as defined in RFC 3461) MUST also be supported.
+All semantics associated with ENVID and ORCPT described in RFC 3461 MUST be supported as part of this extension.
+The maximum length of a MAIL command line is increased by 40 characters by the possible addition of the MTRK keyword and value.
+Note that the 507 character extension of RCPT commands for the ORCPT parameter and the 107 character extension of MAIL commands for the ENVID parameter as mandated by RFC 3461 [RFC  DSN SMTP]
+No SMTP verbs are defined by this extension.
+The extended MAIL command is issued by an SMTP client when it wishes to inform an SMTP server that message tracking information should be retained for future querying.
+The extended MAIL command is identical to the MAIL command as defined in [RFC SMTP], except that MTRK, ORCPT, and ENVID parameters appear after the address.
+The MTRK parameter to the ESMTP MAIL command
+Any sender wishing to request the retention of data for further tracking of message must first tag that message as trackable by creating two values A and B:
+A   some large random number B
+The large random number A is calculated on a host dependent basis.
+See [RFC RANDOM] for a discussion of choosing good random numbers.
+This random number MUST be at least 128 bits but MUST NOT be more than 1024 bits.
+The 128 bit hash B of A is then computed using the SHA 1 algorithm as described in [NIST SHA1].
+; seconds until timeout A is stored in the originator's tracking database to validate future tracking requests as described in [RFC MTRK MTQP].
+B is stored in tracking databases of compliant receiver MTAs and used to authenticate future tracking requests.
+The mtrk timeout field indicates the number of seconds that the client requests that this tracking information be retained on intermediate servers, as measured from the initial receipt of the message at that server.
+Servers MAY ignore this value if it violates local policy.
+In particular, servers MAY silently enforce an upper limit to how long they will retain tracking data; this limit MUST be at least one day.
+If no mtrk timeout field is specified then the server should use a local default.
+This default SHOULD be 8 10 days and MUST be at least one day.
+Notwithstanding this clause, the information MUST NOT be expired while the message remains in the queue for this server: that is, an MTQP server MUST NOT deny knowledge of a message while that same message sits in the MTA queue.
+If the message is relayed to another compliant SMTP server, the MTA acting as the client SHOULD pass an mtrk timeout field equal to the remaining life of that message tracking information.
+Specifically, the tracking timeout is decremented by the number of seconds the message has lingered at this MTA and then passed to the next MTA.
+If the decremented tracking timeout is less than or equal to zero, the entire MTRK parameter MUST NOT be passed to the next MTA; essentially, the entire tracking path is considered to be lost at that point.
+See [RFC DELIVERYBY] section 4 for an explanation of why a timeout is used instead of an absolute time.
+Use of ENVID To function properly, Message Tracking requires that each message have a unique identifier that is never reused by any other message.
+For that purpose, if the MTRK parameter is given, an ENVID parameter MUST be included, and the syntax of ENVID from RFC 3461 is extended as follows:
+The unique envid MUST be chosen in such a way that the same ENVID will never be used by any other message sent from this system or any other system.
+In most cases, this means setting fqhn to be the fully qualified host name of the system generating this ENVID, and local  envid to an identifier that is never re used by that host.
+In this case, the fqhn SHOULD be replaced by the SHA1(fqhn) encoded into BASE64.
+After encoding, the 160 bit SHA 1 will be a 27 octet string, which limits local envid to 72 octets.
+Implementors are encouraged to use an algorithm for the local envid that is reasonably unique.
+For example, sequential integers have a high probability of intersecting with sequential integers generated by a different host, but a SHA 1 of the current time of day concatenated with the host's IP address and a random number are unlikely to intersect with the same algorithm generated by a different host.
+Any resubmissions of this message into the message transmission system MUST assign a new ENVID.
+In this context, "resubmission" includes forwarding or resending a message from a user agent, but does not include MTA level aliasing or forwarding where the message does not leave and re enter the message transmission system.
+Forwarding Tracking Certifiers MTAs SHOULD forward unexpired tracking certifiers to compliant mailers as the mail is transferred during regular hop to hop transfers.
+If the "downstream" MTA is not MTRK compliant, then the MTRK  parameter MUST be deleted.
+If the downstream MTA is DSN  compliant, then the ENVID and ORCPT parameters MUST NOT be deleted.
+If aliasing, forwarding, or other redirection of a recipient occurs, and the result of the redirection is exactly one recipient, then the MTA SHOULD treat this as an ordinary hop to hop transfer and forward the MTRK , ENVID , and ORCPT  values; these values MUST NOT be modified except for decrementing the mtrk timeout field of the MTRK  value, which MUST be modified as described in section 4.1 above.
+MTAs MUST NOT copy MTRK certifiers when a recipient is aliased, forwarded, or otherwise redirected and the redirection results in more than one recipient.
+However, an MTA MAY designate one of the multiple recipients as the "primary" recipient to which tracking requests shall be forwarded; other addresses MUST NOT receive tracking certifiers.
+MTAs MUST NOT forward MTRK certifiers when doing mailing list expansion.
+An attacker could attempt to flood the database of a server by submitting large numbers of small, tracked messages.
+In this case, a site may elect to lower its maximum retention period retroactively.
+The mtrk authenticator value ("A") must be hard to predict and not reused.
+The originating client must take reasonable precautions to protect the secret.
+For example, if the secret is stored in a message store (e.g., a "Sent" folder), the client must make sure the secret isn't accessible by attackers, particularly on a shared store.
+Many site administrators believe that concealing names and topologies of internal systems and networks is an important security feature.
+MTAs need to balance such desires with the need to provide adequate tracking information.
+In some cases site administrators may want to treat delivery to an alias as final delivery in order to separate roles from individuals.
+For example, sites implementing "postmaster" or "webmaster" as aliases may not wish to expose the identity of those individuals by permitting tracking through those aliases.
+In other cases, providing the tracking information for an alias is important, such as when the alias points to the user's preferred public address.
+Therefore, implementors are encouraged to provide mechanisms by which site administrators can choose between these alternatives.
+IANA Considerations IANA has registered the SMTP extension defined in section 3.

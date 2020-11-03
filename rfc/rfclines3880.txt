@@ -1,0 +1,902 @@
+Abstract This document defines the Call Processing Language (CPL), a language to describe and control Internet telephony services.
+It is designed to be implementable on either network servers or user agents.
+It is meant to be simple, extensible, easily edited by graphical clients, and independent of operating system or signalling protocol.
+It is suitable for running on a server where users may not be allowed to execute arbitrary programs, as it has no variables, loops, or ability to run external programs.
+The Call Processing Language (CPL) is a language that can be used to describe and control Internet telephony services.
+It is not tied to any particular signalling architecture or protocol; it is anticipated that it will be used with both the Session Initiation Protocol (SIP) [1] and H.323 [16].
+CPL is powerful enough to describe a large number of services and features, but it is limited in power so that it can run safely in Internet telephony servers.
+The intention is to make it impossible for users to do anything more complex (and dangerous) than describe Internet telephony services.
+The language is not Turing complete, and provides no way to write loops or recursion.
+CPL is also designed to be easily created and edited by graphical tools.
+It is based on the Extensible Markup Language (XML) [2],
+so parsing it is easy and many parsers for it are publicly available.
+The structure of the language maps closely to its behavior, so an editor can understand any valid script, even ones written by hand.
+The language is also designed so that a server can easily confirm the validity of a script when the server receives it, rather than discovering problems while a call is being processed.
+Implementations of CPL are expected to take place both in Internet telephony servers and in advanced clients; both can usefully process and direct users' calls.
+This document primarily addresses the usage in servers.
+A mechanism will be needed to transport scripts between clients and servers; this document does not describe such a mechanism, but related documents will.
+The framework and requirements for the CPL architecture are described in RFC 2824, "Call Processing Language Framework and Requirements" [17].
+In this document, the key words "MUST", "
+MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "
+SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" are to be interpreted as described in BCP 14, RFC 2119 [3] and indicate requirement levels for compliant CPL implementations.
+Some paragraphs are indented, like this; they give motivations of design choices, advice to implementors, or thoughts on future development of or extensions to CPL.
+They are not essential to the specification of the language, and are non normative.
+Structure of CPL Scripts 2.1.
+High level Structure A CPL script consists of two types of information: ancillary information about the script, and call processing actions.
+A call processing action is a structured tree that describes the operations and decisions a telephony signalling server performs on a call set up event.
+There are two types of call processing actions: top level actions and subactions.
+Top level actions are actions that are triggered by signalling events that arrive at the server.
+Two top level actions are defined: "incoming", the action performed when a call arrives whose destination is the owner of the script, and "outgoing", the action performed when a call arrives whose originator is the owner of the script.
+Subactions are actions which can be called from other actions.
+CPL forbids subactions from being called recursively: see Section 8.
+Ancillary information is information which is necessary for a server to correctly process a script, but which does not directly describe any operations or decisions.
+Currently, no ancillary information is defined, but the section is reserved for use by extensions.
+Abstract Structure of a Call Processing Action Abstractly, a call processing action is described by a collection of nodes that describe operations that can be performed or decisions that can be made.
+A node may have several parameters, which specify the precise behavior of the node; they usually also have outputs, which depend on the result of the decision or action.
+For a graphical representation of a CPL action, see Figure 1.
+Nodes and outputs can be thought of informally as boxes and arrows; CPL is designed so that actions can be conveniently edited graphically using this representation.
+Nodes are arranged in a tree, starting at a single root node; outputs of nodes are connected to additional nodes.
+When an action is run, the action or decision described by the action's top level node is performed; based on the result of that node, the server follows one of the node's outputs, and the subsequent node it points to is performed; this process continues until a node with no specified outputs is reached.
+Because the graph is acyclic, this will occur after a bounded and predictable number of nodes are visited.
+If an output to a node does not point to another node, it indicates that the CPL server should perform a node  or protocol specific action.
+Some nodes have specific default behavior associated with them; for others, the default behavior is implicit in the underlying signalling protocol, or can be configured by the administrator of the server.
+For further details on this, see Section 10.
+Sample CPL Action: Graphical Version 2.3.
+, one piece of information necessary for CPL is not given as node parameters: the set of locations to which a call is to be directed.
+Instead, this set of locations is stored as an implicit global variable throughout the execution of a processing action (and its subactions).
+This allows locations to be retrieved from external sources, filtered, and so forth, without requiring general language support for such operations (which could harm the simplicity and tractability of understanding the language).
+The specific operations which add, retrieve, or filter location sets are given in Section 5.
+For the incoming top level call processing action, the location set is initialized to the empty set.
+For the outgoing action, it is initialized to the destination address of the call.
+XML Structure Syntactically, CPL scripts are represented by XML documents.
+XML is thoroughly specified by the XML specification [2], and implementors of this specification should be familiar with that document.
+However, as a brief overview, XML consists of a hierarchical structure of tags; each tag can have a number of attributes.
+It is visually and structurally very similar to HTML [18], as both languages are simplifications of the earlier and larger standard SGML [19].
+See Figure 2 for the XML document corresponding to the graphical representation of the CPL script in Figure 1.
+Both nodes and outputs in CPL are represented by XML tags; parameters are represented by XML tag attributes.
+Typically, node tags contain output tags, and vice  versa (with a few exceptions: see Sections 5.1, 5.3, 7.1, and 7.2).
+The connection between the output of a node and another node is represented by enclosing the tag representing the pointed to node inside the tag for the outer node's output.
+Convergence (several outputs pointing to a single node) is represented by subactions, discussed further in Section 8.
+The higher level structure of a CPL script is represented by tags corresponding to each piece of ancillary information, subactions, and top level actions, in order.
+This higher level information is all enclosed in a special tag "cpl", the outermost tag of the XML document.
+A complete XML Schema for CPL is provided in Appendix C.
+The remainder of the main sections of this document describe the semantics of CPL, while giving its syntax informally.
+For the formal syntax, please see the appendix.
+Overview As mentioned, a CPL script consists of ancillary information, subactions, and top level actions.
+The full syntax of the "cpl" node is given in Figure 3. <?
+xml version "1.0" encoding "UTF 8"?
+> </location> </subaction> <incoming> <address switch field "origin" subfield "host"
+> <address subdomain of "example.com"> <location url "sip:jones@example.com"
+"> <busy> <sub ref "voicemail" />
+XML Version Tag:  "cpl" Parameters:  None Sub tags:  "ancillary"  See Section 9 "subaction"  See Section 8 "outgoing"
+Top level actions to take on this user's outgoing calls "incoming"   Top level actions to take on this user's incoming calls Figure 3:
+Syntax of the top level "cpl" tag Call processing actions, both top level actions and subactions, consist of a tree of nodes and outputs.
+Nodes and outputs are both described by XML tags.
+There are four categories of CPL nodes: switches, which represent choices a CPL script can make, location modifiers, which add or remove locations from the location set, signalling operations, which cause signalling events in the underlying protocol, and non signalling operations, which trigger behavior which does not effect the underlying protocol.
+Switches Switches represent choices a CPL script can make, based on either attributes of the original call request or items independent of the call.
+All switches are arranged as a list of conditions that can match a variable.
+Each condition corresponds to a node output; the output points to the next node that should be executed if the condition is true.
+The conditions are tried in the order they are presented in the script; the output corresponding to the first node to match is taken.
+There are two special switch outputs that apply to every switch type.
+The output "not present", which MAY occur anywhere in the list of outputs, is true if the variable the switch was to match was not present in the original call setup request.
+(In this document, this is sometimes described by saying that the information is "absent".)
+The output "otherwise", which MUST be the last output specified if it is present, matches if no other condition matched.
+If no condition matches and no "otherwise" output was present in the script, the default script behavior is taken.
+See Section 10 for more information on this.
+Switches MAY contain no outputs.
+They MAY only contain an "otherwise" output.
+Such switches are not particularly useful, but might be created by tools which automatically generate CPL scripts.
+Address Switches Address switches allow a CPL script to make decisions based on one of the addresses present in the original call request.
+They are summarized in Figure 4.
+also: "password" and "alias type")
+Syntax of the "address switch" node Address switches have two node parameters: "field" and "subfield".
+The mandatory "field" parameter allows the script to specify which address is to be considered for the switch: either the call's origin address (field "origin"), its current destination address (field "destination"), or its original destination (field "original  destination"), the destination the call had before any earlier forwarding was invoked.
+Servers MAY define additional field values.
+The optional "subfield" specifies which part of the address is to be considered.
+The possible subfield values are: "address type", "user", "host", "port", "tel", and "display".
+Additional subfield values MAY be defined for protocol specific values.
+(The subfield "password" is defined for SIP in Section 4.1.1; the subfield "alias  type" is defined for H.323 in Appendix B.1.)
+If no subfield is specified, the "entire" address is matched; the precise meaning of this is defined for each underlying signalling protocol.
+Servers MAY define additional subfield values.
+The subfields are defined as follows: address type: This indicates the type of the underlying address, i.e., the URI scheme, if the address can be represented by a URI.
+The types specifically discussed by this document are "sip", "tel", and "h323".
+The address type is not case  sensitive.
+It has a value for all defined address types.
+This subfield of the address indicates, for e mail style addresses, the user part of the address.
+For a telephone number style address, it includes the subscriber number.
+This subfield is case sensitive; it may be absent.
+This subfield of the address indicates the Internet host name or IP address corresponding to the address, in host name, IPv4, or IPv6 [4] textual representation format.
+Host names are compared as strings.
+IP addresses are compared numerically.
+(In particular, the presence or location of an IPv6 :: omitted zero bits block is not significant for matching purposes.)
+Host names are never equal to IP addresses
+no DNS resolution is performed.
+IPv4 addresses are never equal to IPv6 addresses, even if the IPv6 address is a v4 in v6 embedding.
+This subfield is not case sensitive, and may be absent.
+For host names only, subdomain matching is supported with the "subdomain of" match operator.
+The "subdomain of" operator ignores leading dots in the hostname or match pattern, if any.
+This subfield indicates the TCP or UDP port number of the address, numerically, in decimal format.
+It is not case sensitive, as it MUST only contain decimal digits.
+This subfield indicates a telephone subscriber number, if the address contains such a number.
+It is not case sensitive (telephone numbers may contain the symbols 'A', 'B', 'C', or 'D'), and may be absent.
+It may be matched using the "subdomain of" match operator.
+Punctuation and separator characters in telephone numbers are discarded.
+display: This subfield indicates a "display name" or user visible name corresponding to an address.
+It is a Unicode string, and is matched using the case insensitive algorithm described in Section 4.2.
+The "contains" operator may be applied to it.
+For any completely unknown subfield, the server MAY reject the script at the time it is submitted with an indication of the problem; if a script with an unknown subfield is executed, the server MUST consider the "not present" output to be the valid one.
+The "address" output tag may take exactly one of three possible parameters, indicating the kind of matching allowed.
+An output with this match operator is followed if the subfield being matched in the "address switch" exactly matches the argument of the operator.
+It may be used for any subfield, or for the entire address if no subfield was specified.
+This match operator applies only for the subfields "host" and "tel".
+In the former case, it matches if the hostname being matched is a subdomain of the domain given in the argument of the match operator; thus, subdomain  of "example.com" would match the hostnames "example.com", "research.example.com", and "zaphod.sales.internal.example.com".
+IP addresses may be given as arguments to this operator; however, they only match exactly.
+In the case of the "tel" subfield, the output matches if the telephone number being matched has a prefix that matches the argument of the match operator; subdomain of "1212555" would match the telephone number "1 212 555 1212.
+" contains: This match operator applies only for the subfield "display".
+The output matches if the display name being matched contains the argument of the match as a substring.
+Usage of "address switch" with SIP For SIP, the "origin" address corresponds to the address in the "From" header, "destination" corresponds to the "Request URI", and "original destination" corresponds to the "To" header.
+The "display" subfield of an address is the display name part of the address, if it is present.
+Because of SIP's syntax, the "destination" address field will never have a "display" subfield.
+The "address type" subfield of an address is the URI scheme of that address.
+Other address fields depend on that "address type".
+For SIP URIs, the "user", "host", and "port" subfields correspond to the "user," "host," and "port" elements of the URI syntax.
+(Note that, following the definitions of RFC 3261 [1], a SIP URI which does not specify a port is not the same as an explicit port 5060; the former is indicated by an absent port subfield.)
+The "tel" subfield is defined to be the "user" part of the URI, with visual separators stripped, if the "user phone" parameter is given to the URI, or if the server is otherwise configured to recognize the user part as a telephone number.
+An additional subfield, "password", is defined to correspond to the "password" element of the SIP URI, and is case  sensitive.
+However, use of this field is NOT RECOMMENDED for general security reasons.
+For tel URLs, the "tel" and "user" subfields are the subscriber name; in the former case, visual separators are stripped.
+The "host" and "port" subfields are both not present.
+For h323 URLs, subfields MAY be set according to the scheme described in Appendix B.
+For other URI schemes, only the "address type" subfield is defined by this specification; servers MAY set other pre defined subfields, or MAY support additional subfields.
+If no subfield is specified for addresses in SIP messages, the string matched is the URI part of the address.
+For "is" matches, standard SIP URI matching rules are used; for "contains" matches, the URI is used verbatim.
+String Switches String switches allow a CPL script to make decisions based on free  form strings present in a call request.
+They are summarized in Figure 5.
+Syntax of the "string switch" node String switches have one node parameter: "field".
+The mandatory "field" parameter specifies which string is to be matched.
+String switches are dependent on the call signalling protocol being used.
+Four fields are defined and listed below.
+The value of each of these fields is a free form Unicode string with no other structure defined.
+The subject of the call.
+The organization of the originator of the call.
+The name of the program or device with which the call request was made.
+Free form text associated with the call, intended to be displayed to the recipient, with no other semantics defined by the signalling protocol.
+Strings are matched as case insensitive Unicode strings, in the following manner.
+First, strings are canonicalized to the "Compatibility Composition" (KC) form, as specified in Unicode Standard Annex #15 [5].
+Then, strings are compared using locale  insensitive caseless mapping, as specified in Unicode Standard Annex #21 [6].
+Code to perform the first step, in Java and Perl, is available; see the links from Annex 5 of UAX 15 [5].
+The case insensitive string comparison in the Java standard class libraries already performs the second step; other Unicode aware libraries should be similar.
+The output tag of string matching is named "string", and has a mandatory argument, one of "is" or "contains", indicating whole  string match or substring match, respectively.
+Usage of "string switch" with SIP For SIP,
+the fields "subject", "organization", and "user agent" correspond to the SIP header fields with the same name.
+These are used verbatim as they appear in the message.
+The field "display" is not used, and is never present.
+Language Switches Language switches allow a CPL script to make decisions based on the languages in which the originator of the call wishes to communicate.
+They are summarized in Figure 6.
+Figure 6: Syntax of the "language switch" node Language switches take no parameters.
+The "language" output takes one parameter, "matches".
+The value of the parameter is a language tag, as defined in RFC 3066 [7].
+The caller may have specified a set of language ranges, also as defined in RFC 3066.
+The CPL server checks each language tag specified by the script against the language ranges specified in the request.
+See RFC 3066 for the details of how language ranges match language  tags.
+Languages with a "q" value of 0 are also ignored.
+This switch MAY be not present.
+Usage of "language switch" with SIP
+The language ranges for the "language switch" switch are obtained from the SIP "Accept Language" header field.
+The switch is not  present if the initial SIP request did not contain this header field.
+Note that because of CPL's first match semantics in switches, "q" values other than 0 of the "Accept Language" header fields are ignored.
+Time Switches Time switches allow a CPL script to make decisions based on the time and/or date the script is being executed.
+They are summarized in Figure 7.
+Time switches are independent of the underlying signalling protocol.
+Time Zone URL Output:  "time"
+This allows CPL scripts to be generated automatically from calendar books.
+It also allows us to re use the extensive existing work specifying time intervals.
+If future standards track documents are published that update or obsolete RFC 2445, any changes or clarifications those documents make to recurrence handling apply to CPL time switches as well.
+An algorithm to determine whether an instant falls within a given recurrence is given in Appendix A.
+The "time switch" tag takes two optional parameters, "tzid" and "tzurl", both of which are defined in RFC 2445 (Sections 4.8.3.1 and 4.8.3.5 respectively).
+The "tzid" is the identifying label by which a time zone definition is referenced.
+If it begins with a forward slash (solidus), it references a to be defined global time zone registry; otherwise it is locally defined at the server.
+The "tzurl" gives a network location
+from which an up to date VTIMEZONE definition for the timezone can be retrieved.
+While "tzid" labels that do not begin with a forward slash are locally defined, it is RECOMMENDED that servers support at least the naming scheme used by the Olson Time Zone database [9].
+Examples of timezone databases that use the Olson scheme are the zoneinfo files on most Unix like systems, and the standard Java TimeZone class.
+Servers SHOULD resolve "tzid" and "tzurl" references to time zone definitions at the time the script is uploaded.
+They MAY periodically refresh these resolutions to obtain the most up to date definition of a time zone.
+If a "tzurl" becomes invalid, servers SHOULD remember the most recent valid data retrieved from the URL.
+If a script is uploaded with a "tzid" and "tzurl" which the CPL server does not recognize or cannot resolve, it SHOULD diagnose and reject this at script upload time.
+If neither "tzid" nor "tzurl" are present, all non UTC times within this time switch should be interpreted as being "floating" times, i.e., that they are specified in the local timezone of the CPL server.
+Because of daylight savings time changes over the course of a year, it is necessary to specify time switches in a given timezone.
+UTC offsets are not sufficient, or a time of day routing rule which held between 9 am and 5 pm in the eastern United States would start holding between 8 am and 4 pm at the end of October.
+Authors of CPL servers should be careful to handle correctly the intervals when local time is discontinuous, at the beginning or end of daylight savings time.
+Note especially that some times may occur more than once when clocks are set back.
+The algorithm in Appendix A is believed to handle this correctly.
+Time nodes specify a list of periods during which their output should be taken.
+They have two required parameters: "dtstart", which specifies the beginning of the first period of the list, and exactly one of "dtend" or "duration", which specify the ending time or the duration of the period, respectively.
+The "dtstart" and "dtend" parameters are formatted as iCalendar COS DATE TIME values, as specified in Section 4.3.5 of RFC 2445 [8].
+Because time zones are specified in the top level "time switch" tag, only forms 1 or 2 (floating or UTC times) can be used.
+The "duration" parameter is given as an iCalendar COS DURATION parameter, as specified in section 4.3.6 of RFC 2445.
+Both the DATE TIME and the DURATION syntaxes are subsets of the corresponding syntaxes from ISO 8601 [20].
+For a recurring interval, the "duration" parameter MUST be small enough such that subsequent intervals do not overlap.
+For non  recurring intervals, durations of any positive length are permitted.
+Zero length and negative length durations are not allowed.
+If no other parameters are specified, a time node indicates only a single period of time.
+More complicated sets of period intervals are constructed as recurrences.
+A recurrence is specified by including the "freq" parameter, which indicates the type of recurrence rule.
+Parameters other than "dtstart", "dtend", and "duration" SHOULD NOT be specified unless "freq" is present, though CPL servers SHOULD accept scripts with such parameters present, and ignore the other parameters.
+The "freq" parameter takes one of the following values: "secondly", to specify repeating periods based on an interval of a second or more, "minutely", to specify repeating periods based on an interval of a minute or more, "hourly", to specify repeating periods based on an interval of an hour or more, "daily", to specify repeating periods based on an interval of a day or more, "weekly", to specify repeating periods based on an interval of a week or more, "monthly", to specify repeating periods based on an interval of a month or more, and "yearly", to specify repeating periods based on an interval of a year or more.
+These values are not case sensitive.
+The "interval" parameter contains a positive integer representing how often the recurrence rule repeats.
+The default value is "1", meaning every second for a "secondly" rule, every minute for a "minutely" rule, every hour for an "hourly" rule, every day for a "daily" rule, every week for a "weekly" rule, every month for a "monthly" rule, and every year for a "yearly" rule.
+The "until" parameter defines an iCalendar COS DATE or DATE TIME value which bounds the recurrence rule in an inclusive manner.
+If the value specified by "until" is synchronized with the specified recurrence, this date or date time becomes the last instance of the recurrence.
+If specified as a date time value, then it MUST be specified in UTC time format.
+If not present, and the "count" parameter is not also present, the recurrence is considered to repeat forever.
+The "count" parameter defines the number of occurrences at which to range bound the recurrence.
+The "dtstart" parameter counts as the first occurrence.
+The "until" and "count" parameters MUST NOT occur in the same "time" output.
+The "bysecond" parameter specifies a comma separated list of seconds within a minute.
+Valid values are 0 to 59.
+The "byminute" parameter specifies a comma separated list of minutes within an hour.
+Valid values are 0 to 59.
+The "byhour" parameter specifies a comma  separated list of hours of the day.
+Valid values are 0 to 23.
+The "byday" parameter specifies a comma separated list of days of the week.
+"MO" indicates Monday, "TU" indicates Tuesday, "WE" indicates Wednesday, "TH" indicates Thursday, "FR" indicates Friday, "SA" indicates Saturday, and "SU" indicates Sunday.
+These values are not case sensitive.
+Each "byday" value can also be preceded by a positive ( n) or negative ( n) integer.
+If present, this indicates the nth occurrence of the specific day within the "monthly" or "yearly" recurrence.
+For example, within a "monthly" rule,  1MO (or simply 1MO) represents the first Monday within the month, whereas  1MO represents the last Monday of the month.
+If an integer modifier is not present, it means all days of this type within the specified frequency.
+For example, within a "monthly" rule, MO represents all Mondays within the month.
+The "bymonthday" parameter specifies a comma separated list of days of the month.
+Valid values are 1 to 31 or  31 to  1.
+For example,  10 represents the tenth to the last day of the month.
+The "byyearday" parameter specifies a comma separated list of days of the year.
+Valid values are 1 to 366 or  366 to  1.
+For example,  1 represents the last day of the year (December 31st) and  306 represents the 306th to the last day of the year (March 1st).
+The "byweekno" parameter specifies a comma separated list of ordinals specifying weeks of the year.
+Valid values are 1 to 53 or  53 to  1.
+This corresponds to weeks according to week numbering as defined in ISO 8601 [20].
+A week is defined as a seven day period, starting on the day of the week defined to be the week start (see "wkst").
+Week number one of the calendar year is the first week which contains at least four (4) days in that calendar year.
+This parameter is only valid for "yearly" rules.
+For example, 3 represents the third week of the year.
+Assuming a Monday week start, week 53 can only occur when January 1 is a Thursday or, for leap years, if January 1 is a Wednesday.
+The "bymonth" parameter specifies a comma separated list of months of the year.
+Valid values are 1 to 12.
+The "wkst" parameter specifies the day on which the work week starts.
+Valid values are "MO", "TU", "WE", "TH", "FR", "SA" and "SU".
+This is significant when a "weekly" recurrence has an interval greater than 1, and a "byday" parameter is specified.
+This is also significant in a "yearly" recurrence when a "byweekno" parameter is specified.
+The default value is "MO", following ISO 8601 [20].
+The "bysetpos" parameter specifies a comma separated list of values which corresponds to the nth occurrence within the set of events specified by the rule.
+Valid values are 1 to 366 or  366 to  1.
+It MUST only be used in conjunction with another byxxx parameter.
+For example, "the last work day of the month" could be represented as: <time  timerange  freq
+"monthly" byday "MO,TU,WE,TH,FR" bysetpos " 1">
+Each "bysetpos" value can include a positive ( n) or negative ( n) integer.
+If present, this indicates the nth occurrence of the specific occurrence within the set of events specified by the rule.
+If byxxx parameter values are found which are beyond the available scope (i.e., bymonthday "30" in February), they are simply ignored.
+Byxxx parameters modify the recurrence in some manner.
+Byxxx rule parts for a period of time which is the same or greater than the frequency generally reduce or limit the number of occurrences of the recurrence generated.
+For example, freq "daily" bymonth "1" reduces the number of recurrence instances from all days (if the "bymonth" parameter is not present) to all days in January.
+Byxxx parameters for a period of time less than the frequency generally increase or expand the number of occurrences of the recurrence.
+For example, freq "yearly" bymonth "1,2" increases the number of days within the yearly recurrence set from 1 (if "bymonth" parameter is not present) to 2.
+If multiple Byxxx parameters are specified, then after evaluating the specified "freq" and "interval" parameters, the Byxxx parameters are applied to the current set of evaluated occurrences in the following order: "bymonth", "byweekno", "byyearday", "bymonthday", "byday", "byhour", "byminute", "bysecond", and "bysetpos"; then "count" and "until" are evaluated.
+Here is an example of evaluating multiple Byxxx parameters.
+<time dtstart "19970105T083000" duration "10M" freq "yearly" interval "2
+" bymonth "1" byday "SU" byhour "8,9" byminute "30"
+First, the interval "2" would be applied to freq "yearly" to arrive at "every other year.
+Then, bymonth "1" would be applied to arrive at "every January, every other year."
+Then, byday "SU" would be applied to arrive at "every Sunday in January, every other year.
+" Then, byhour "8,9" would be applied to arrive at "every Sunday in January at 8 AM and 9 AM, every other year."
+Then, byminute "30" would be applied to arrive at "every Sunday in January at 8:30 AM and 9:30 AM, every other year.
+Then the second is derived from "dtstart" to end up in "every Sunday in January from 8:30:00 AM to 8:40:00 AM, and from and 9:30:00 AM to 9:40:00 AM, every other year.
+Similarly, if the "byminute", "byhour", "byday", "bymonthday", or "bymonth" parameter were missing, the appropriate minute, hour, day, or month would have been retrieved from the "dtstart" parameter.
+The iCalendar COS RDATE, EXRULE, and EXDATE recurrence rules are not specifically mapped to components of the time switch node.
+Equivalent functionality to the exception rules can be attained by using the ordering of switch rules to exclude times using earlier rules; equivalent functionality to the additional date RDATE rules can be attained by using "sub" nodes (see Section 8) to link multiple outputs to the same subsequent node.
+The "not present" output is never true for a time switch.
+However, it MAY be included to allow switch processing to be more regular.
+iCalendar Differences and Implementation Issues
+(This sub sub section is non normative.)
+The specification of recurring events in this section is identical (except for syntax and formatting issues) to that of RFC 2445 [8], with only one additional restriction.
+That one restriction is that consecutive instances of recurrence intervals may not overlap.
+It was a matter of some debate, during the design of CPL, whether the entire iCalendar COS recurrence specification should be included in CPL, or whether only a subset should be included.
+It was eventually decided that compatibility between the two protocols was of primary importance.
+This imposes some additional implementation issues on implementors of CPL servers.
+It does not appear to be possible to determine, in constant time, whether a given instant of time falls within one of the intervals defined by a full iCalendar COS recurrence.
+The primary concerns are as follows:
+The "count" parameter cannot be checked in constant running time, since it requires that the server enumerate all recurrences from "dtstart" to the present time, in order to determine whether the current recurrence satisfies the parameter.
+However, a server can expand a "count" parameter once, off line, to determine the date of the last recurrence.
+This date can then be treated as a virtual "until" parameter for the server's internal processing.
+Similarly, the "bysetpos" parameter requires that the server enumerate all instances of the occurrence from the start of the current recurrence set until the present time.
+This requires somewhat more complex pre processing, but generally, a single recurrence with a "bysetpos" parameter can be split up into several recurrences without them.
+Finally, constant running time of time switches also requires that a candidate starting time for a recurrence can be established quickly and uniquely, to check whether it satisfies the other restrictions.
+This requires that a recurrence's duration not be longer than its repetition interval, so that a given instant cannot fall within several consecutive potential repetitions of the recurrence.
+The restriction that consecutive intervals not overlap partially satisfies this condition, but does not fully ensure it.
+Again, to some extent pre processing can help resolve this.
+The algorithm given in Appendix A runs in constant time after these pre processing steps.
+Servers ought to check that recurrence rules do not create any absurd run time or memory requirements, and reject those that do, just as they ought to check that CPL scripts in general are not absurdly large.
+Priority Switches Priority switches allow a CPL script to make decisions based on the priority specified for the original call.
+They are summarized in Figure 8.
+They are dependent on the underlying signalling protocol.
+The "priority" tag takes one of the three parameters "greater", "less", or "equal".
+The values of these parameters are one of the following priorities: in decreasing order, "emergency", "urgent", "normal", and "non urgent".
+These values are matched in a case  insensitive manner.
+Outputs with the "less" parameter are taken if the priority of the call is less than the priority given in the argument, and so forth.
+If no priority is specified in a message, the priority is considered to be "normal".
+If an unknown priority is specified in the call, it is considered to be equivalent to "normal" for the purposes of "greater" and "less" comparisons, but it is compared literally for "equal" comparisons.
+Since every message has a priority, the "not present" output is never true for a priority switch.
+However, it MAY be included, to allow switch processing to be more regular.
+Usage of "priority switch" with SIP
+The priority of a SIP message corresponds to the "Priority" header in the initial "INVITE" message.
+The abstract location model of CPL is described in Section 2.3.
+The behavior of several of the signalling operations (defined in Section 6) is dependent on the current location set specified.
+Location nodes add or remove locations from the location set.
+There are three types of location nodes defined.
+Explicit locations add literally specified locations to the current location set, location lookups obtain locations from some outside source, and location filters remove locations from the set, based on some specified criteria.
+Explicit Location Explicit location nodes specify a location literally.
+Their syntax is described in Figure 9.
+Explicit location nodes are dependent on the underlying signalling protocol.
+Syntax of the "location" node Explicit location nodes have three node parameters.
+The mandatory "url" parameter's value is the URL of the address to add to the location set.
+Only one address may be specified per location node; multiple locations may be specified by cascading these nodes.
+The optional "priority" parameter specifies a priority for the location.
+Its value is a floating point number between 0.0 and 1.0.
+If it is not specified, the server SHOULD assume a default priority of 1.0.
+The optional "clear" parameter specifies whether the location set should be cleared before adding the new location to it.
+Its value can be "yes" or "no", with "no" as the default.
+Basic location nodes have only one possible result, since there is no way that they can fail.
+(If a basic location node specifies a location which isn't supported by the underlying signalling protocol, the script server SHOULD detect this and report it to the user at the time the script is submitted.)
+Therefore, their XML representations do not have explicit output tags; the <location> tag directly contains another node.
+Usage of "location" with SIP
+All SIP locations are represented as URLs, so the locations specified in "location" tags are interpreted directly.
+Location Lookup Locations can also be specified up through external means, through the use of location lookups.
+The syntax of these tags is given in Figure 10.
+Location lookup is dependent on the underlying signalling protocol.
+Next node if lookup was successful "notfound"
+if lookup found no addresses "failure"
+Time to try before giving up on the lookup
+Parameters:  none Output:  "failure" Parameters:  none Figure 10: Syntax of the "lookup" node Location lookup nodes have one mandatory parameter and two optional parameters.
+The mandatory parameter is "source", the source of the lookup.
+This can either be a URI, or a non URI value.
+If the value of "source" is a URI, it indicates a location which the CPL server can query to obtain an object with the text/uri list media type (see the IANA registration of this type, which also appears in RFC 2483 [10]).
+The query is performed verbatim, with no additional information (such as URI parameters) added.
+The server adds the locations contained in this object to the location set.
+CPL servers MAY refuse to allow URI based sources for location queries for some or all URI schemes.
+In this case, they SHOULD reject the script at script upload time.
+There has been discussion of having CPL servers add URI parameters to the location request, so that (for instance) CGI scripts could be used to resolve them.
+However, the consensus was that this should be a CPL extension, not a part of the base specification.
+Non URL sources indicate a source not specified by a URL which the server can query for addresses to add to the location set.
+The only non URL source currently defined is "registration", which specifies all the locations currently registered with the server.
+The "lookup" node also has two optional parameters.
+The "timeout" parameter specifies the time, as a positive integer number of seconds, the script is willing to wait for the lookup to be performed.
+If this is not specified, its default value is 30.
+The "clear" parameter specifies whether the location set should be cleared before the new locations are added.
+Lookup has three outputs: "success", "notfound", and "failure".
+Notfound is taken if the lookup process succeeded but did not find any locations; failure is taken if the lookup failed for some reason, including that the specified timeout was exceeded.
+If a given output is not present, script execution terminates and the default behavior is performed.
+Usage of "lookup" with SIP For SIP, the "registration" lookup source corresponds to the locations registered with the server using "REGISTER" messages.
+A CPL script can also remove locations from the location set, through the use of the "remove location" node.
+The syntax of this node is defined in Figure 11.
+The meaning of this node is dependent on the underlying signalling Protocol.
+It is primarily useful following a "lookup" node.
+An example of this is given in Section 12.8.
+The "remove location" node has one optional parameter.
+The parameter "location" gives the URI of a location to be removed from the set, in a signalling protocol dependent manner.
+If this parameter is not given, all locations are removed from the set.
+The "remove location" node has no explicit output tags.
+In the XML syntax, the XML "remove location" tag directly encloses the next node's tag.
+Usage of "remove location" with SIP
+The location specified in the "location" parameter of the "remove  location" node is matched against the location set using the standard rules for SIP URI matching (as are used, e.g., to match Contact addresses when refreshing registrations).
+Signalling Operations Signalling operation nodes cause signalling events in the underlying signalling protocol.
+Three signalling operations are defined: "proxy," "redirect," and "reject.
+Proxy Proxy causes the triggering call to be forwarded on to the currently specified set of locations.
+The syntax of the proxy node is given in Figure 12.
+The specific signalling events invoked by the "proxy" node are signalling protocol dependent, though the general concept should apply to any signalling protocol.
+Next node if call attempt returned "busy" "noanswer"
+Next node if call attempt was not answered before timeout "redirection"
+if call attempt was redirected "failure"
+"redirection" Parameters:  none Output:  "failure" Parameters:  none Output:  "default"
+Syntax of the "proxy" node After a proxy operation has completed, the CPL server chooses the "best" response to the call attempt, as defined by the signalling protocol or the server's administrative configuration rules.
+If the call attempt was successful, CPL execution terminates and the server proceeds to its default behavior (normally, to allow the call to be set up).
+Otherwise, the next node corresponding to one of the "proxy" node's outputs is taken.
+The "busy" output is followed
+if the call was busy, "noanswer" is followed if the call was not answered before the "timeout" parameter expired, "redirection" is followed if the call was redirected, and "failure" is followed if the call setup failed for any other reason.
+If one of the conditions above is true, but the corresponding output was not specified, the "default" output of the "proxy" node is followed instead.
+If there is also no "default" node specified, CPL execution terminates and the server returns to its default behavior (normally, to forward the best response upstream to the originator).
+Note: CPL extensions to allow in call or end of call operations will require an additional output, such as "success", to be added.
+If no locations were present in the set, or if the only locations in the set were locations to which the server cannot proxy a call (for example, "http" URLs), the "failure" output is taken.
+Proxy has three optional parameters.
+The "timeout" parameter specifies the time, as a positive integer number of seconds, to wait for the call to be completed or rejected; after this time has elapsed, the call attempt is terminated and the "noanswer" branch is taken.
+If this parameter is not specified, the default value is 20 seconds if the "proxy" node has a "noanswer" or
+"default" output specified; otherwise the server SHOULD allow the call to ring for a reasonably long period of time (to the maximum extent that server policy allows).
+The second optional parameter is "recurse", which can take two values, "yes" or "no".
+This specifies whether the server should automatically attempt to place further call attempts to telephony addresses in redirection responses that were returned from the initial server.
+Note that if the value of "recurse" is "yes", the "redirection" output to the script is never taken.
+In this case this output SHOULD NOT be present.
+The default value of this parameter is "yes".
+The third optional parameter is "ordering".
+This can have three possible values: "parallel", "sequential", and "first only".
+This parameter specifies in what order the locations of the location set should be tried.
+Parallel asks that they all be tried simultaneously; sequential asks that the one with the highest priority be tried first, the one with the next highest priority second, and so forth, until one succeeds or the set is exhausted.
+First only instructs the server to try only the highest priority address in the set, and then follow one of the outputs.
+The priority of locations in a set is determined by server policy, though CPL servers SHOULD honor the "priority" parameter of the "location" tag.
+The default value of this parameter is "parallel".
+Once a proxy operation completes, if control is passed on to other nodes, all locations which have been used are cleared from the location set.
+That is, the location set is emptied of proxyable locations if the "ordering" was "parallel" or "sequential"; the highest priority item in the set is removed from the set if "ordering" was "first only".
+(In all cases, non proxyable locations such as "http" URIs remain.)
+In the case of a "redirection" output, the new addresses to which the call was redirected are then added to the location set.
+Usage of "proxy" with SIP For SIP, the best response to a "proxy" node is determined by the algorithm of the SIP specification.
+The node's outputs correspond to the following events:
+A 486 or 600 response was the best response received for the call request.
+A 3xx response was the best response received for the call request.
+Any other 4xx, 5xx, or 6xx response was the best response received for the call request.
+No final response was received for the call request before the timeout expired.
+SIP servers SHOULD honor the "q" parameter of SIP registrations when determining location priority.
+Redirect Redirect causes the server to direct the calling party to attempt to place its call to the currently specified set of locations.
+The syntax of this node is specified in Figure 13.
+The specific behavior the redirect node invokes is dependent on the underlying signalling protocol involved, though its semantics are generally applicable.
+None Parameters:  "permanent"  Whether the redirection should be considered permanent Figure 13: Syntax of the "redirect" node Redirect immediately terminates execution of the CPL script, so this node has no outputs and no next node.
+It has one parameter, "permanent", which specifies whether the result returned should indicate that this is a permanent redirection.
+The value of this parameter is either "yes" or "no" and its default value is "no.
+Usage of "redirect" with SIP The SIP server SHOULD send a 3xx class response to a call request upon executing a "redirect" tag.
+If "permanent" was "yes", the server SHOULD send the response "301"
+(Moved permanently), otherwise it SHOULD send "302" (Moved temporarily).
+Reject Reject nodes cause the server to reject the call attempt.
+Their syntax is given in Figure 14.
+The specific behavior they invoke is dependent on the underlying signalling protocol involved, though their semantics are generally applicable.
+None Parameters:  "status"  Status code to return "reason"  Reason phrase to return Figure 14: Syntax of the "reject"
+A reject node immediately terminates the execution of a CPL script, so this node has no outputs and no next node.
+This node has two arguments: "status" and "reason".
+The "status" argument is required, and can take one of the values "busy", "notfound", "reject", "error", or a signalling protocol defined status.
+The "reason" argument optionally allows the script to specify a reason for the rejection.
+Usage of "reject" with SIP Servers which implement SIP SHOULD also allow the "status" field to be a numeric argument corresponding to a SIP status in the 4xx, 5xx, or 6xx range.
+They SHOULD send the "reason" parameter in the SIP reason phrase.
+A suggested mapping of the named statuses is as follows.
+Servers MAY use a different mapping, though similar semantics SHOULD be preserved. "busy": 486 Busy Here "notfound": 404 Not Found "reject": 603 Decline "error": 500 Internal Server Error 7.
+Non signalling Operations In addition to the signalling operations, CPL defines several operations which do not affect and are not dependent on the telephony signalling protocol.
+The mail node causes the server to notify a user of the status of the CPL script through electronic mail.
+Its syntax is given in Figure 15.
+Syntax of the "mail" node
+The "mail" node takes one argument: a "mailto" URL giving the address, and any additional desired parameters, of the mail to be sent.
+The server sends the message containing the content to the given url; it SHOULD also include other status information about the original call request and the CPL script at the time of the notification.
+A mail node has only one possible result, since failure of e mail delivery cannot reliably be known in real time.
+Therefore, its XML representation does not have output tags: the <mail> tag directly contains another node tag.
+Suggested Content of Mailed Information
+This section presents suggested guidelines for the mail sent as a result of the "mail" node, for requests triggered by SIP.
+The message mailed (triggered by any protocol) SHOULD contain all this information, but servers MAY elect to use a different format.
+If the "mailto" URI did not specify a subject header, the subject of the e mail is "[CPL]", followed by the subject header of the SIP request.
+If the URI specified a subject header, it is used instead.
+The "From" field of the e mail is set to a CPL server
+configured address, overriding any "From" field in the "mailto" URI.
+Any "Reply To" header in the URI is honored.
+If none is given, then an e mail ized version of the origin field of the request is used, if possible (e.g., a SIP "From" header with a sip: URI would be converted to an e mail address by stripping the URI scheme).
+If the "mailto" URI specifies a body, it is used.
+If none was specified, the body SHOULD contain at least the identity of the caller (both the caller's display name and address), the date and time of day, the call subject, and if available, the call priority.
+The server SHOULD honor the user's requested languages, and send the mail notification using an appropriate language and character set.
+The Log node causes the server to log information about the call to non volatile storage.
+Its syntax is specified in Figure 16.
+Servers SHOULD also include other information in the log, such as the time of the logged event, information that triggered the call to be logged, and so forth.
+Logs are specific to the owner of the script which logged the event.
+If the "name" parameter is not given, the event is logged to a standard, server defined log file for the script owner.
+This specification does not define how users may retrieve their logs from the server.
+The name of a log is a logical name only, and does not necessarily correspond to any physical file on the server.
+The interpretation of the log file name is server defined, as is a mechanism to access these logs.
+The CPL server SHOULD NOT directly map log names uninterpreted onto local file names, for security reasons, lest a security critical file be overwritten.
+A correctly operating CPL server SHOULD NOT ever allow the "log" event to fail.
+As such, log nodes can have only one possible result, and their XML representation does not have explicit output tags.
+tag directly contains another node tag.
+Subactions XML syntax defines a tree.
+To allow more general call flow diagrams, and to allow script re use and modularity, we define subactions.
+Two tags are defined for subactions: subaction definitions and subaction references.
+Their syntax is given in Figure 17.
+"sub" Outputs:  None in XML tree
+Syntax of subactions and "sub" pseudo nodes Subactions are defined through "subaction" tags.
+These tags are placed in the CPL script after any ancillary information (see Section 9), but before any top level tags.
+: "id", a token indicating a script chosen name for the subaction.
+The "id" value for every "subaction" tag in a script MUST be unique within that script.
+Subactions are called from "sub" tags.
+The "sub" tag is a "pseudo  node", and can be used anyplace in a CPL action that a true node could be used.
+It takes one parameter, "ref", the name of the subaction to be called.
+The "sub" tag contains no outputs of its own, instead control passes to the subaction.
+References to subactions MUST refer to subactions defined before the current action.
+A "sub" tag MUST NOT refer to the action it appears in, or to any action defined later in the CPL script.
+Top level actions cannot be called from "sub" tags, or through any other means.
+Script servers MUST verify at the time the script is submitted that no "sub" node refers to any subaction that is not its proper predecessor.
+Allowing only back references of subs forbids any sort of recursion.
+Recursion would introduce the possibility of non  terminating or non decidable CPL scripts, a possibility our requirements specifically excluded.
+Every sub MUST refer to a subaction ID defined within the same CPL script.
+No external links are permitted.
+Subaction IDs are case sensitive.
+If any subsequent version or extension defines external linkages, it should probably use a different tag, perhaps XLink [21].
+Ensuring termination in the presence of external links is a difficult problem.
+No ancillary information is defined in the base CPL specification.
+If ancillary information, not part of any operation, is found to be necessary for a CPL extension, it SHOULD be placed within this tag.
+The (trivial) definition of the ancillary information tag is given in Figure 18.
+It may be useful to include timezone definitions inside CPL scripts directly, rather than referencing them externally with "tzid" and "tzurl" parameters.
+If it is, an extension could be defined to include them here.
+Tag:  "ancillary" Parameters:  None Subtags:
+Syntax of the "ancillary" tag 10.
+When a CPL node reaches an unspecified output, either because the output tag is not present, or because the tag is present but does not contain a node, the CPL server's behavior is dependent on the current state of script execution.
+This section gives the operations that should be taken in each case.
+no location modifications or signalling operations performed, location set empty:
+Look up the user's location through whatever mechanism the server would use if no CPL script were in effect.
+Proxy, redirect, or send a rejection message, using whatever policy the server would use in the absence of a CPL script.
+no location modifications or signalling operations performed, location set
+(This can only happen for outgoing calls.)
+Proxy the call to the addresses in the location set.
+location modifications performed, no signalling operations:  Proxy or redirect the call, whichever is the server's standard policy, to the addresses in the current location set.
+If the location set is empty, return a "notfound" rejection.
+noanswer output of proxy, no timeout given: (
+This is a special case.)
+If the "noanswer" output of a proxy node is unspecified, and no timeout parameter was given to the proxy node, the call should be allowed to ring for the maximum length of time allowed by the server (or the request, if the request specified a timeout).
+proxy operation previously taken: Return whatever the "best" response is of all accumulated responses to the call to this point, according to the rules of the underlying signalling protocol.
+CPL Extensions Servers MAY support additional CPL features beyond those listed in this document.
+Some of the extensions which have been suggested are a means of querying how a call has been authenticated, richer control over H.323 addressing, end system or administrator specific features, regular expression matching for strings and addresses, and mid call or end of call controls.
+CPL extensions are indicated by XML namespaces [11].
+Every extension MUST have an appropriate XML namespace assigned to it.
+The XML namespace of the extension MUST be different from the XML namespace defined in Section 14.
+The extension MUST NOT change the syntax or semantics of the CPL schema defined in this document.
+All XML tags and attributes that are part of the extension MUST be appropriately qualified so as to place them within that namespace.
+Tags or attributes in a CPL script which are in the global namespace (i.e., not associated with any namespace) are equivalent to tags and attributes in the CPL namespace "urn:ietf:params:xml:ns:cpl".
+A CPL script SHOULD NOT specify any namespaces it does not use.
+For compatibility with non namespace aware parsers, a CPL script MAY omit the base CPL namespace for a script which does not use any extensions.
+A CPL server MUST reject any script containing a reference to a namespace it does not understand.
+It MUST reject any script containing an extension tag or attribute that is not qualified to be in an appropriate namespace.
+A syntax such as <extension switch> <extension has "http://www.example.com/foo"> [extended things] </extension> <otherwise> [non extended things] </otherwise
+> was suggested as an alternate way of handling extensions.
+This would allow scripts to be uploaded to a server without requiring a script author to somehow determine which extensions a server supports.
+However, experience developing other languages, notably Sieve [22], was that this added excessive complexity to languages.
+The "extension switch" tag could, of course, itself be defined in a CPL extension.
+In the XML schema of CPL, we introduce three abstract elements, namely 'toplevelaction', 'switch', and 'action', which accordingly have the abstract type 'TopLevelActionType', 'SwitchType', and 'ActionType'.
+Any top level action in a CPL extension MUST be defined as the substitutionGroup of the abstract 'toplevelaction' element, and have the type extended from the 'TopLevelActionType'.
+Any switch in a CPL extension MUST be defined as the substitutionGroup of the abstract 'switch' element, and have the type extended from the 'SwitchType'.
+Any action in a CPL extension MUST be defined as the substitutionGroup of the abstract 'action' element, and have the type extended from the 'ActionType'.
+The script in Figure 19 is a simple script that redirects all calls to a single fixed location.
+xml version "1.0" encoding "UTF 8"?
+> <incoming> <location url "sip:smith@phone.example.com">
+Example Script: Call Redirect Unconditional 12.2.
+The script in Figure 20 illustrates some more complex behavior.
+We see an initial proxy attempt to one address, with further operations if that fails.
+We also see how several outputs take the same action subtree, through the use of subactions.
+xml version "1.0" encoding "UTF 8"?
+> <incoming> <location url "sip:jones@jonespc.example.com"> <proxy timeout "8"
+Example Script: Call Forward Busy/No Answer 12.3.
+Example: Call Forward: Redirect and Default The script in Figure 21 illustrates further proxy behavior.
+The server initially tries to proxy to a single address.
+If this attempt is redirected, a new redirection is generated using the locations returned.
+In all other failure cases for the proxy node, a default operation   forwarding to voicemail   is performed.
+xml version "1.0" encoding "UTF 8"?
+> <incoming> <location url "sip:jones@jonespc.example.com">
+</redirection> <default> <location url "sip:jones@voicemail.example.com"> <proxy/>
+Example Script: Call Forward: Redirect and Default 12.4.
+: Call Screening The script in Figure 22 illustrates address switches and call rejection, in the form of a call screening script.
+Note also that because the address switch lacks an "otherwise" clause, if the initial pattern does not match, the script does not define any operations.
+The server therefore proceeds with its default behavior, which would presumably be to contact the user.
+xml version "1.0" encoding "UTF 8"?
+Example Script: Call Screening 12.5.
+Example: Priority and Language Routing
+The script in Figure 23 illustrates service selection based on a call's priority value and language settings.
+If the call request had a priority of "urgent" or higher, the default script behavior is performed.
+Otherwise, the language field is checked for the language "es" (Spanish).
+If it is present, the call is proxied to a Spanish  speaking operator; other calls are proxied to an English speaking operator.
+xml version "1.0" encoding "UTF 8"?
+> <otherwise> <language switch> <language matches
+"es"> <location url "sip:spanish@operator.example.com"> <proxy/
+> <otherwise> <location url "sip:english@operator.example.com"> <proxy/
+Example Script: Priority and Language Routing 12.6.
+Outgoing Call Screening The script in Figure 24 illustrates a script filtering outgoing calls, in the form of a script which prevent 1 900 (premium) calls from being placed.
+This script also illustrates subdomain matching.
+xml version "1.0" encoding "UTF 8"?
+> <address subdomain of "1900"> <reject status "reject" reason "Not allowed to make 1 900 calls."/
+> </address> </address switch> </outgoing
+Example Script: Outgoing Call Screening 12.7.
+Time of day Routing Figure 25 illustrates time based conditions and timezones.
+xml version "1.0" encoding "UTF 8"?
+> <incoming> <time switch tzid "America/New York" tzurl "http://zones.example.com/tz/America/New York"> <time dtstart "20000703T090000" duration "
+> </time> <otherwise> <location url "sip:jones@voicemail.example.com"> <proxy/
+Example Script: Time of day Routing 12.8.
+Location Filtering Figure 26 illustrates filtering operations on the location set.
+In this example, we assume that version 0.9beta2 of the "Inadequate Software SIP User Agent" mis implements some features, and so we must work around its problems.
+We know that it cannot talk successfully to one particular mobile device we may have registered, so we remove that location from the location set.
+Once this operation has been completed, call setup is allowed to proceed normally.
+xml version "1.0" encoding "UTF 8"?
+> <incoming> <string switch field "user agent"
+Non signalling Operations Figure 27 illustrates non signalling operations; in particular, alerting a user by electronic mail if the lookup server failed.
+The primary motivation for having the "mail" node is to allow this sort of out of band notification of error conditions, as the user might otherwise be unaware of any problem.
+xml version "1.0" encoding "UTF 8"?
+> <failure> <mail url "
+The example in Figure 28 shows a hypothetical extension that implements distinctive ringing.
+The XML namespace "http://www.example.com/distinctive ring" specifies a new node named "ring".
+xml version "1.0" encoding "UTF 8"?
+"http://www.example.com/distinctive ring" xmlns "http://www.example.com/distinctive ring" xmlns:xsi "http://www.w3.org/2001/XMLSchema instance"
+> <xs:attribute name "ringstyle" type "xs:string" use "optional"/
+element name "ring" type "DRingAction" substitutionGroup "CPL:action"/
+xml version "1.0" encoding "UTF 8"?
+> <cpl xmlns "urn:ietf:params:xml:ns:cpl" xmlns:dr "http://www.example.com/distinctive ring" xmlns:xsi "http://www.w3.org/2001/XMLSchema instance" xsi:schemaLocation
+http://www.example.com/distinctive ring distinctive ring.xsd"> <incoming> <address switch field "origin"
+Example Schema and Script: Hypothetical Distinctive Ringing Extension
+The example in Figure 29 implements a hypothetical new attribute for address switches, to allow regular expression matches.
+It defines a new attribute "regex" for the standard "address" node. <?
+xml version "1.0" encoding "UTF 8"?
+> <incoming> <address switch field "origin" subfield "user" xmlns:
+> <reject status "reject" reason "
+Example Script: Hypothetical Regular Expression Extension 12.11.
+Finally, Figure 30 is a complex example which shows the sort of sophisticated behavior that can be achieved by combining CPL nodes.
+In this case, the user attempts to have his calls reach his desk; if he does not answer within a small amount of time, calls from his boss are forwarded to his mobile phone, and all other calls are directed to voicemail.
+If the call setup failed, no operation is specified, so the server's default behavior is performed.
+xml version "1.0" encoding "UTF 8"?
+> </location> </subaction> <incoming> <location url "sip:jones@phone.example.com"> <proxy timeout "8"
+> <busy> <sub ref "voicemail" />
+</busy> <noanswer> <address switch field "origin"
+> <address is "sip:boss@example.com"> <location url "tel: 19175551212"> <proxy /
+Example Script: A Complex Example 13.
+Security Considerations CPL is designed to allow services to be specified in a manner which prevents potentially hostile or mis configured scripts from launching security attacks, including denial of service attacks.
+Because script runtime is strictly bounded by acyclicity, and because the number of possible script operations are strictly limited, scripts should not be able to inflict damage upon a CPL server.
+Because scripts can direct users' telephone calls, the method by which scripts are transmitted from a client to a server MUST be strongly authenticated.
+Such a method is not specified in this document.
+Script servers SHOULD allow server administrators to control the details of what CPL operations are permitted.
+This document registers a new MIME type, application/cpl xml, and a new URN per RFC 2141 [12], RFC 2648 [13], and RFC 3688 [14].
+cpl will only refer to the version of CPL in this document and will not change.
+Any CPL enhancements MUST be made by extensions and MUST have different namespaces.
+URN Sub Namespace Registration for urn
+Henning Schulzrinne <hgs@cs.columbia.edu> XML: BEGIN <?
+" "http://www.w3.org/TR/xhtml basic/xhtml basic10.dtd"> <html xmlns "http://www.w3.org/1999/xhtml"> <head> <meta http equiv
+Namespace for Call Processing Language</h1>
+<p><a href "ftp://ftp.rfc editor.org/in notes/
+This specification registers XML Schema for CPL, as per the guidelines in [14].
+The XML can be found in Appendix C. 14.3.
+As an XML type, CPL's MIME registration conforms with "XML Media Types," RFC 3023 [15].
+cpl xml Mandatory parameters: none Optional parameters: charset As for application/xml in RFC 3023.
+Encoding considerations: As for application/xml in RFC 3023.
+: See Section 13, and Section 10 of RFC 3023.
+Interoperability considerations: Different CPL servers may use incompatible address types.
+However, all potential interoperability issues should be resolvable at the time a script is uploaded; there should be no interoperability issues which cannot be detected until runtime.
+Applications which use this media type: SIP proxy servers and other telephony servers, and client software to control their behavior.
+Magic number: None File extension: .cpl
+Macintosh file type code: "TEXT" Person and e mail address for further information:
+An Algorithm for Resolving Time Switches
+The following algorithm determines whether a given instant falls within a repetition of a "time switch" recurrence.
+If the pre  processing described in Section 4.4.1 has been done, it operates in constant time.
+Open source Java code implementing this algorithm is available at http://www.cs.columbia.edu/~lennox/Cal Code/ on the world wide web.
+This algorithm is believed to be correct, but this section is non  normative.
+Section 4.4, and RFC 2445 [8], are the definitive definitions of recurrences.
+Compute the time of the call, in the timezone of the time switch.
+If the call time is earlier than "dtstart", fail NOMATCH.
+If the call time is less than "duration" after dtstart, succeed MATCH.
+Determine the smallest unit specified in a "byxxx" rule or by the "freq."
+Call this the Minimum Unit.
+Determine the previous instant (before or equal to the call time) when all the time units smaller than the minimum unit are the same as those of "dtstart.
+If the minimum unit is a second, this time is the same as the instant.
+If the minimum unit is a minute or an hour, the minutes or the minutes and hours, respectively, must be the same as "dtstart".
+For all other minimum units, the time of day must be the same as "dtstart."
+If the minimum unit is a week, the day of the week must be the same as "dtstart."
+If the minimum unit is a month, the day of the  month must be the same as "dtstart."
+If the minimum unit is a year, the month and day of month must both be the same as "dtstart."
+(Note that this means it may be necessary to roll back more than one minimum unit
+if the minimum unit is a month, then some months do not have a 31st (or 30th or 29th) day; if the minimum unit is a year, then some years do not have a February 29th.
+In the Gregorian calendar, it is never necessary to roll back more than two months if the minimum unit is a month, or eight years if the minimum unit is a year.
+Between 1904 and 2096, it is never necessary to roll back more than four years
+the eight year rollback can only occur when the Gregorian calendar "skips" a leap year.
+Call this instant the Candidate Start Time.
+If the time between the candidate start time and the call time is more than the duration, fail NOMATCH.
+If the candidate start time is later than the "until" parameter of the recurrence (or the virtual "until" computed off line from "count"), fail NOMATCH.
+Call the unit of the "freq" parameter of the recurrence the Frequency Unit.
+Determine the frequency unit enclosing the Candidate Start Time, and that enclosing "dtstart".
+Calculate the number of frequency units that have passed between these two times.
+If this is not a multiple of the "interval" parameter, fail NOMATCH.
+For every "byxxx" rule, confirm that the candidate start time matches one of the options specified by that "byxxx" rule.
+Calculate a previous candidate start time.
+Repeat until the difference between the candidate start time and the call time is more than the duration.
+If no candidate start time has been validated, fail NOMATCH.
+B.  Suggested Usage of CPL with H.323
+This appendix gives a suggested usage of CPL with H.323 [16].
+Study Group 16 of the ITU, which developed H.323, is proposing to work on official CPL mappings for that protocol.
+This section is therefore not normative.
+Usage of "address switch" with H.323 Address switches are specified in Section 4.1.
+This section specifies the mapping between H.323 messages and the fields and subfields of address switches.
+For H.323, the "origin" address corresponds to the alias addresses in the "sourceAddress" field of the "Setup UUIE" user user information element, and to the Q.931 [23] information element "Calling party number."
+If both fields are present, or if multiple alias addresses for "sourceAddress" are present, which one has priority is a matter of local server policy; the server SHOULD use the same resolution as it would use for routing decisions in this case.
+Similarly, the "destination" address corresponds to the alias addresses of the "destinationAddress" field, and to the Q.931 information element "Called party number.
+" The "original destination" address corresponds to the "Redirecting number" Q.931 information element, if it is present; otherwise it is the same as the "destination" address.
+The mapping of H.323 addresses into subfields depends on the type of the alias address.
+An additional subfield type, "alias type", is defined for H.323 servers, corresponding to the type of the address.
+Possible values are "dialedDigits", "h323 ID", "url ID", "transportID", "email ID", "partyNumber", "mobileUIM", and "Q.931IE".
+If future versions of the H.323 specification define additional types of alias addresses, those names MAY also be used.
+In versions of H.323 prior to version 4, "dialedDigits" was known as "e164".
+The two names SHOULD be treated as synonyms.
+The value of the "address type" subfield for H.323 messages is "h323" unless the alias type is "url ID" and the URL scheme is something other than h323; in this case the address type is the URL scheme, as specified in Section 4.1.1 for SIP.
+An H.323 aware CPL server SHOULD map the address subfields from the primary alias used for routing.
+It MAY also map subfields from other aliases, if subfields in the primary address are not present.
+The following mappings are used for H.323 alias types: dialedDigits, partyNumber, mobileUIM, and Q.931IE: the "tel" and "user" subfields are the string of digits, as is the "entire address" form.
+The "host" and "port" subfields are not present.
+url ID: the same mappings are used as for SIP, in Section 4.1.1.
+h323 ID: the "user" field is the string of characters, as is the "entire address" form.
+All other subfields are not present.
+email ID: the "user" and "host" subfields are set to the corresponding parts of the e mail address.
+The "port" and "tel" subfields are not present.
+The "entire address" form corresponds to the entire e mail address.
+if the TransportAddress is of type "ipAddress," "ipSourceRoute," or "ip6Address," the "host" subfield is set to the "ip" element of the sequence, translated into the standard IPv4 or IPv6 textual representation, and the "port" subfield is set to the "port" element of the sequence represented in decimal.
+The "tel" and "user" fields are not present.
+The "entire address" form is not defined.
+The representation and mapping of transport addresses is not defined for non IP addresses.
+H.323 [16] defines an "h323" URI scheme.
+This appendix defines a mapping for these URIs onto the CPL "address switch" subfields, as given in Section 4.1.
+This definition is also available as RFC 3508 [24], which is an excerpt from the H.323 specification.
+For h323 URIs, the "user", "host", and "port" subfields are set to the corresponding parts of the H.323 URL.
+The "tel" subfield is not present.
+The "entire address" form corresponds to the entire URI.
+This mapping MAY be used both for h323 URIs in an h323 "url ID" address alias, and for h323 URIs in SIP messages.
+Usage of "string switch" with H.323
+For H.323, the "string switch" node (see Section 4.2) is used as follows.
+The field "display" corresponds to the Q.931 information element of the same name, copied verbatim.
+The fields "subject", "organization", and "user agent" are not used and are never present.
+The "display" IE is conventionally used for Caller ID purposes, so arguably it should be mapped to the "display" subfield of an "address match" with the field "originator".
+However, since a) it is a message level information element, not an address level one, and b) the Q.931 specification [23] says only that "[t]he purpose of the Display information element is to supply display information that may be displayed by the user," it seems to be more appropriate to allow it to be matched in a "string switch" instead.
+Usage of "language switch" with H.323
+The language ranges for the "language switch" switch are obtained from the H.323 UUIE "language".
+The switch is not present if the initial message did not contain this UUIE.
+Usage of "priority switch" with H.323
+All H.323 messages are considered to have priority "normal" for the purpose of a priority switch (see Section 4.5).
+Usage of "location" with H.323 Locations in explicit location nodes (Section 5.1) are specified as URLs.
+Therefore, all locations added in this manner are interpreted as being of alias type "url ID" in H.323.
+Specifications of other H.323 address alias types will require a CPL extension (see Section 11).
+Usage of "lookup" with H.323 For location
+, the "registration" lookup source corresponds to the locations registered with the server using "RAS" messages.
+Usage of "remove location" with H.323 Location removal nodes (Section 5.3) remove addresses with the alias type "url ID" using verbatim string matching on the URLs.
+No mechanism is provided to remove other alias types.
+The XML Schema for CPL
+This section includes a full XML Schema describing the XML syntax of CPL.
+Every script submitted to a CPL server SHOULD comply with this XML Schema.
+When parsing scripts comply with the CPL DTD in earlier documents, the DOCTYPE lines in the scripts should be ignored.
+Note that compliance with this schema is not a sufficient condition for correctness of a CPL script, as many of the conditions described in this specification are not expressible in schema syntax.
+Figure 31 shows the structure of the schema.
+'incoming' and 'outgoing' are defined as the substitutionGroup of the 'toplevelaction'.
+All the switches are defined as the substitutionGroup of the 'switch' element.
+All the actions are defined as the substitutionGroup of the 'action' element.
+: The structure of the XML schema for CPL BEGIN <?
+xml version "1.0" encoding "UTF 8"?
+" xmlns "urn:ietf:params:xml:ns:cpl" xmlns:xs "http://www.w3.org/2001/XMLSchema" elementFormDefault "qualified
+> <xs:element name "toplevelaction" type "TopLevelActionType"/
+complexType name "ActionType" abstract "
+<xs:element name "action" type "ActionType"/>
+complexType name "SwitchType" abstract "
+> <xs:element name "switch" type "SwitchType"/
+complexType name "ModifierType" abstract "
+> <xs:element name "modifier" type "ModifierType"/
+> <xs:element name "location" type "LocationType" substitutionGroup "modifier"/
+element name "lookup" type "LookupType" substitutionGroup "
+<xs:element name "remove location" type "RemoveLocationType" substitutionGroup "
+element name "sub" type "SubAction"/>
+<xs:element ref "switch" minOccurs "0
+element ref "modifier" minOccurs "0
+> <xs:element ref "sub" minOccurs "0
+> <xs:element ref "action" minOccurs "0
+> <xs:simpleType name "AddressFieldType"> <xs:union
+Exactly one of the three attributes must appear</xs:documentation> <
+attribute name "is" type "xs:
+<xs:attribute name "contains" type "
+<xs:attribute name "subdomain of" type "xs
+:string" use "optional"> <xs:annotation> <xs:documentation>for "host", "tel" only</xs:documentation
+anyAttribute namespace "##any" processContents "lax"/
+element name "address" type "AddressType" minOccurs
+sequence minOccurs "0"> <xs:element name "
+<xs:element name "address" type "AddressType" minOccurs "0" maxOccurs "
+<xs:element name "otherwise" type "OtherwiseAction" minOccurs "
+attribute name "field" type "AddressFieldType" use "required"/
+<xs:attribute name "subfield" type "AddressSubfieldType" use "optional"/
+complexType> <xs:element name "address switch" type "AddressSwitchType" substitutionGroup "switch"/
+simpleType name "StringFieldType"> <xs:restriction base "xs:NMTOKEN"> <xs:enumeration value "
+attribute name "is" type "xs:
+<xs:attribute name "contains" type "
+anyAttribute namespace "##any" processContents "lax"/
+element name "string" type "StringType" minOccurs "0" maxOccurs "
+sequence minOccurs "0"> <xs:element name "
+element name "string" type "StringType" minOccurs "0" maxOccurs "
+<xs:element name "otherwise" type "OtherwiseAction" minOccurs "
+attribute name "field" type "StringFieldType" use "required"> <xs:annotation>
+documentation>Strings are matched as case insensitive Unicode strings.</xs:documentation
+element name "string switch" type "StringSwitchType" substitutionGroup "switch"/
+attribute name "matches" type "xs:string" use "required"> <xs:annotation> <xs:documentation
+The value of one of these parameters is a language tag, as defined in RFC 3066.</xs:documentation> </xs:annotation> </xs:attribute> <xs:
+anyAttribute namespace "##any" processContents "lax"/
+<xs:element name "language" type "LanguageType" minOccurs "0" maxOccurs "
+sequence minOccurs "0"> <xs:element name "
+<xs:element name "language" type "LanguageType" minOccurs "0" maxOccurs "
+<xs:element name "otherwise" type "OtherwiseAction" minOccurs "
+Exactly one of the two attributes "dtend" and "duration" must occur.
+None of the attributes following freq are meaningful unless freq appears.
+attribute name "dtstart" type "xs:string" use "required"> <xs:annotation> <xs:documentation>
+RFC 2445 DATE TIME</xs:documentation> </xs:annotation> <
+attribute name "dtend" type "xs:
+RFC 2445 DATE TIME</xs:documentation> </xs:annotation> <
+attribute name "duration" type "xs:string" use "optional"
+<xs:attribute name "freq" type "FreqType" use "optional"/>
+<xs:attribute name "interval" type "xs:positiveInteger" default "1"/>
+attribute name "until" type "xs:string" use "optional"> <xs:annotation
+RFC 2445 DATE TIME</xs:documentation> </xs:annotation> <
+attribute name "count" type "xs:positiveInteger" use "optional"/>
+<xs:attribute name "bysecond" type "xs:string" use "optional"
+Comma separated list of seconds within a minute.
+Valid values are 0 to 59.</xs:documentation> </xs:annotation> </xs:attribute> <xs:
+"byminute" type "xs:string" use "optional"> <xs:annotation
+Comma separated list of minutes within an hour.
+Valid values are 0 to 59.</xs:documentation> </xs:annotation> </xs:attribute> <xs:
+attribute name "byhour" type "xs:string" use "optional"> <xs:annotation
+Comma separated list of hours of the day.
+Valid values are 0 to 23.</xs:documentation> </xs:annotation> </xs:attribute> <xs:
+"byday" type "xs:string" use "optional"> <xs:annotation
+Comma separated list of days of the week.
+Valid values are "MO", "TU", "WE", "TH", "FR", "SA" and "SU".
+These values are not case sensitive.
+Each can be preceded by a positive ( n) or negative ( n) integer.</xs:documentation> </xs:annotation> </xs
+"bymonthday" type "xs:string" use "optional"> <xs:annotation
+Comma separated list of days of the month.
+Valid values are 1 to 31 or  31 to  1.</xs:documentation> </xs:annotation> </xs:attribute> <xs:
+"byyearday" type "xs:string" use "optional"> <xs:annotation
+Comma separated list of days of the year.
+Valid values are 1 to 366 or  366 to  1.</xs:documentation> </xs:annotation> </xs:attribute> <xs:
+attribute name "byweekno" type "xs:string" use "optional">
+Comma separated list of ordinals specifying weeks of the year.
+Valid values are 1 to 53 or  53 to  1.</xs:documentation> </xs:annotation> </xs:attribute> <xs:
+"bymonth" type "xs:string" use "optional"> <xs:annotation
+Comma separated list of months of the year.
+Valid values are 1 to 12.</xs:documentation> </xs:annotation> </xs:attribute> <xs:
+anyAttribute namespace "##any" processContents "lax"/
+<xs:element name "time" type "TimeType" minOccurs
+sequence minOccurs "0"> <xs:element name "
+<xs:element name "time" type "TimeType" minOccurs
+<xs:element name "otherwise" type "OtherwiseAction" minOccurs "
+attribute name "tzid" type "TZIDType"/
+<xs:attribute name "tzurl" type "TZURLType"/
+<xs:pattern value "[e E][m M][e E][r
+<xs:pattern value "[u U][r R][g G][e
+<xs:pattern value "[n N][o O][r
+Exactly one of the three attributes must appear </xs:documentation> </xs:
+attribute name "less" type "PriorityValues"/
+<xs:attribute name "greater" type "
+"equal" type "xs:string"> <xs:annotation> <xs:
+anyAttribute namespace "##any" processContents "lax"/
+<xs:element name "priority" type "PriorityType" minOccurs "
+sequence minOccurs "0"> <xs:element name "
+<xs:element name "priority" type "PriorityType" minOccurs "
+<xs:element name "otherwise" type "OtherwiseAction" minOccurs "
+restriction base "xs:float"> <xs:minInclusive value "
+attribute name "url" type "xs:anyURI" use "required"/
+<xs:attribute name "priority" type "LocationPriorityType" use "optional" default "
+> <xs:attribute name "clear" type "YesNoType" default "no"/
+extension base "ModifierType"> <xs:all> <xs:
+element name "success" minOccurs "0"
+> <xs:element name "notfound" minOccurs "0"
+element name "failure" minOccurs "0"
+<xs:attribute name "timeout" type "xs:positiveInteger" default "30"/>
+<xs:attribute name "clear" type "YesNoType" default "no"/
+attribute name "location" type "xs:string" use "optional"/
+attribute name "name" type "xs:string" use "optional"/>
+<xs:attribute name "comment" type "xs:string" use "
+complexType> <xs:element name "log" type "LogAction" substitutionGroup "action"/
+complexType> <xs:element name "incoming" type "IncomingType" substitutionGroup "
+complexType> <xs:element name "outgoing" type "OutgoingType" substitutionGroup "
+extension base "ActionType"> <xs:all> <xs:
+element name "busy" minOccurs "0"
+> <xs:element name "noanswer" minOccurs "0"
+element name "failure" minOccurs "0"
+> <xs:element name "redirection" minOccurs "0"
+> <xs:element name "default" minOccurs "0"
+positiveInteger" use "optional" default "
+> <xs:attribute name "recurse" type "YesNoType" use "optional" default "yes"/
+attribute name "ordering" type "OrderingType" use "optional" default "
+complexType> <xs:element name "proxy" type "ProxyAction" substitutionGroup "action"/
+<xs:attribute name "permanent" type "YesNoType" default "no"/
+complexType> <xs:element name "redirect" type "RedirectAction" substitutionGroup "action"/
+<xs:attribute name "status" type "StatusType" use "required"/
+<xs:attribute name "reason" type "xs:string" use "optional"/
+complexType> <xs:element name "reject" type "RejectAction" substitutionGroup "action"/
+element name "mail" type "MailAction" substitutionGroup "
+attribute name "id" use "
+element name "ancillary" type "AncillaryType" minOccurs "0
+> <xs:element name "subaction" type "SubactionType" minOccurs "0" maxOccurs "
+> <xs:element ref "toplevelaction" minOccurs "0
+Any toplevel action MUST NOT appear more than once.</xs:
+> <xs:element name "cpl" type "CPLType"/

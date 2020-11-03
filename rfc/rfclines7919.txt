@@ -1,0 +1,254 @@
+Abstract Traditional finite field based Diffie Hellman (DH) key exchange during the Transport Layer Security (TLS) handshake suffers from a number of security, interoperability, and efficiency shortcomings.
+These shortcomings arise from lack of clarity about which DH group parameters TLS servers should offer and clients should accept.
+This document offers a solution to these shortcomings for compatible peers by using a section of the TLS "Supported Groups Registry" (renamed from "EC Named Curve Registry" by this document) to establish common finite field DH parameters with known structure and a mechanism for peers to negotiate support for these groups.
+This document updates TLS versions 1.0 (RFC 2246), 1.1 (RFC 4346), and 1.2 (RFC 5246), as well as the TLS Elliptic Curve Cryptography (ECC) extensions (RFC 4492).
+[RFC5246] offers a Diffie Hellman Ephemeral (DHE) key exchange mode that provides forward secrecy for the connection.
+The client offers a cipher suite in the ClientHello that includes DHE, and the server offers the client group parameters generator g and modulus p.
+If the client does not consider the group strong enough (e.g., p is too small, p is not prime, or there are small subgroups that cannot be easily avoided)
+or if it is unable to process the group for other reasons, the client has no recourse but to terminate the connection.
+Conversely, when a TLS server receives a suggestion for a DHE cipher suite from a client, it has no way of knowing what kinds of DH groups the client is capable of handling or what the client's security requirements are for this key exchange session.
+For example, some widely distributed TLS clients are not capable of DH groups where p > 1024 bits.
+Other TLS clients may, by policy, wish to use DHE only if the server can offer a stronger group (and are willing to use a non  PFS (Perfect Forward Secrecy) key exchange mechanism otherwise).
+The server has no way of knowing which type of client is connecting but must select DH parameters with insufficient knowledge.
+Additionally, the DH parameters selected by the server may have a known structure that renders them secure against a small subgroup attack, but a client receiving an arbitrary p and g has no efficient way to verify that the structure of a new group is reasonable for use.
+This modification to TLS solves these problems by using a section of the "Supported Groups Registry" (renamed from "EC Named Curve Registry" by this document) to select common DH groups with known structure and defining the use of the "elliptic curves(10)" extension (described here as the Supported Groups extension) for clients advertising support for DHE with these groups.
+This document also provides guidance for compatible peers to take advantage of the additional security, availability, and efficiency offered.
+The use of this mechanism by one compatible peer when interacting with a non compatible peer should have no detrimental effects.
+This document updates TLS versions 1.0 [RFC2246], 1.1 [RFC4346], and 1.2 [RFC5246], as well as the TLS ECC extensions [RFC4492]. 1.1.
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC2119].
+The terms "DHE" or "FFDHE" are used in this document to refer to the finite field based Diffie Hellman ephemeral key exchange mechanism in TLS.
+TLS also supports Elliptic Curve Diffie Hellman Ephemeral (ECDHE)
+this document does not document their use.
+A registry previously used only by ECDHE capable implementations is expanded in this document to cover FFDHE groups as well.
+"FFDHE cipher suites" is used in this document to refer exclusively to cipher suites with FFDHE key exchange mechanisms, but note that these suites are typically labeled with a TLS DHE  prefix.
+We use previously unallocated codepoints within the extension currently known as "elliptic curves" (Section 5.1.1. of [RFC4492]) to indicate known finite field groups.
+The extension's semantics are expanded from "Supported Elliptic Curves" to "Supported Groups".
+The enum datatype used in the extension has been renamed from NamedCurve to NamedGroup.
+Its semantics are likewise expanded from "named curve" to "named group".
+Additionally, we explicitly relax the requirement about when the Supported Groups extension can be sent.
+This extension MAY be sent by the client when either FFDHE or ECDHE cipher suites are listed.
+Codepoints in the "Supported Groups Registry" with a high byte of 0x01 (that is, between 256 and 511, inclusive) are set aside for FFDHE groups, though only a small number of them are initially defined and we do not expect many other FFDHE groups to be added to this range.
+No codepoints outside of this range will be allocated to FFDHE groups.
+} NamedGroup; These additions to the "Supported Groups Registry" are described in detail in Appendix A.
+They are all safe primes derived from the base of the natural logarithm ("e"), with the high and low 64 bits set to 1 for efficient Montgomery or Barrett reduction.
+The use of the base of the natural logarithm here is as a "nothing  up
+The goal is to guarantee that the bits in the middle of the modulus are effectively random, while avoiding any suspicion that the primes have secretly been selected to be weak according to some secret criteria.
+[RFC3526] used pi for this value.
+See Section 8.5 for reasons that this document does not reuse pi. 3.
+Client Behavior A TLS client that is capable of using strong finite field Diffie  Hellman groups can advertise its capabilities and its preferences for stronger key exchange by using this mechanism.
+The compatible client that wants to be able to negotiate strong FFDHE sends a Supported Groups extension (identified by type elliptic curves(10) in [RFC4492]) in the ClientHello and includes a list of known FFDHE groups in the extension data, ordered from most preferred to least preferred.
+If the client also supports and wants to offer ECDHE key exchange, it MUST use a single Supported Groups extension to include all supported groups (both ECDHE and FFDHE groups).
+The ordering SHOULD be based on client preference, but see Section 6.1 for more nuance.
+A client that offers a Supported Groups extension containing an FFDHE group SHOULD also include at least one FFDHE cipher suite in the ClientHello.
+A client that offers a group MUST be able and willing to perform a DH key exchange using that group.
+A client that offers one or more FFDHE groups in the Supported Groups extension and an FFDHE cipher suite and that receives an FFDHE cipher suite from the server SHOULD take the following steps upon receiving the ServerKeyExchange:
+For non anonymous cipher suites where the offered certificate is valid and appropriate for the peer, validate the signature over the ServerDHParams.
+If not valid, terminate the connection.
+If the signature over ServerDHParams is valid, compare the selected dh p and dh g with the FFDHE groups offered by the client.
+If none of the offered groups match, the server is not compatible with this document.
+The client MAY decide to continue the connection if the selected group is acceptable under local policy, or it MAY decide to terminate the connection with a fatal insufficient security(71) alert.
+If the client continues (either because the server offered a matching group or because local policy permits the offered custom group), the client MUST verify that dh Ys is in the range
+1 < dh Ys < dh p 1.
+If dh Ys is not in this range, the client MUST terminate the connection with a fatal handshake failure(40) alert.
+If dh Ys is in range, then the client SHOULD continue with the connection as usual.
+Client Local Policy on Custom Groups Compatible clients that are willing to accept FFDHE cipher suites from non compatible servers may have local policy about what custom FFDHE groups they are willing to accept.
+This local policy presents a risk to clients, who may accept weakly protected communications from misconfigured servers.
+This document cannot enumerate all possible safe local policy (the safest may be to simply reject all custom groups), but compatible clients that accept some custom groups from the server MUST do at least cursory checks on group size and may take other properties into consideration as well.
+A compatible client that accepts FFDHE cipher suites using custom groups from non compatible servers MUST reject any group with  dh p  < 768 bits and SHOULD reject any group with  dh p  < 1024 bits.
+A compatible client that rejects a non compatible server's custom group may decide to retry the connection while omitting all FFDHE cipher suites from the ClientHello.
+A client SHOULD only use this approach if it successfully verified the server's expected signature over the ServerDHParams, to avoid being forced by an active attacker into a non preferred cipher suite.
+If a compatible TLS server receives a Supported Groups extension from a client that includes any FFDHE group (i.e., any codepoint between 256 and 511, inclusive, even if unknown to the server), and if none of the client proposed FFDHE groups are known and acceptable to the server, then the server MUST NOT select an FFDHE cipher suite.
+In this case, the server SHOULD select an acceptable non FFDHE cipher suite from the client's offered list.
+If the extension is present with FFDHE groups, none of the client's offered groups are acceptable by the server, and none of the client's proposed non FFDHE cipher suites are acceptable to the server, the server MUST end the connection with a fatal TLS alert of type insufficient security(71).
+If at least one FFDHE cipher suite is present in the client cipher suite list and the Supported Groups extension is either absent from the ClientHello entirely or contains no FFDHE groups (i.e., no codepoints between 256 and 511, inclusive), then the server knows that the client is not compatible with this document.
+In this scenario, a server MAY select a non FFDHE cipher suite, or it MAY select an FFDHE cipher suite and offer an FFDHE group of its choice to the client as part of a traditional ServerKeyExchange.
+A compatible TLS server that receives the Supported Groups extension with FFDHE codepoints in it and that selects an FFDHE cipher suite MUST select one of the client's offered groups.
+The server indicates the choice of group to the client by sending the group's parameters as usual in the ServerKeyExchange as described in Section 7.4.3 of [RFC5246].
+A TLS server MUST NOT select a named FFDHE group that was not offered by a compatible client.
+A TLS server MUST NOT select an FFDHE cipher suite if the client did not offer one, even if the client offered an FFDHE group in the Supported Groups extension.
+If a non anonymous FFDHE cipher suite is selected and the TLS client has used this extension to offer an FFDHE group of comparable or greater strength than the server's public key, the server SHOULD select an FFDHE group at least as strong as the server's public key.
+For example, if the server has a 3072 bit RSA key and the client offers only ffdhe2048 and ffdhe4096, the server SHOULD select ffdhe4096.
+When an FFDHE cipher suite is selected and the client sends a ClientKeyExchange, the server MUST verify that 1 < dh Yc < dh p 1.
+If dh Yc is out of range, the server MUST terminate the connection with a fatal handshake failure(40) alert.
+In a key exchange with a successfully negotiated known FFDHE group, both peers know that the group in question uses a safe prime as a modulus and that the group in use is of size p 1 or (p 1)/2.
+This allows at least three optimizations that can be used to improve performance.
+Checking the Peer's Public Key Peers MUST validate each other's public key Y
+(dh Ys offered by the server or dh Yc offered by the client) by ensuring that 1 < Y < p 1.
+This simple check ensures that the remote peer is properly behaved and isn't forcing the local system into the 2 element subgroup.
+To reach the same assurance with an unknown group, the client would need to verify the primality of the modulus, learn the factors of p 1, and test both the generator g and Y against each factor to avoid small subgroup attacks.
+Traditional finite field Diffie Hellman has each peer choose their secret exponent from the range [2, p 2].
+Using exponentiation by squaring, this means each peer must do roughly 2 log 2(p) multiplications, twice (once for the generator and once for the peer's public key).
+Peers concerned with performance may also prefer to choose their secret exponent from a smaller range, doing fewer multiplications, while retaining the same level of overall security.
+Each named group indicates its approximate security level and provides a lower bound on the range of secret exponents that should preserve it.
+For example, rather than doing 2 2 3072 multiplications for an ffdhe3072 handshake, each peer can choose to do 2 2 275 multiplications by choosing their secret exponent from the range [2^274, 2^275] (that is, an m bit integer where m is at least 275) and still keep the same approximate security level.
+A similar short exponent approach is suggested in a Secure SHell (SSH)
+Diffie Hellman key exchange (see Section 6.2 of [RFC4419]).
+Table Acceleration Peers wishing to further accelerate FFDHE key exchange can also pre  compute a table of powers of the generator of a known group.
+This is a memory vs. time trade off, and it only accelerates the first exponentiation of the ephemeral DH exchange (the fixed base exponentiation).
+The variable base exponentiation (using the peer's public exponent as a base) still needs to be calculated as normal.
+Ordering The ordering of named groups in the Supported Groups extension may contain some ECDHE groups and some FFDHE groups.
+These SHOULD be ranked in the order preferred by the client.
+However, the ClientHello also contains a list of desired cipher suites, also ranked in preference order.
+This presents the possibility of conflicted preferences.
+For example, if the ClientHello contains a cipher suite field with two choices in order <TLS DHE RSA WITH AES 128 CBC SHA, TLS ECDHE RSA WITH AES 128 CBC SHA
+> and the Supported Groups extension contains two choices in order <secp256r1,ffdhe3072
+>, then there is a clear contradiction.
+Clients SHOULD NOT present such a contradiction since it does not represent a sensible ordering.
+A server that encounters such a contradiction when selecting between an ECDHE or FFDHE key exchange mechanism while trying to respect client preferences SHOULD give priority to the Supported Groups extension (in the example case, it should select TLS ECDHE RSA WITH AES 128 CBC SHA with secp256r1)
+but MAY resolve the contradiction any way it sees fit.
+More subtly, clients MAY interleave preferences between ECDHE and FFDHE groups; for example, if stronger groups are preferred regardless of cost, but weaker groups are acceptable, the Supported Groups extension could consist of <ffdhe8192,secp384p1,ffdhe3072,secp256r1>.
+In this example, with the same cipher suite field offered as the previous example, a server configured to respect client preferences and with support for all listed groups SHOULD select TLS DHE RSA WITH AES 128 CBC SHA with ffdhe8192.
+A server configured to respect client preferences and with support for only secp384p1 and ffdhe3072 SHOULD select TLS ECDHE RSA WITH AES 128 CBC SHA with secp384p1.
+This document renames the "EC Named Curve Registry" (originally defined in [RFC4492] and updated by [RFC7027]) to the "Supported Groups Registry".
+This document expands the semantics of this registry to include groups based on finite fields in addition to groups based on elliptic curves.
+IANA has added a range designation to the registry, indicating that values from 256 511 (inclusive) are set aside for "Finite Field Diffie Hellman groups" and that all other entries in the registry are "Elliptic curve groups".
+This document allocates five well defined codepoints in the registry for specific finite field Diffie Hellman groups defined in Appendix A.
+In addition, the four highest codepoints in the range 508 511, inclusive, are designated for Private Use [RFC5226] by peers who have privately developed finite field Diffie Hellman groups that they wish to signal internally.
+Negotiation Resistance to Active Attacks
+Because the contents of the Supported Groups extension are hashed in the Finished message, an active Man in the Middle (MITM) that tries to filter or omit groups will cause the handshake to fail, but possibly not before getting the peer to do something it would not otherwise have done.
+An attacker who impersonates the server can try to do any of the following:  Pretend that a non compatible server is actually capable of this extension and select a group from the client's list, causing the client to select a group it is willing to negotiate.
+It is unclear how this would be an effective attack.
+Pretend that a compatible server is actually non compatible by negotiating a non FFDHE cipher suite.
+This is no different than MITM cipher suite filtering.
+Pretend that a compatible server is actually non compatible by negotiating a DHE cipher suite with a custom (perhaps weak) group selected by the attacker.
+This is no worse than the current scenario and would require the attacker to be able to sign the ServerDHParams, which should not be possible without access to the server's secret key.
+An attacker who impersonates the client can try to do the following:  Pretend that a compatible client is not compatible (e.g., by not offering the Supported Groups extension or by replacing the Supported Groups extension with one that includes no FFDHE groups).
+This could cause the server to negotiate a weaker DHE group during the handshake or to select a non FFDHE cipher suite, but it would fail to complete during the final check of the Finished message.
+Pretend that a non compatible client is compatible (e.g., by adding the Supported Groups extension or by adding FFDHE groups to the extension).
+This could cause the server to select a particular named group in the ServerKeyExchange or to avoid selecting an FFDHE cipher suite.
+The peers would fail to compute the final check of the Finished message.
+Change the list of groups offered by the client (e.g., by removing the stronger of the set of groups offered).
+This could cause the server to negotiate a weaker group than desired, but again, should be caught by the check in the Finished message.
+Group Strength Considerations TLS implementations using FFDHE key exchange should consider the strength of the group they negotiate.
+The strength of the selected group is one of the factors that define the connection's resilience against attacks on the session's confidentiality and integrity, since the session keys are derived from the DHE handshake.
+While attacks on integrity must generally happen while the session is in progress, attacks against session confidentiality can happen significantly later if the entire TLS session is stored for offline analysis.
+Therefore, FFDHE groups should be selected by clients and servers based on confidentiality guarantees they need.
+Sessions that need extremely long term confidentiality should prefer stronger groups.
+[ENISA] provides rough estimates of group resistance to attack and recommends that forward looking implementations ("future systems") should use FFDHE group sizes of at least 3072 bits.
+ffdhe3072 is intended for use in these implementations.
+Other sources (e.g., [NIST]) estimate the security levels of the Discrete Log (DLOG) problem to be slightly more difficult than [ENISA].
+This document's suggested minimum exponent sizes in Appendix A for implementations that use the short exponent optimization (Section 5.2) are deliberately conservative to account for the range of these estimates.
+Only Note that this document specifically targets only finite field Diffie Hellman ephemeral key exchange mechanisms.
+It does not cover the non ephemeral DH key exchange mechanisms, nor does it address ECDHE key exchange, which is defined in [RFC4492].
+Measured by computational cost to the TLS peers, ECDHE appears today to offer a much stronger key exchange mechanism than FFDHE.
+Deprecating Weak Groups Advances in hardware or in finite field cryptanalysis may cause some of the negotiated groups to not provide the desired security margins, as indicated by the estimated work factor of an adversary to discover the premaster secret (and may therefore compromise the confidentiality and integrity of the TLS session).
+Revisions of this document should mark known weak groups as explicitly deprecated for use in TLS and should update the estimated work factor needed to break the group if the cryptanalysis has changed.
+Implementations that require strong confidentiality and integrity guarantees should avoid using deprecated groups and should be updated when the estimated security margins are updated.
+Other lists of named finite field Diffie Hellman groups [STRONGSWAN IKE] exist.
+This document chooses to not reuse them for several reasons:
+Using the same groups in multiple protocols increases the value for an attacker with the resources to crack any single group.
+The Internet Key Exchange Protocol (IKE) groups include weak groups like MODP768 that are unacceptable for secure TLS traffic.
+Mixing group parameters across multiple implementations leaves open the possibility of some sort of cross protocol attack.
+This shouldn't be relevant for ephemeral scenarios, and even with non  ephemeral keying, services shouldn't share keys; however, using different groups avoids these failure modes entirely.
+Any implementation of finite field
+Diffie Hellman key exchange should use constant time modular exponentiation implementations.
+This is particularly true for those implementations that ever reuse DHE secret keys (so called "semi static" ephemeral keying) or share DHE secret keys across a multiple machines (e.g., in a load balancer situation).
+Replay Attacks from Non negotiated FFDHE [SECURE RESUMPTION], [CROSS PROTOCOL], and [SSL3 ANALYSIS]
+all show a malicious peer using a bad FFDHE group to maneuver a client into selecting a premaster secret of the peer's choice, which can be replayed to another server using a non FFDHE key exchange and can then be bootstrapped to replay client authentication.
+To prevent this attack (barring the session hash fix documented in [RFC7627]), a client would need not only to implement this document, but also to reject non negotiated FFDHE cipher suites whose group structure it cannot afford to verify.
+Such a client would need to abort the initial handshake and reconnect to the server in question without listing any FFDHE cipher suites on the subsequent connection.
+This trade off may be too costly for most TLS clients today but may be a reasonable choice for clients performing client certificate authentication or for clients who have other reasons to be concerned about server controlled premaster secrets.
+Forward Secrecy One of the main reasons to prefer FFDHE ciphersuites is forward secrecy, the ability to resist decryption even if the endpoint's long term secret key (usually RSA) is revealed in the future.
+This property depends on both sides of the connection discarding their ephemeral keys promptly.
+Implementations should wipe their FFDHE secret key material from memory as soon as it is no longer needed and should never store it in persistent storage.
+Forward secrecy also depends on the strength of the Diffie Hellman group; using a very strong symmetric cipher like AES256 with a forward secret cipher suite but generating the keys with a much weaker group like dhe2048 simply moves the adversary's cost from attacking the symmetric cipher to attacking the dh Ys or dh Yc ephemeral key shares.
+If the goal is to provide forward secrecy, attention should be paid to all parts of the cipher suite selection process, both key exchange and symmetric cipher choice.
+False Start Clients capable of TLS False
+[RFC7918] may receive a proposed FFDHE group from a server that is attacker controlled.
+In particular, the attacker can modify the ClientHello to strip the proposed FFDHE groups, which may cause the server to offer a weaker FFDHE group than it should, and this will not be detected until receipt of the server's Finished message.
+This could cause a client using the False Start protocol modification to send data encrypted under a weak key agreement.
+Clients should have their own classification of FFDHE groups that are "cryptographically strong" in the same sense described in the description of symmetric ciphers in [RFC7918] and SHOULD offer at least one of these in the initial handshake if they contemplate using the False Start protocol modification with an FFDHE cipher suite.
+Compatible clients performing a full handshake MUST NOT use the False Start protocol modification if the server selects an FFDHE cipher suite but sends a group that is not cryptographically strong from the client's perspective.
+Client Fingerprinting This extension provides a few additional bits of information to distinguish between classes of TLS clients (e.g., see [PANOPTICLICK]).
+To minimize this sort of fingerprinting, clients SHOULD support all named groups at or above their minimum security threshold.
+New groups SHOULD NOT be added to the "Supported Groups Registry" without consideration of the cost of browser fingerprinting.
+Appendix A.  Supported Groups Registry (Formerly "EC Named Curve Registry")
+Each description below indicates the group itself, its derivation, its expected strength (estimated roughly from guidelines in [ECRYPTII]), and whether it is recommended for use in TLS key exchange at the given security level.
+It is not recommended to add further finite field groups to the "Supported Groups Registry"; any attempt to do so should consider Section 9.1.
+The primes in these finite field groups are all safe primes; that is, a prime p is a safe prime when q   (p 1)/2 is also prime.
+Where e is the base of the natural logarithm and square brackets
+the groups that initially populate this registry are derived for a given bit length b by finding the lowest positive integer X that creates a safe prime p where
+^64 1 New additions of FFDHE groups to this registry may use this same derivation (e.g., with different bit lengths) or may choose their parameters in a different way, but they must be clear about how the parameters were derived.
+New additions of FFDHE groups MUST use a safe prime as the modulus to enable the inexpensive peer verification described in Section 5.1.
+The 2048 bit group has registry value 256 and is calculated from the following formula:
+The hexadecimal representation of p is:
+36ADE735 30ACCA4F 483A797A BC0AB182 B324FB61 D108A94B B2C8E3FB B96ADAB7
+2EC22005 C58EF183 7D1683B2 C6F34A26 C1B2EFFA
+The group size is: q
+The hexadecimal representation of q is:
+7FFFFFFF FFFFFFFF D6FC2A2C 515DA54D 57EE2B10
+139E9E78 EC5CE2C1 E7169B4A D4F09B20 8A3219FD E649CEE7 124D9F7C BE97F1B1 B1863AEC
+F15344ED 79F7F439 0EF8AC50 9B56F39A 98566527
+The estimated symmetric equivalent strength of this group is 103 bits.
+Peers using ffdhe2048 that want to optimize their key exchange with a short exponent (Section 5.2) should choose a secret key of at least 225 bits.
+The 3072 bit prime has registry value 257 and is calculated from the following formula:
+The hexadecimal representation of p is:
+36ADE735 30ACCA4F 483A797A BC0AB182 B324FB61 D108A94B B2C8E3FB B96ADAB7
+C1B2EFFA 886B4238 611FCFDC DE355B3B 6519035B BC34F4DE F99C0238
+5CAE82AB 9C9DF69E E86D2BC5 22363A0D ABC52197 9B0DEADA
+The group size is: q
+The hexadecimal representation of q is:
+7FFFFFFF FFFFFFFF D6FC2A2C 515DA54D 57EE2B10
+139E9E78 EC5CE2C1 E7169B4A D4F09B20 8A3219FD E649CEE7 124D9F7C BE97F1B1 B1863AEC
+F15344ED 79F7F439 0EF8AC50 9B56F39A 98566527
+DE21BCA2 7A7EA229 716BA6E9 B279710F 38FAA5FF
+The estimated symmetric equivalent strength of this group is 125 bits.
+Peers using ffdhe3072 that want to optimize their key exchange with a short exponent (Section 5.2) should choose a secret key of at least 275 bits.
+The 4096 bit group has registry value 258 and is calculated from the following formula:
+The hexadecimal representation of p is:
+36ADE735 30ACCA4F 483A797A BC0AB182 B324FB61 D108A94B B2C8E3FB B96ADAB7
+C1B2EFFA 886B4238 611FCFDC DE355B3B 6519035B BC34F4DE F99C0238
+5CAE82AB 9C9DF69E E86D2BC5 22363A0D ABC52197 9B0DEADA
+ED6A1E01 2D9E6832 A907600A 918130C4 6DC778F9 71AD0038
+4DB5A851 F44182E1 C68A007E 5E655F6A FFFFFFFF FFFFFFFF
+The group size is: q
+The hexadecimal representation of q is:
+7FFFFFFF FFFFFFFF D6FC2A2C 515DA54D 57EE2B10
+139E9E78 EC5CE2C1 E7169B4A D4F09B20 8A3219FD E649CEE7 124D9F7C BE97F1B1 B1863AEC
+F15344ED 79F7F439 0EF8AC50 9B56F39A 98566527
+DE21BCA2 7A7EA229 716BA6E9 B279710F 38FAA5FF
+The estimated symmetric equivalent strength of this group is 150 bits.
+Peers using ffdhe4096 that want to optimize their key exchange with a short exponent (Section 5.2) should choose a secret key of at least 325 bits.
+The 6144 bit group has registry value 259 and is calculated from the following formula:
+The hexadecimal representation of p is:
+36ADE735 30ACCA4F 483A797A BC0AB182 B324FB61 D108A94B B2C8E3FB B96ADAB7
+C1B2EFFA 886B4238 611FCFDC DE355B3B 6519035B BC34F4DE F99C0238
+5CAE82AB 9C9DF69E E86D2BC5 22363A0D ABC52197 9B0DEADA
+ED6A1E01 2D9E6832 A907600A 918130C4 6DC778F9 71AD0038
+587E38DA 0077D9B4 763E4E4B 94B2BBC1 94C6651E
+EEAAC023 2A281BF6 B3A739C1 22611682 0AE8DB58
+E49F5235 C95B9117 8CCF2DD5 CACEF403 EC9D1810 C6272B04
+The group size is: q
+The hexadecimal representation of q is:
+7FFFFFFF FFFFFFFF D6FC2A2C 515DA54D 57EE2B10
+139E9E78 EC5CE2C1 E7169B4A D4F09B20 8A3219FD E649CEE7 124D9F7C BE97F1B1 B1863AEC
+F15344ED 79F7F439 0EF8AC50 9B56F39A 98566527
+DE21BCA2 7A7EA229 716BA6E9 B279710F 38FAA5FF
+95140DFB 59D39CE0 91308B41 05746DAC 23D33E5F
+The estimated symmetric equivalent strength of this group is 175 bits.
+Peers using ffdhe6144 that want to optimize their key exchange with a short exponent (Section 5.2) should choose a secret key of at least 375 bits.
+The 8192 bit group has registry value 260 and is calculated from the following formula:
+The hexadecimal representation of p is:
+36ADE735 30ACCA4F 483A797A BC0AB182 B324FB61 D108A94B B2C8E3FB B96ADAB7
+C1B2EFFA 886B4238 611FCFDC DE355B3B 6519035B BC34F4DE F99C0238
+5CAE82AB 9C9DF69E E86D2BC5 22363A0D ABC52197 9B0DEADA
+ED6A1E01 2D9E6832 A907600A 918130C4 6DC778F9 71AD0038
+587E38DA 0077D9B4 763E4E4B 94B2BBC1 94C6651E
+EEAAC023 2A281BF6 B3A739C1 22611682 0AE8DB58
+E49F5235 C95B9117 8CCF2DD5 CACEF403 EC9D1810 C6272B04
+CFF46AAA 36AD004C F600C838 1E425A31 D951AE64 FDB23FCE C9509D43
+687FEB69 EDD1CC5E 0B8CC3BD F64B10EF 86B63142
+D5B80194 88D9C0A0 A1FE3075 A577E231 83F81D4A
+The group size is: q
+The hexadecimal representation of q is:
+7FFFFFFF FFFFFFFF D6FC2A2C 515DA54D 57EE2B10
+139E9E78 EC5CE2C1 E7169B4A D4F09B20 8A3219FD E649CEE7 124D9F7C BE97F1B1 B1863AEC
+F15344ED 79F7F439 0EF8AC50 9B56F39A 98566527
+DE21BCA2 7A7EA229 716BA6E9 B279710F 38FAA5FF
+95140DFB 59D39CE0 91308B41 05746DAC 23D33E5F
+AA0FE346 4E435811 5DB84CC3 B523073A 28D45498 84B81FF7 0E10BF36
+1F97D22B 8F7E4670 5D4527F4 5B42AEFF 39585337
+FDF2C518 7D7D5F0E 2EB8D43F 17BA0F7C 60FF437F
+535DFEF2 9833BF86 CBE88EA4 FBD4221E 84117283
+The estimated symmetric equivalent strength of this group is 192 bits.
+Peers using ffdhe8192 that want to optimize their key exchange with a short exponent (Section 5.2) should choose a secret key of at least 400 bits.

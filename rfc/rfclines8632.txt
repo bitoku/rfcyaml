@@ -1,0 +1,633 @@
+Abstract This document defines a YANG module for alarm management.
+It includes functions for alarm list management, alarm shelving, and notifications to inform management systems.
+There are also operations to manage the operator state of an alarm and administrative alarm procedures.
+The module carefully maps to relevant alarm standards.
+This document defines a YANG module [RFC7950] for alarm management.
+The purpose is to define a standardized alarm interface for network devices that can be easily integrated into management applications.
+The model is also applicable as a northbound alarm interface in the management applications.
+Alarm monitoring is a fundamental part of monitoring the network.
+Raw alarms from devices do not always tell the status of the network services or necessarily point to the root cause.
+However, being able to feed alarms to the alarm management application in a standardized format is a starting point for performing higher level network assurance tasks.
+The design of the module is based on experience from using and implementing available alarm standards from ITU [X.733], 3GPP [ALARMIRP], and ANSI [ISA182].
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in BCP 14
+when, and only when, they appear in all capitals, as shown here.
+The following terms are defined in [RFC7950]:  action  client  data tree
+The following terms are used within this document: Alarm (the general concept):  An alarm signifies an undesirable state in a resource that requires corrective action.
+A fault is the underlying cause of an undesired behavior.
+There is no trivial one to one mapping between faults and alarms.
+One fault may result in several alarms in case the system lacks root cause and correlation capabilities.
+An alarm might not have an underlying fault as a cause.
+For example, imagine a bad Mean Opinion Score (MOS) alarm from a Voice over IP (VOIP) probe and the cause being non optimal QoS configuration.
+Alarm Type:  An alarm type identifies a possible unique alarm state for a resource.
+Alarm types are names to identify the state like "link alarm", "jitter violation", and "high disk utilization".
+Resource:  A fine grained identification of the alarming resource, for example, an interface and a process.
+The alarm state for a specific resource and alarm type, for example, ("GigabitEthernet0/15", "link alarm").
+An entry in the alarm list.
+Cleared Alarm:  A cleared alarm is an alarm where the system considers the undesired state to be cleared.
+Operators cannot clear alarms; clearance is managed by the system.
+For example, a "linkUp" notification can be considered a clear condition for a "linkDown" state.
+Operators can close alarms irrespective of the alarm being cleared or not.
+A closed alarm indicates that the alarm does not need attention because either the corrective action has been taken or it can be ignored for other reasons.
+A list of all possible alarm types on a system.
+Alarm Shelving:  Blocking alarms according to specific criteria.
+An action taken by an operator or automation routine in order to minimize the impact of the alarm or resolve the root cause.
+The alarm management application that consumes the alarms, i.e., acts as a client.
+The system that implements this YANG module, i.e., acts as a server.
+This corresponds to a network device or a management application that provides a northbound alarm interface.
+Tree diagrams used in this document follow the notation defined in [RFC8340].
+The objectives for the design of the alarm data model are:  Users find it simple to use.
+If a system supports this module, it shall be straightforward to integrate it into a YANG based alarm manager.
+Alarms are viewed as states on resources and not as discrete notifications.
+A precise definition of "alarm" is provided in order to exclude general events that should not be forwarded as alarm notifications.
+Precise identification of alarm types and alarm instances is provided.
+A management system should be able to pull all available alarm types from a system, i.e., read the alarm inventory from a system.
+This makes it possible to prepare alarm operators with corresponding alarm instructions.
+Alarm usability requirements are addressed; see Appendix G.
+While IETF and telecom standards have addressed alarms mostly from a protocol perspective, the process industry has published several relevant standards addressing requirements for a useful alarm interface; see [EEMUA] and [ISA182].
+This document defines usability requirements as well as a YANG data model.
+Mapping to [X.733], which is a requirement for some alarm systems, is achievable.
+Still, keep some of the X.733 concepts out of the core model in order to make the model small and easy to understand.
+This section defines the fundamental concepts behind the data model.
+This section is rooted in the works of Vallin et.
+An alarm signifies an undesirable state in a resource that requires corrective action.
+There are two main things to remember from this definition: 1.
+It focuses on leaving out events and logging information in general.
+Alarms should only be used for undesired states that require action.
+It also focuses on alarms as a state on a resource, not the notifications that report the state changes.
+See Appendix F for information on how this definition relates to other alarm standards.
+This document defines an alarm type with an alarm type id and an alarm type qualifier.
+The alarm type id is modeled as a YANG identity.
+With YANG identities, new alarm types can be defined in a distributed fashion.
+YANG identities are hierarchical, which means that a hierarchy of alarm types can be defined.
+Standards and vendors should define their own alarm type identities based on this definition.
+The use of YANG identities means that all possible alarms are identified at design time.
+This explicit declaration of alarm types makes it easier to allow for alarm qualification reviews and preparation of alarm actions and documentation.
+There are occasions where the alarm types are not known at design time.
+An example is a system with digital inputs that allows users to connect detectors, such as smoke detectors, to the inputs.
+In this case, it is a configuration action that says certain connectors are fire alarms, for example.
+In order to allow for dynamic addition of alarm types, the alarm data model permits further qualification of the identity based alarm type using a string.
+A potential drawback of this is that there is a significant risk that alarm operators will receive alarm types as a surprise.
+They do not know how to resolve the problem since a defined alarm procedure does not necessarily exist.
+To avoid this risk, the system MUST publish all possible alarm types in the alarm inventory; see Section 4.2.
+A vendor or standards organization can define their own alarm type hierarchy.
+The example below shows a hierarchy based on X.733 event types:
+import ietf alarms { prefix al; } identity vendor alarms { base al:alarm type; } identity communications alarm { base vendor alarms; } identity link alarm { base communications alarm; } Alarm types can be abstract.
+An abstract alarm type is used as a base for defining hierarchical alarm types.
+Concrete alarm types are used for alarm states and appear in the alarm inventory.
+There are two kinds of concrete alarm types: 1.
+The last subordinate identity in the "alarm type id" hierarchy is concrete, for example, "alarm identity.environmental  alarm.smoke".
+In this example, "alarm identity" and "environmental alarm" are abstract YANG identities, whereas "smoke" is a concrete YANG identity.
+The YANG identity hierarchy is abstract, and the concrete alarm type is defined by the dynamic alarm qualifier string, for example, "alarm identity.environmental alarm.external detector" with alarm type qualifier "smoke".
+This will be reported in the alarm type qualifier."
+; } A server SHOULD strive to minimize the number of dynamically defined alarm types.
+3.3.  Identifying the Alarming Resource
+It is of vital importance to be able to refer to the alarming resource.
+This reference must be as fine grained as possible.
+If the alarming resource exists in the data tree, an instance identifier MUST be used with the full path to the object.
+When the module is used in a controller/orchestrator/manager, the original device resource identification can be modified to include the device in the path.
+The details depend on how devices are identified and are out of scope for this specification.
+Example: The original device alarm might identify the resource as "/dev:interfaces/dev:
+The resource identification in the manager could look something like: "/mgr
+" This module also allows for alternate naming of the alarming resource if it is not available in the data tree.
+A primary goal of the alarm data model is to remove any ambiguity in how alarm notifications are mapped to an update of an alarm instance.
+The X.733 [X.733] and 3GPP [ALARMIRP] documents were not clear on this point.
+This alarm data model states that the tuple (resource, alarm type identifier, and alarm type qualifier) corresponds to a single alarm instance.
+This means that alarm notifications for the same resource and same alarm type are matched to update the same alarm instance.
+These three leafs are therefore used as the key in the alarm list:
+The alarm model clearly separates the resource alarm lifecycle from the operator and administrative lifecycles of an alarm.
+the alarm instrumentation that controls alarm raise, clearance, and severity changes.
+operator alarm lifecycle: operators acting upon alarms with actions like acknowledging and closing.
+Closing an alarm implies that the operator considers the corrective action performed.
+Operators can also shelve (block/filter) alarms in order to avoid nuisance alarms.
+administrative alarm lifecycle: purging (deleting)
+unwanted alarms and compressing the alarm status change list.
+This module exposes operations to manage the administrative lifecycle.
+The server may also perform these operations based on other policies, but how that is done is out of scope for this document.
+A server SHOULD describe how long it retains cleared/closed alarms until they are manually purged or if it has an automatic removal policy.
+How this is done is outside the scope of this document.
+Resource Alarm Lifecycle From a resource perspective, an alarm can, for example, have the following lifecycle: raise, change severity, change severity, clear, being raised again, etc.
+All of these status changes can have different alarm texts generated by the instrumentation.
+Two important things to note: 1.
+Alarms are not deleted when they are cleared.
+Deleting alarms is an administrative process.
+The "ietf alarms" YANG module defines an action "purge alarms" that deletes alarms.
+Alarms are not cleared by operators; only the underlying instrumentation can clear an alarm.
+The YANG tree representation below illustrates the resource oriented lifecycle:  ro alarm
+, a row is added to the "status change" list, if the server implements the feature "alarm history".
+The feature "alarm history" is optional to implement, since keeping the alarm history may have an impact on the server's memory resources.
+The last status values are also represented as leafs for the alarm.
+Note well that the alarm severity does not include "cleared"; alarm clearance is a boolean flag.
+Operator Alarm Lifecycle Operators can act upon alarms using the set operator state action:  ro alarm
+ro operator state change  [time] {operator actions}?
+x set operator state {operator actions}?
+w state    writable operator state
+string The operator state for an alarm can be "none", "ack", "shelved", and "closed".
+Alarm deletion (using the action "purge alarms") can use this state as a criterion.
+For example, a closed alarm is an alarm where the operator has performed any required corrective actions.
+Closed alarms are good candidates for being purged.
+Administrative Alarm Lifecycle Deleting alarms from the alarm list is considered an administrative action.
+This is supported by the "purge alarms" action.
+The "purge  alarms" action takes a filter as input.
+The filter selects alarms based on the operator and resource alarm lifecycle such as "all closed cleared alarms older than a time specification".
+The server may also perform these operations based on other policies, but how that is done is out of scope for this document.
+Purged alarms are removed from the alarm list.
+well that if the alarm resource state changes after a purge, the alarm will reappear in the alarm list.
+Compressing an alarm deletes all entries in the alarm's "status change" list except for the last status change.
+A client can perform this using the "compress alarms" action.
+The server may also perform these operations based on other policies, but how that is done is out of scope for this document.
+Root Cause, Impacted Resources, and Related Alarms
+The alarm data model does not mandate any requirements for the system to support alarm correlation or root cause and service impact analysis.
+However, if such features are supported, this section describes how the results of such analysis are represented in the data model.
+These parts of the model are optional.
+The module supports three scenarios:
+Root cause analysis:  An alarm can indicate candidate root cause resources, for example, a database issue alarm referring to a full disk partition.
+Service impact analysis:  An alarm can refer to potential impacted resources, for example, an interface alarm referring to impacted network services.
+Alarm correlation:  Dependencies between alarms; several alarms can be grouped as relating to each other, for example, a streaming media alarm relating to a high jitter alarm.
+Different systems have varying degrees of alarm correlation and analysis capabilities, and the intent of the alarm data model is to enable any capability, including none.
+The general principle of this alarm data model is to limit the amount of alarms.
+In many cases, several resources are affected for a given underlying problem.
+A full disk will of course impact databases and applications as well.
+The recommendation is to have a single alarm for the underlying problem and list the affected resources in the alarm rather than having separate alarms for each resource.
+The alarm has one leaf list to identify a possible "impacted  resource" and a leaf list to identify a possible "root cause  resource".
+These serve as hints only.
+It is up to the client application to use this information to present the overall status.
+Using the disk full example, a good alarm would be to use the hard  disk partition as the alarming resource and add the database and applications into the "impacted resource" leaf list.
+A system should always strive to identify the resource that can be acted upon as the "resource" leaf.
+The "impacted resource" leaf list shall be used to identify any side effects of the alarm.
+The impacted resources cannot be acted upon to fix the problem.
+The disk full example above illustrates the principle; you cannot fix the underlying issue by database operations.
+However, you need to pay attention to the database to perform any operations that limit the impact of the problem.
+On some occasions, the system might not be capable of detecting the root cause, the resource that can be acted upon.
+The instrumentation in this case only monitors the side effect and raises an alarm to indicate a situation requiring attention.
+The instrumentation still might identify possible candidates for the root cause resource.
+In this case, the "root cause resource" leaf list can be used to indicate the candidate root cause resources.
+An example of this kind of alarm might be an active test tool that detects a Service Level Agreement (SLA) violation on a VPN connection and identifies the devices along the chain as candidate root causes.
+The alarm data model also supports a way to associate different alarms with each other using the "related alarm" list.
+This list enables the server to inform the client that certain alarms are related to other alarms.
+Note well that this module does not prescribe any dependencies or preference between the above alarm correlation mechanisms.
+Different systems have different capabilities, and the above described mechanisms are available to support the instrumentation features.
+Alarm Shelving Alarm shelving is an important function in order for alarm management applications and operators to stop superfluous alarms.
+A shelved alarm implies that any alarms fulfilling these criteria are ignored (blocked/filtered).
+Shelved alarms appear in a dedicated shelved  alarm list; thus, they can be filtered out so that the main alarm list only contains entries of interest.
+Shelved alarms do not generate notifications, but the shelved alarm list is updated with any alarm state changes.
+Alarm shelving is optional to implement, since matching alarms against shelf criteria may have an impact on the server's processing resources.
+Alarm Profiles Alarm profiles are used to configure further information to an alarm type.
+This module supports configuring severity levels overriding the system default levels.
+This corresponds to the Alarm Severity Assignment Profile (ASAP) functionality in M.3100 [M.3100] and M.3160 [M.3160].
+Other standard or enterprise modules can augment this list with further alarm type information.
+The fundamental parts of the data model are the "alarm list" with associated notifications and the "alarm inventory" list of all possible alarm types.
+These MUST be implemented by a system.
+The rest of the data model is made conditional with these YANG features: "operator actions", "alarm shelving", "alarm history", "alarm  summary", "alarm profile", and "severity assignment".
+ro shelved alarms {alarm shelving}?
+ro number of shelved alarms?
+[alarm type id alarm type qualifier match resource] {alarm profile}?
+The "/alarms/control/notify status changes" leaf controls whether notifications are sent for all state changes, only raise and clear, or only notifications more severe than a configured level.
+This feature, in combination with alarm shelving, corresponds to the ITU Alarm Report Control functionality; see Appendix F.2.4.
+Every alarm has a list of status changes.
+The length of this list is controlled by "/alarms/control/max alarm status changes".
+When the list is full and a new entry created, the oldest entry is removed.
+The shelving control tree is shown below:
+rw alarm shelving {alarm shelving}?
+rw alarm type qualifier match    string  rw description?
+Shelved alarms are shown in a dedicated shelved alarm list.
+Matching alarms MUST appear in the "/alarms/shelved alarms/shelved alarm" list, and non matching alarms MUST appear in the "/alarms/alarm list/ alarm" list.
+The server does not send any notifications for shelved alarms.
+Shelving and unshelving can only be performed by editing the shelf configuration.
+It cannot be performed on individual alarms.
+The server will add an operator state indicating that the alarm was shelved/unshelved.
+A leaf, "/alarms/summary/shelves active", in the alarm summary indicates if there are shelved alarms.
+A system can select not to support the shelving feature.
+The alarm inventory represents all possible alarm types that may occur in the system.
+A management system may use this to build alarm procedures.
+The alarm inventory is relevant for the following reasons: The system might not implement all defined alarm type identities, and some alarm identities are abstract.
+The system has configured dynamic alarm types using the alarm qualifier.
+The inventory makes it possible for the management system to discover these.
+Note that the mechanism whereby dynamic alarm types are added using the alarm type qualifier MUST populate this list.
+The optional leaf list "resource" in the alarm inventory enables the system to publish for which resources a given alarm type may appear.
+A server MUST implement the alarm inventory in order to enable controlled alarm procedures in the client.
+A server implementer may want to document the alarm inventory for offline processing by clients.
+The file format defined in [YANG INSTANCE] can be used for this purpose.
+The alarm inventory tree is shown below:  ro alarm inventory  ro alarm type
+[alarm type id alarm type qualifier]  ro alarm type
+d  ro alarm type qualifier
+The alarm summary list summarizes alarms per severity: how many cleared, cleared and closed, and closed.
+It also gives an indication if there are shelved alarms.
+The alarm summary tree is shown below:  ro summary {alarm summary}?
+ro not cleared not closed?
+The alarm list, "/alarms/alarm list", is a function from the tuple (resource, alarm type, alarm type qualifier) to the current composite alarm state.
+The composite state includes states for the resource alarm lifecycle such as severity, clearance flag, and operator states such as acknowledged.
+This means that for a given resource and alarm type, the alarm list shows the current states of the alarm such as acknowledged and cleared.
+yang:date and time  ro alarm
+ro status change  [time] {alarm history}?
+x set operator state {operator actions}?
+x compress alarms {alarm history}?
+leafref  ro output  ro compressed alarms?
+Every alarm has three important states: the resource clearance state "is cleared", the severity "perceived severity", and the operator state available in the operator state change list.
+In order to see the alarm history, the resource state changes are available in the "status change" list, and the operator history is available in the "operator state change" list.
+The shelved alarm list has the same structure as the alarm list above.
+It shows all the alarms that match the shelving criteria "/alarms/control/alarm shelving".
+Alarm Profiles Alarm profiles, "/alarms/alarm profile", is a list of configurable alarm types.
+The list supports configurable alarm severity levels in the container "alarm severity assignment profile".
+If an alarm matches the configured alarm type, it MUST use the configured severity level(s) instead of the system default.
+This configuration MUST also be represented in the alarm inventory.
+[alarm type id alarm type qualifier match resource] {alarm profile}?
+rw alarm severity assignment profile {severity assignment}?
+The alarm data model supports the following actions to manage the alarms: "/alarms
+/alarm list/purge alarms":  Delete alarms from the "alarm  list" according to specific criteria, for example, all cleared alarms older than a specific date. "
+/alarm list/compress alarms":  Compress the "status change" list for the alarms. "/alarms/alarm list/alarm/set operator state":  Change the operator state for an alarm.
+Delete alarms from the "shelved alarm list" according to specific criteria, for example, all alarms older than a specific date. "/alarms/shelved alarm list/compress shelved alarms":  Compress the "status change" list for the alarms.
+The alarm data model supports a general notification to report alarm  state changes.
+It carries all relevant parameters for the alarm  management application.
+There is also a notification to report that an operator changed the operator state on an alarm, like acknowledged.
+If the alarm inventory is changed, for example, a new card type is inserted, a notification will tell the management application that new alarm types are available.
+Relationship to the ietf hardware YANG Module RFC 8348
+[RFC8348] defines the "ietf hardware" YANG data model for the management of hardware.
+The "alarm state" in RFC 8348 is a summary of the alarm severity levels that may be active on the specific hardware component.
+It does not say anything about how alarms are reported, and it doesn't provide any details of the alarms.
+The mapping between the alarm YANG data model, prefix "al", and the "alarm state" in RFC 8348, prefix "hw", is as follows: "al:resource":  Corresponds to an entry in the list "
+No bit set in "
+Corresponding bit set in "/hw:
+If the alarm is acknowledged by the operator, the bit "hw:under repair" is set in "/hw:
+This YANG module references [RFC6991] and [XSD TYPES].
+CODE BEGINS> file "ietf alarms@2019
+09 11.yang" module ietf alarms { yang version 1.1; namespace "urn:ietf:params:xml:
+yang:ietf alarms"; prefix al; import ietf yang types { prefix yang; reference "RFC 6991:
+; } organization "IETF CCAMP Working Group"; contact
+>"; description "This module defines an interface for managing alarms.
+Main inputs to the module design are the 3GPP Alarm Integration Reference Point (IRP), ITU T X.733, and ANSI/ISA 18.2 alarm standards.
+Main features of this module include:   Alarm list:
+A list of all alarms.
+Cleared alarms stay in the list until explicitly purged.
+Operator actions on alarms: Acknowledging and closing alarms.
+Administrative actions on alarms: Purging alarms from the list according to specific criteria.
+: A management application can read all alarm types implemented by the system.
+Alarm shelving: Shelving (blocking) alarms according to specific criteria.
+: A management system can attach further information to alarm types, for example, overriding system default severity levels.
+This module uses a stateful view on alarms.
+An alarm is a state for a specific resource (note that an alarm is not a notification).
+An alarm type is a possible alarm state for a resource.
+For example, the tuple: ('link alarm', 'GigabitEthernet0/25') is an alarm of type 'link alarm' on the resource 'GigabitEthernet0/25'.
+Alarm types are identified using YANG identities and an optional string based qualifier.
+The string based qualifier allows for dynamic extension of the statically defined alarm types.
+Alarm types identify a possible alarm state and not the individual notifications.
+For example, the traditional 'link down' and 'link up' notifications are two notifications referring to the same alarm type 'link alarm'.
+With this design, there is no ambiguity about how alarm and alarm clear correlation should be performed; notifications that report the same resource and alarm type are considered updates of the same alarm, e.g., clearing an active alarm or changing the severity of an alarm.
+The instrumentation can update the severity and alarm text on an existing alarm.
+There is a clear separation between updates on the alarm from the underlying resource, like clear, and updates from an operator, like acknowledging or closing an alarm:
+(('link alarm', 'GigabitEthernet0/25'), warning, 'interface down while interface admin state is up', cleared, closed)
+Administrative actions like removing closed alarms older than a given time is supported.
+This YANG module does not define how the underlying instrumentation detects and clears the specific alarms.
+That belongs to the Standards Development Organization (SDO) or enterprise that owns that specific technology.
+The key words 'MUST', 'MUST NOT', 'REQUIRED', 'SHALL', 'SHALL NOT', 'SHOULD', 'SHOULD NOT', 'RECOMMENDED', 'NOT RECOMMENDED', 'MAY', and 'OPTIONAL' in this document are to be interpreted as described in BCP 14 (RFC 2119)
+when, and only when, they appear in all capitals, as shown here.
+2019 IETF Trust and the persons identified as authors of the code.
+Redistribution and use in source and binary forms, with or without modification, is permitted pursuant to, and subject to the license terms contained in, the Simplified BSD License set forth in Section 4.c of the IETF Trust's Legal Provisions Relating to IETF Documents (https://trustee.ietf.org/license info).
+This version of this YANG module is part of RFC 8632; see the RFC itself for full legal notices."
+For example, if an alarm toggles between cleared and active 10 times, these state changes are present in a separate list in the alarm.
+; reference "ITU T Recommendation M.3100:
+A unique identification of the alarm, not including the resource.
+Different resources can share alarm types.
+If the resource reports the same alarm type, it is considered to be the same alarm.
+The alarm type is a simplification of the different X.733 and 3GPP Alarm IRP correlation mechanisms, and it allows for hierarchical extensions.
+A string based qualifier can be used in addition to the identity in order to have different alarm types based on information not known at design time, such as values in textual SNMP Notification varbinds.
+Standards and vendors can define sub identities to clearly identify specific alarm types.
+object identifier; type string; type yang:
+This is an identification of the alarming resource, such as an interface.
+It should be as fine grained as possible to both guide the operator and guarantee uniqueness of the alarms.
+If the alarming resource is modeled in YANG, this type will be an instance identifier.
+If the resource is an SNMP object, the type will be an 'object identifier'.
+If the resource is anything else, for example, a distinguished name or a Common Information Model (CIM) path, this type will be a string.
+If the alarming object is identified by a Universally Unique Identifier (UUID), use the uuid type.
+Be cautious when using this type, since a UUID is hard to use for an operator.
+If the server supports several models, the precedence should be in the order as given in the union definition."
+; } typedef resource match { type union { type yang:xpath1.0; type yang:object identifier; type string; } description "This type is used to match resources of type 'resource'.
+Since the type 'resource' is a union of different types, the 'resource match' type is also a union of corresponding types.
+If the type is given as an XPath 1.0 expression, a resource of type 'instance identifier' matches if the instance is part of the node set that is the result of evaluating the XPath 1.0 expression.
+For example, the XPath 1.0 expression: /ietf interfaces:
+[ietf interfaces:type 'ianaift:ethernetCsmacd'] would match the resource instance identifier:
+:interfaces/if:interface[if:name 'eth1'], assuming that the interface 'eth1' is of type 'ianaift:ethernetCsmacd'.
+If the type is given as an object identifier, a resource of type 'object identifier' matches if the match object identifier is a prefix of the resource's object identifier.
+For example, the value: 1.3.6.1.2.1.2.2 would match the resource object identifier: 1.3.6.1.2.1.2.2.1.1.5 If the type is given as an UUID or a string, it is interpreted as an XML Schema regular expression, which matches a resource of type 'yang:uuid' or 'string' if the given regular expression matches the resource string.
+If the type is given as an XPath expression, it is evaluated in the following XPath context:
+The set of namespace declarations is the set of prefix and namespace pairs for all YANG modules implemented by the server, where the prefix is the YANG module name and the namespace is as defined by the 'namespace' statement in the YANG module.
+If a leaf of this type is encoded in XML, all namespace declarations in scope on the leaf element are added to the set of namespace declarations.
+If a prefix found in the XML is already present in the set of namespace declarations, the namespace in the XML is used.
+The set of variable bindings is empty.
+The function library is the core function library, and the functions are defined in Section 10 of RFC 7950.
+The context node is the root node in the data tree."
+This MUST contain enough information for an operator to be able to understand the problem and how to resolve it.
+If this string contains structure, this format should be clearly documented for programs to be able to parse that information."
+; } typedef severity { type enumeration { enum indeterminate { value 2; description "Indicates that the severity level could not be determined.
+Action should be taken to further diagnose (if necessary) and correct the problem in order to prevent it from becoming a more serious service affecting fault."
+; } enum minor { value 4; description "The 'minor' severity level indicates the existence of a non service affecting fault condition and that corrective action should be taken in order to prevent a more serious (for example, service affecting) fault.
+well that the value 'clear' is not included.
+This is used only in notifications reporting state changes for an alarm."
+The 'closed' state indicates that an operator considers the alarm being resolved.
+Alarms in /alarms/shelved alarms/ MUST be assigned this operator state by the server as the last entry in the 'operator state change' list.
+The text for that entry SHOULD include the shelf name."
+; } enum un shelved { value 5; description "The alarm is moved back to 'alarm list' from a shelf.
+Alarms that are moved from /alarms/shelved alarms/ to /alarms
+/alarm list MUST be assigned this state by the server as the last entry in the 'operator state change' list.
+The text for that entry SHOULD include the shelf name."
+The 'closed' state indicates that an operator considers the alarm being resolved.
+; } description "Identifies an alarm type.
+The description of the alarm type id MUST indicate whether or not the alarm type is abstract.
+The definition of alarm qualifiers is considered to be part of the instrumentation and is out of scope for this module.
+This grouping is used both in the alarm list and in the notification representing an alarm state change."; leaf resource { type resource; mandatory true; description "The alarming resource.
+; description "This leaf and the leaf 'alarm type qualifier' together provide a unique identification of the alarm type."
+; } leaf alarm type qualifier { type alarm type qualifier; description "This leaf is used when the 'alarm type id' leaf cannot uniquely identify the alarm type.
+This field can contain SNMP OIDs, CIM paths, or 3GPP distinguished names, for example."
+; } list related alarm { if feature "alarm correlation"; key "resource alarm type id alarm type qualifier"; description "References to related alarms.
+If the system creates an alarm on a resource and also has a mapping to other resources that might be impacted, these resources can be listed in this leaf list.
+In this way, the system can create one alarm instead of several.
+cause analysis"; type resource; description "Resources that are candidates for causing the alarm.
+If the system has a mechanism to understand the candidate root causes of an alarm, this leaf list can be used to list the root cause candidate resources.
+In this way, the system can create one alarm instead of several.
+An example might be a logging system (alarm resource) that fails; the alarm can reference the file system in the 'root cause resource' leaf list.
+Note that the intended use is not to also send an alarm with the 'root
+cause resource' as an alarming resource.
+This grouping is used both in the alarm list's status change list and in the notification representing an alarm state change."; leaf time { type yang:date and time; mandatory true; description "The time the status of the alarm changed.
+The value represents the time the real alarm state change appeared in the resource and not when it was added to the alarm list.
+last changed MUST be set to the same value."
+; } leaf perceived severity { type severity with clear; mandatory true; description "The severity of the alarm as defined by X.733.
+Note that this may not be the original severity since the alarm may have changed severity."
+This grouping defines parameters that can be changed by an operator."
+; leaf is cleared { type boolean; mandatory true; description "Indicates the current clearance state of the alarm.
+An alarm might toggle from active alarm to cleared alarm and back to active again."
+; } leaf last raised { type yang:date and time; mandatory true; description "
+An alarm may change severity level and toggle between active and cleared during its lifetime.
+This leaf indicates the last time it was raised
+If an alarm was raised with severity 'warning' but later changed to 'major', this leaf will show 'major'."
+; } leaf alarm text { type alarm text; mandatory true; description "The last reported alarm text.
+This text should contain information for an operator to be able to understand the problem and how to resolve it."
+; } list status change { if feature "alarm history"; key "time"; min elements 1; description "A list of status change events for this alarm.
+The entry with latest timestamp in this list MUST correspond to the leafs 'is cleared', 'perceived severity', and 'alarm text' for the alarm.
+This list is ordered according to the timestamps of alarm state changes.
+The first item corresponds to the latest state change.
+When this number is exceeded, the oldest status change entry is automatically removed.
+severity level' { description "When notify status changes is 'severity level', a value must be given for 'notify severity level'."
+; } default "all state changes"; description "This leaf controls the notifications sent for alarm status updates.
+There are three options: 1.
+Notifications are sent for all updates, severity level changes, and alarm text changes.
+Notifications are only sent for alarm raise and clear.
+Notifications are sent for status changes equal to or above the specified severity level.
+Clear notifications shall always be sent.
+Notifications shall also be sent for state changes that make an alarm less severe than the specified level.
+For example, in option 3, assume that the severity level is set to major and that the alarm has the following state changes: [(Time, severity, clear)]:
+"severity level"'; type severity; description "Only send notifications for alarm state changes crossing the specified level.
+; } container alarm shelving { if feature "alarm shelving"; description "The 'alarm shelving/shelf' list is used to shelve (block/filter) alarms.
+The conditions in the shelf criteria are logically ANDed.
+The first matching shelf is used, and an alarm is shelved only for this first match.
+Matching alarms MUST appear in the /alarms/shelved alarms/shelved alarm list, and non matching /alarms MUST appear in the /alarms/alarm list/alarm list.
+The server does not send any notifications for shelved alarms.
+The server MUST maintain states (e.g., severity changes) for the shelved alarms.
+Alarms that match the criteria shall have an operator state 'shelved'.
+; } description "Each entry defines the criteria for shelving alarms.
+Any alarm matching the combined criteria of 'alarm type id' and 'alarm type qualifier match' MUST be matched."; leaf alarm type id { type alarm type id; description "Shelve all alarms that have an 'alarm type
+If the system knows for which resources a specific alarm type can appear, it is also identified in the inventory.
+The list also tells if each alarm type has a corresponding clear state.
+The inventory shall only contain concrete alarm types.
+The alarm inventory MUST be updated by the system when new alarms can appear.
+This can be the case when installing new software modules or inserting new card types.
+Implementations SHOULD strive for detecting the cleared state for all alarm types.
+If this leaf is 'true', the operator can monitor the alarm until it becomes cleared after the corrective action has been taken.
+If this leaf is 'false', the operator needs to validate that the alarm is no longer active using other mechanisms.
+well that 'clear' is not part of the severity type.
+In general, the severity level should be defined by the instrumentation based on the dynamic state, rather than being defined statically by the alarm type, in order to provide a relevant severity level based on dynamic state and context.
+It SHOULD include information on possible underlying root causes and corrective actions."
+The summary does not include shelved alarms."; leaf severity { type severity; description "Alarm summary for this severity level."
+This is a hint to the operator that there are active alarm shelves.
+The alarms in the system."; leaf number of alarms { type yang:gauge32; description "This object shows the total number of alarms in the system, i.e., the total number of entries in the alarm list."
+; } leaf last changed { type yang:date and time; description "A timestamp when the alarm list was last changed.
+Each entry in the list holds one alarm for a given alarm type and resource.
+An alarm can be updated from the underlying resource or by the user.
+The following leafs are maintained by the resource: 'is cleared', 'last change', 'perceived severity', and 'alarm text'.
+An operator can change 'operator state' and 'operator text'.
+Entries appear in the alarm list the first time an alarm becomes active for a given alarm type and resource.
+Entries do not get deleted when the alarm is cleared.
+Clear status is represented as a boolean flag.
+Alarm entries are removed, i.e., purged, from the list by an explicit purge action.
+For example, purge all alarms that are cleared and in closed operator state that are older than 24 hours.
+Purged alarms are removed from the alarm list.
+If the alarm resource state changes after a purge, the alarm will reappear in the alarm list.
+Systems may also remove alarms based on locally configured policies; this is out of scope for this module."; uses common alarm parameters; leaf time created { type yang:date and time; mandatory true; description "The timestamp when this alarm entry was created.
+This represents the first time the alarm appeared; it can also represent that the alarm reappeared after a purge.
+description "This list is used by operators to indicate the state of human intervention on an alarm.
+For example, if an operator has seen an alarm, the operator can add a new item to this list indicating that the alarm is acknowledged."
+; uses operator parameters; } action set operator state { if feature "operator actions"; description "This is a means for the operator to indicate the level of human intervention on an alarm."; input { leaf state { type writable operator state; mandatory true
+Typically, this operation is used to delete alarms that are in closed operator state and older than a specified time.
+The number of purged alarms is returned as an output parameter."; input { uses filter input; } output { leaf purged alarms { type uint32; description "Number of purged alarms."
+Conditions in the input are logically ANDed.
+This list does not generate any notifications.
+The list represents alarms that are considered not relevant by the operator.
+Alarms in this list have an 'operator state' of 'shelved'.
+This cannot be changed."; leaf number of shelved alarms { type yang:gauge32; description "This object shows the total number of current alarms, i.e., the total number of entries in the alarm list."
+; } leaf shelved alarms last changed { type yang:date and time; description "A timestamp when the shelved alarm list was last changed.
+The value can be used by a manager to initiate an alarm resynchronization procedure."
+; } list shelved alarm { key "resource alarm type id alarm type qualifier"; description "The list of shelved alarms.
+In the shelved alarm list, it makes sense to delete alarms that are not relevant anymore.
+Conditions in the input are logically ANDed.
+If no input condition is given, all alarms are compressed."
+; input { leaf resource { type leafref { path "/alarms/shelved alarms/shelved alarm/resource"; require instance false; } description "Compress the alarms with this resource."
+This module supports a mechanism where the client can override the system default alarm severity levels.
+The 'alarm profile' is also a useful augmentation point for specific additions to alarm types."
+; } container alarm severity assignment profile { if feature "severity assignment"; description "The client can override the system default severity level."
+; reference "ITU T Recommendation M.3100:
+Generic, protocol neutral management information model"; leaf list severity level { type severity; ordered by user; description "Specifies the configured severity level(s) for the matching alarm.
+If the alarm has several severity levels, the leaf list shall be given in rising severity order.
+The original M3100/M3160 ASAP function only allows for a one to one mapping between alarm type and severity, but since YANG module supports stateful alarms, the mapping must allow for several severity levels.
+Assume a high utilization alarm type with two thresholds with the system default severity levels of threshold1   warning and threshold2
+The same notification is used for reporting a newly raised alarm, a cleared alarm, or changing the text and/or severity of an existing alarm."; uses common alarm parameters; uses alarm state change parameters; } notification alarm inventory changed { description "
+This notification is used to report that the list of possible alarms has changed.
+The X.733 Mapping Module Many alarm systems are based on the X.733 [X.733] and X.736 [X.736] alarm standards.
+This module "ietf alarms x733" augments the alarm inventory, the alarm lists, and the alarm notification with X.733 and X.736 parameters.
+The module also supports a feature whereby the alarm manager can configure the mapping from alarm types to X.733 "event type" and "probable cause" parameters.
+This might be needed when the default mapping provided by the system is in conflict with other management systems or not considered correct.
+Note that the term "resource" in this document is synonymous to the ITU term "managed object".
+This YANG module references [RFC6991], [X.721], [X.733], and [X.736].
+<CODE BEGINS> file "ietf alarms x733@2019 09 11.yang"
+module ietf alarms x733 { yang version 1.1; namespace "urn:ietf:params:xml:ns:
+>"; description "This module augments the ietf alarms module with X.733 alarm parameters.
+The following structures are augmented with the X.733 event type and probable cause: 1) alarms/alarm inventory:
+all possible alarm types 2) alarms/alarm list: every alarm in the system 3
+) alarm notification: notifications indicating alarm state changes 4) alarms/shelved alarms
+The module also optionally allows the alarm management system to configure the mapping from the ietf alarms' alarm keys to the ITU tuple (event type, probable cause).
+The mapping does not include a corresponding problem value specific to X.733.
+The recommendation is to use the 'alarm type qualifier' leaf, which serves the same purpose.
+The module uses an integer and a corresponding string for probable cause instead of a globally defined enumeration, in order to be able to manage conflicting enumeration definitions.
+A single globally defined enumeration is challenging to maintain.
+The key words 'MUST', 'MUST NOT', 'REQUIRED', 'SHALL', 'SHALL NOT', 'SHOULD', 'SHOULD NOT', 'RECOMMENDED', 'NOT RECOMMENDED', 'MAY', and 'OPTIONAL' in this document are to be interpreted as described in BCP 14 (RFC 2119)
+when, and only when, they appear in all capitals, as shown here.
+2019 IETF Trust and the persons identified as authors of the code.
+Redistribution and use in source and binary forms, with or without modification, is permitted pursuant to, and subject to the license terms contained in, the Simplified BSD License set forth in Section 4.c of the IETF Trust's Legal Provisions Relating to IETF Documents (https://trustee.ietf.org/license info).
+This version of this YANG module is part of RFC 8632; see the RFC itself for full legal notices."
+; reference "ITU T Recommendation X.733: Information Technology Open Systems Interconnection System Management: Alarm Reporting Function"; revision 2019 09 11 { description "Initial revision."
+/ feature configure x733 mapping { description "
+An indication that a security attack has been detected by a security service or mechanism."
+The event types as defined by X.733 and X.736."; reference "ITU T Recommendation X.733: Information Technology Open Systems Interconnection System Management: Alarm Reporting Function ITU T Recommendation X.736:
+There is at least one outstanding alarm of a severity higher (more severe) than that in the current alarm."
+The string SHOULD match the X.733 enumeration.
+For example, value 27 is 'localNodeTransmissionError'."
+This may be different from the threshold value if, for example, the gauge may only take on discrete values."
+; } choice threshold level { description "
+In the case of a gauge, the threshold level specifies a pair of threshold values: the first is the value of the crossed threshold, and the second is its corresponding hysteresis; in the case of a counter, the threshold level specifies only the threshold value."
+The going down threshold for clearing the alarm.
+This is used for hysteresis functions for gauges."
+leaf list proposed repair actions { type string; description "
+If present, it indicates that there are one or more alarms ('outstanding alarms') that have not been cleared and that pertain to the same resource as this alarm ('current alarm') does.
+The possible values are: more severe:
+The Perceived severity in the current alarm is higher (more severe) than that reported in any of the outstanding alarms.
+The Perceived severity reported in the current alarm is the same as the highest (most severe) of any of the outstanding alarms.
+less severe: There is at least one outstanding alarm of a severity higher (more severe) than that in the current alarm."
+; } leaf backedup status { type boolean; description "This parameter, when present, specifies whether or not the object emitting the alarm has been backed up; therefore, it is possible to know whether or not services provided to the user have been disrupted when this parameter is included.
+The use of this field in conjunction with the 'perceived severity' field provides information in an independent form to qualify the seriousness of the alarm and the ability of the system as a whole to continue to provide services.
+This parameter specifies the managed object instance that is providing back up services for the managed object to which the notification pertains.
+It is a series of data structures, each of which contains three items of information: an identifier, a significance indicator, and the problem information."; leaf identifier { type string
+This grouping is used to define those alarm attributes that can be mapped from the alarm type mechanism in the ietf alarms module."; leaf event type { type event type; description "The alarm type has this X.733/X.736 event type."
+; } leaf probable cause { type uint32; description "The alarm type has this X.733 probable cause value.
+This module defines probable cause as an integer and not as an enumeration.
+The reason being that the primary use of probable cause is in the management application if it is based on the X.733 standard.
+However, most management applications have their own defined enum definitions and merging enums from different systems might create conflicts.
+By using a configurable uint32, the system can be configured to match the enum values in the management application."
+; } leaf probable cause string { type string;
+description "This string can be used to give a user friendly string to the probable cause value."
+This list allows a management application to control the X.733 mapping for all alarm types in the system.
+Any entry in this list will allow the alarm manager to override the default X.733 mapping in the system, and the final mapping will be shown in the alarm inventory."; leaf alarm type id { type al:
+al:alarm" { description "Augment X.733 information to the alarm."
+This document registers two URIs in the "IETF XML Registry" [RFC3688].
+Following the format in RFC 3688, the following registrations have been made.
+N/A; the requested URI is an XML namespace.
+ietf alarms x733 Registrant Contact:
+N/A; the requested URI is an XML namespace.
+This document registers two YANG modules in the "YANG Module Names" registry [RFC6020].
+The YANG modules specified in this document define a schema for data that is designed to be accessed via network management protocols such as NETCONF [RFC6241] or RESTCONF [RFC8040].
+The lowest NETCONF layer is the secure transport layer, and the mandatory to implement secure transport is Secure Shell (SSH) [RFC6242].
+The lowest RESTCONF layer is HTTPS, and the mandatory to implement secure transport is TLS [RFC8446].
+The Network Configuration Access Control Model (NACM)
+[RFC8341] provides the means to restrict access for particular NETCONF or RESTCONF users to a preconfigured subset of all available NETCONF or RESTCONF protocol operations and content.
+The list of alarms itself may be potentially sensitive from a security perspective, in that it potentially gives an attacker an authoritative picture of the (broken) state of the network.
+There are a number of data nodes defined in the YANG modules that are writable/creatable/deletable (i.e., config true, which is the default).
+These data nodes may be considered sensitive or vulnerable in some network environments.
+Write operations (e.g., edit config) to these data nodes without proper protection can have a negative effect on network operations.
+These are the subtrees and data nodes in the "ietf alarms" module and their sensitivity/vulnerability: "/alarms/control/notify status changes":
+This leaf controls whether an alarm should notify based on various state changes.
+Unauthorized access to this leaf could have a negative impact on operational procedures relying on fine grained alarm state change reporting. "
+This list controls the shelving (blocking) of alarms.
+Unauthorized access to this list could jeopardize the alarm management procedures, since these alarms will not be notified or be part of the alarm list. "
+/control/alarm profile/alarm severity assignment profile": This list controls the severity levels of an alarm.
+Unauthorized access to this could, for example, downgrade the severity of an alarm and thereby have a negative impact on the alarm monitoring process.
+Some of the RPC operations in this YANG module may be considered sensitive or vulnerable in some network environments.
+It is thus important to control access to these operations.
+These are the operations and their sensitivity/vulnerability: "/alarms/alarm list/purge alarms":
+This action deletes alarms from the alarm list.
+Unauthorized use of this action could jeopardize the alarm management procedures since the deleted alarms may be vital for the alarm management application. "/alarms/alarm list/alarm/set operator state":
+This action can be used by the operator to indicate the level of human intervention on an alarm.
+Unauthorized use of this action could result in alarms being ignored by operators.
+Appendix A.  Vendor Specific Alarm Types Example
+This example shows how to define alarm types in a vendor specific module.
+In this case, the vendor "xyz" has chosen to define top  level identities according to X.733 event types.
+module example xyz alarms { namespace "urn:
+example:xyz alarms"; prefix xyz al; import ietf alarms { prefix al; } identity xyz alarms { base al:alarm type id;
+This shows an alarm inventory: one alarm type is defined only with the identifier and another is dynamically configured.
+In the latter case, a digital input has been connected to a smoke detector; therefore, the "alarm type qualifier" is set to "smoke detector" and the "alarm type id" to "environmental alarm".
+ietf alarms" xmlns:xyz al "urn:
+> <description> Link failure; operational state down but admin state up </description
+>smoke alarm</alarm type qualifier> <will clear
+> <description> Connected smoke detector to digital input </description
+</alarm type> </alarm inventory> </alarms
+Appendix C.  Alarm List Example
+In this example, we show an alarm that has toggled [major, clear, major].
+An operator has acknowledged the alarm.
+ietf alarms" xmlns:xyz al "urn:
+dev "urn:example:device"> <alarm list> <number of alarms>1</number of alarms
+> <last changed>2018 04 08T08:39:50.00Z</last changed> <alarm
+<alarm type qualifier></alarm type qualifier> <
+time created>2018 04 08T08:20:10.00Z</time created> <is cleared>
+false</is cleared> <alt resource>1.3.6.1.2.1.2.2.1.1.17</alt resource
+<last raised>2018 04 08T08:39:40.00Z</last raised> <last changed>2018 04 08T08:39:50.00Z</last
+changed> <perceived severity>major</perceived severity> <alarm text
+> Link operationally down but administratively up </alarm text> <status change>
+> Link operationally down but administratively up </alarm text> </status change> <status change
+> Link operationally up and administratively up </alarm text> </status change> <status change> <time>2018 04 08T08:20:10.00Z</time
+> Link operationally down but administratively up </alarm text> </status change> <operator state change
+, ticket TR764999</text> </operator state change> </alarm> </alarm list
+This example shows how to shelve alarms.
+We shelve alarms related to the smoke detectors, since they are being installed and tested.
+We also shelve all alarms from FastEthernet1/0.
+ietf alarms" xmlns:xyz al "urn:
+> <control> <alarm shelving> <shelf
+smoke alarm </alarm type qualifier match>
+> </shelf> </alarm shelving> </control
+Appendix E.  X.733 Mapping Example
+This example shows how to map a dynamic alarm type (alarm type
+id environmental alarm, alarm type qualifier smoke alarm) to the corresponding X.733 "event type" and "probable cause" parameters.
+ietf alarms" xmlns:xyz al "urn:
+smoke alarm </alarm type qualifier match>
+Appendix F.  Relationship to Other Alarm Standards
+This section briefly describes how this alarm data model relates to other relevant standards.
+Definition of "Alarm" The table below summarizes relevant definitions of the term "alarm" in other alarm standards.
+An alarm is an event to
+Table 1: Definition of the Term "Alarm" in Standards
+The evolution of the definition of alarm moves from focused on events reporting a deviation from normal operation towards a definition to a undesired  state  that  requires an operator action .
+This section describes how this YANG alarm data model relates to other standard data models.
+well that we cover other data models for alarm interfaces but not other standards such as SDO  specific alarms.
+X.733 X.733 has acted as a base for several alarm data models over the years.
+The YANG alarm data model differs in the following ways
+: X.733 models the alarm list as a list of notifications.
+The YANG alarm data model defines the alarm list as the current alarm states for the resources, which is generated from the state change reporting notifications.
+In X.733, an alarm can have the severity level "clear".
+In the YANG alarm data model, "clear" is not a severity level; it is a separate state of the alarm.
+An alarm can have the following states, for example, (major, cleared) and (minor, not cleared).
+X.733 uses a flat, globally defined enumerated "probable cause" to identify alarm types.
+This alarm data model uses a hierarchical YANG identity: "alarm type".
+This enables delegation of alarm types within organizations.
+It also enables management to reason about abstract alarm types corresponding to base identities; see Section 3.2.
+The YANG alarm data model has not included the majority of the X.733 alarm attributes.
+Rather, these are defined in an augmenting module [X.733] if "strict" X.733 compliance is needed.
+The Alarm MIB (RFC 3877)
+The MIB in RFC 3877 takes a different approach; rather than defining a concrete data model for alarms, it defines a model to map existing SNMP managed objects and notifications into alarm states and alarm notifications.
+This was necessary since MIBs were already defined with both managed objects and notifications indicating alarms, for example, "linkUp" and "linkDown" notifications in combination with "ifAdminState" and "ifOperState".
+So, RFC 3877 cannot really be compared to the alarm YANG module in that sense.
+The Alarm MIB maps existing MIB definitions into alarms, such as "alarmModelTable".
+The upside of that is that an SNMP Manager can, at runtime, read the possible alarm types.
+This corresponds to the "alarmInventory" in the alarm YANG module.
+The 3GPP Alarm IRP is an evolution of X.733.
+Main differences between the alarm YANG module and 3GPP are as follows:
+3GPP keeps the majority of the X.733 attributes, but the alarm YANG module does not.
+3GPP introduced overlapping and possibly conflicting keys for alarms, alarmId, and (managed object, event type, probable cause, specific problem).
+(See Example 3 in Annex C of [ALARMIRP]).
+In the YANG alarm data model, the key for identifying an alarm instance is clearly defined by ("resource", "alarm type id", "alarm type qualifier").
+See also Section 3.4 for more information.
+The alarm YANG module clearly separates the resource/ instrumentation lifecycle from the operator lifecycle.
+3GPP allows operators to set the alarm severity to clear; this is not allowed by this module.
+Rather, an operator closes an alarm, which does not affect the severity.
+G.7710 G.7710 is different than the previously referenced alarm standards.
+It does not define a data model for alarm reporting.
+It defines common equipment management function requirements including alarm instrumentation.
+The scope is transport networks.
+The requirements in G.7710 correspond to features in the alarm YANG module in the following way:
+Alarm Severity Assignment Profile (ASAP): the alarm profile "/alarms/alarm profile/".
+Alarm Reporting Control (ARC): alarm shelving "/alarms/control/ alarm shelving/" and the ability to control alarm notifications "/alarms/control/notify status changes".
+Alarm shelving corresponds to the use case of turning off alarm reporting for a specific resource, which is the NALM (No ALarM) state in M.3100.
+Appendix G.  Alarm Usability Requirements
+This section defines usability requirements for alarms.
+Alarm usability is important for an alarm interface.
+A data model will help in defining the format, but if the actual alarms are of low value, we have not gained the goal of alarm management.
+Common alarm problems and their causes are summarized in Table 2.
+This summary is adopted to networking based on the ISA [ISA182] and Engineering Equipment Materials Users Association (EEMUA) [EEMUA] standards.
+Not spurious or of low operational value.
+Identifying the problem that has occurred.
+Definition of a Good Alarm Vendors SHOULD rationalize all alarms according to the table above.
+Another crucial requirement is acceptable alarm notification rates.
+The numbers in Tables 4 and 5 are the sum of all alarms for a network being managed from one alarm console.
+So every individual system or Network Management System (NMS) contributes to these numbers.
+Vendors SHOULD make sure that the following rules are used in designing the alarm interface:
+Rationalize the alarms in the system to ensure that every alarm is necessary, has a purpose, and follows the cardinal rule that it requires an operator response.
+Adheres to the rules of Table 3.
+the quality of the alarms.
+Talk with the operators about how well the alarm information supports them.
+Do they know what to do in the event of an alarm?
+Are they able to quickly diagnose the problem and determine the corrective action?
+Does the alarm text adhere to the requirements in Table
+Analyze and benchmark the performance of the system and compare it to the recommended metrics in Tables 4 and 5.
+Start by identifying nuisance alarms, as well as standing alarms at normal state and startup.

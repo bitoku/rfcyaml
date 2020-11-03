@@ -1,0 +1,202 @@
+Abstract The IPv6 default address selection document (RFC 3484) describes the rules for selecting source and destination IPv6 addresses, and indicates that applications should be able to reverse the sense of some of the address selection rules through some unspecified API.
+However, no such socket API exists in the basic (RFC 3493) or advanced (RFC 3542)
+This document fills that gap partially by specifying new socket level options for source address selection and flags for the getaddrinfo() API to specify address selection based on the source address preference in accordance with the socket level options that modify the default source address selection algorithm.
+The socket API described in this document will be particularly useful for IPv6 applications that want to choose between temporary and public addresses, and for Mobile IPv6 aware applications that want to use the care of address for communication.
+It also specifies socket options and flags for selecting
+Cryptographically Generated Address (CGA) or non CGA source addresses.
+Introduction [RFC3484] specifies the default address selection rules for IPv6 [RFC2460].
+This document defines socket API extensions that allow applications to override the default choice of source address selection.
+It therefore indirectly affects the destination address selection through getaddrinfo().
+[RFC3041] have introduced "public" and "temporary" addresses.
+IPv6 Mobility [RFC3775] introduces "home address" and "care of address" definitions in the mobile systems.
+The default address selection rules in [RFC3484], in summary, are that a public address is preferred over a temporary address, that a mobile IPv6 home address is preferred over a care of address, and that a larger scope address is preferred over a smaller scope address.
+Although it is desirable to have default rules for address selection, an application may want to reverse certain address selection rules for efficiency and other application specific reasons.
+Currently, IPv6 socket API extensions provide mechanisms to choose a specific source address through simple bind() operation or IPV6 PKTINFO socket option [
+However, in order to use bind() or IPV6 PKTINFO socket option, the application itself must make sure that the source address is appropriate for the destination address (e.g., with respect to the interface used to send packets to the destination).
+The application also needs to verify the appropriateness of the source address scope with respect to the destination address and so on.
+This can be quite complex for the application, since in effect, it needs to implement all the default address selection rules in order to change its preference with respect to one of the rules.
+The mechanism presented in this document allows the application to specify attributes of the source addresses it prefers while still having the system perform the rest of the address selection rules.
+For instance, if an application specifies that it prefers to use a care of address over a home address as the source address and if the host has two care of addresses, one public and one temporary, then the host would select the public care of address by following the default address selection rule for preferring a public over a temporary address.
+A socket option has been deemed useful for this purpose, as it enables an application to specify address selection preferences on a per socket basis.
+It can also provide the flexibility of enabling and disabling address selection preferences in non connected (UDP) sockets.
+The socket option uses a set of flags for specifying address selection preferences.
+Since the API should not assume a particular implementation method of the address selection [RFC3484] in the network layer or in getaddrinfo(), the corresponding set of flags are also defined for getaddrinfo(), as it depends on the source address selection.
+As a result, this document introduces several flags for address selection preferences that alter the default address selection [RFC3484] for a number of rules.
+It analyzes the usefulness of providing API functionality for different default address selection rules; it provides API to alter only those rules that are possibly used by certain classes of applications.
+In addition, it also considers CGA [RFC3972] and non CGA source addresses when CGA addresses are available in the system.
+In the future, more source flags may be added to expand the API as the needs may arise.
+The approach in this document is to allow the application to specify preferences for address selection and not to be able to specify hard requirements.
+For instance, an application can set a flag to prefer a temporary source address, but if no temporary source addresses are available at the node, a public address would be chosen instead.
+Specifying hard requirements for address selection would be problematic for several reasons.
+The major one is that, in the vast majority of cases, the application would like to be able to communicate even if an address with the 'optimal' attributes is not available.
+For instance, an application that performs very short, e.g., UDP, transactional exchanges (e.g., DNS queries), might prefer to use a care of address when running on a mobile host that is away from home since this provides a short roundtrip time in many cases.
+But if the application is running on a mobile host that is at home, or running on a host that isn't providing Mobile IPv6, then it doesn't make sense for the application to fail due to no care of address being available.
+Also, in particular, when using UDP sockets and the sendto() or sendmsg() primitives, the use of hard requirements would have been problematic, since the set of available IP addresses might very well have changed from when the application called getaddrinfo() until it called sendto() or sendmsg(), which would introduce new failure modes.
+For the few applications that have hard requirements on the attributes of the IP addresses they use, this document defines a verification function that allows such applications to properly fail to communicate when their address selection requirements are not met.
+Furthermore, the approach is to define two flags for each rule that can be modified so that an application can specify its preference for addresses selected as per the rule, the opposite preference (i.e., an address selected as per the rule reverted), or choose not to set either of the flags relating to that rule and leave it up to the system default (Section 4).
+This approach allows different implementations to have different system defaults, and works with getaddrinfo() as well as setsockopt().
+(For setsockopt, a different approach could have been chosen, but that would still require the same approach for getaddrinfo.)
+Note that this document does not directly modify the destination address selection rules described in [RFC3484].
+An analysis has been done to see which destination address rules may be altered by the applications.
+Rule number 4(prefer home address), 8(prefer smaller scope), 7(prefer native interfaces) of default address selection document [RFC3484] were taken into consideration for destination address alteration.
+But as of this writing, there was not enough practical usage for applications to alter destination address selection rules directly by applying the setsockopt() with a preferred destination type of address flag.
+However, this document does not rule out any possibility of adding flags for preferred destination address selection.
+However, [RFC3484] destination address selection rules are dependent on source address selections, thus by altering the default source address selection by using the methods described in this document, one indirectly influences the choice of destination address selection.
+Hence, this document explains how getaddrinfo() can be used to select the destination address while taking the preferred source addresses into consideration (Section 11).
+This document specifies extensions only to the Basic IPv6 socket API specified in [RFC3493].
+The intent is that this document serves as a model for expressing preferences for attributes of IP addresses that also need to be expressible in other networking API, such as those found in middleware systems and the Java environment.
+A similar model is also applicable for other socket families.
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "
+SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC2119].
+A flag expressing a preference for a particular type of address (e.g., temporary, public).
+Opposite flags: Each flag expressing an address preference has an "opposite flag" expressing the opposite preference:
+Home address preference flag is the opposite of the care of address preference flag.
+Temporary address preference flag is the opposite of the public address preference flag.
+CGA address preference flag is the opposite of the non CGA address preference flag.
+Any combination of flags including both a flag expressing a given address preference and a flag expressing the opposite preference constitutes contradictory flags.
+Such flags are contradictory by definition of their usefulness with respect to source address selection.
+For example, consider a set of flags, including both the home address preference flag and the care of address preference flag.
+When considering source address selection, the selected address can be a home address, or a care of address, but it cannot be both at the same time.
+Hence, to prefer an address that is both a home address and a care of address is contradictory.
+The examples discussed here are limited to applications supporting Mobile IPv6, IPv6 Privacy Extensions, and Cryptographically Generated Addresses.
+Address selection document [RFC3484] recommends that home addresses should be preferred over care of address when both are configured.
+However, a mobile node may want to prefer a care of address as the source address for a DNS query in the foreign network, as it normally means a shorter and local return path compared to the route via the mobile node's home agent when the query contains a home address as the source address.
+Another example is the IKE application, which requires a care of address as its source address for the initial security association pair with a Home Agent [RFC3775] while the mobile node boots up at the foreign network and wants to do the key exchange before a successful home registration.
+Also, a Mobile IPv6 aware application may want to toggle between the home address and care of address, depending on its location and state of the application.
+It may also want to open different sockets and use the home address as the source address for one socket and a care of address for the others.
+In a non mobile environment, an application may similarly prefer to use a temporary address as the source address for certain cases.
+By default, the source address selection rule selects "public" address when both are available.
+For example, an application supporting Web browser and mail server may want to use a "temporary" address for the former and a "public" address for the mail server, as a mail server may require a reverse path for DNS records for anti spam rules.
+Similarly, a node may be configured to use Cryptographically Generated Addresses [RFC3972] by default, as in Secure Neighbor Discovery [RFC3971], but an application may prefer not to use it; for instance, fping [FPING], a debugging tool that tests basic reachability of multiple destinations by sending packets in parallel.
+These packets may end up initiating neighbor discovery signaling that uses SEND if used with a CGA source address.
+SEND performs some cryptographic operations to prove ownership of the said CGA address.
+If the application does not require this feature, it would like to use a non CGA address to avoid potentially expensive computations performed by SEND.
+On the other hand, when a node is not configured for CGA as default, an application may prefer using CGA by setting the corresponding preference.
+Some suggested to have per application flags instead of per socket and per packet flags.
+However, this design stays with per socket and per packet flags for the following reasons:  While some systems have per environment/application flags (such as environment variables in Unix systems)
+this might not be available in all systems that implement the socket API.
+When an application links with some standard library, that library might use the socket API while the application is unaware of that fact.
+Mechanisms that would provide per application flags may affect not only the application itself but also the libraries, hence, creating risks of unintended consequences.
+Instead of the pair of 'flag' and 'opposite flag' for each rule that can be modified, the socket option could have been defined to use a single 'flag' value for each rule.
+But such an approach would not be possible for getaddrinfo() because all the preferences would need to be expressible in the parameters that are passed with a single getaddrinfo() call.
+Hence, for consistency, the 'flag' and 'opposite flag' approach is used for both getaddrinfo() and setsockopt().
+Thus, in this API document, an application has three choices on source address selection: a)
+The application wants to use an address with flag X: Set flag X; unset opposite/contradictory flags of X if they are set before.
+The application wants to use an address with 'opposite' or contradictory flag of X: Set opposite or contradictory flag of X; unset flag X, if already set.
+The application does not care about the presence of flag X and would like to use default:
+No need to set any address preference flags through setsockopt() or getaddrinfo(); unset any address preference flags if they are set before by the same socket.
+The following flags are defined to alter or set the default rule of source address selection rules discussed in default address selection specification [RFC3484].
+SRC HOME /  Prefer Home address as source
+/ IPV6 PREFER SRC COA /  Prefer Care of address
+as source  / IPV6 PREFER SRC TMP /  Prefer Temporary address as source
+/ IPV6 PREFER SRC PUBLIC /  Prefer Public address as source  / IPV6 PREFER SRC CGA /  Prefer CGA address as source
+/ IPV6 PREFER SRC NONCGA
+Prefer a non CGA address as source
+These flags can be combined together in a flag set to express more complex address preferences.
+However, such combinations can result in a contradictory flag set, for example:
+SRC PUBLIC   IPV6 PREFER SRC TMP IPV6 PREFER
+SRC HOME   IPV6 PREFER SRC COA IPV6 PREFER
+Examples of valid combinations of address selection flags are given below:
+IPV6 PREFER SRC HOME   IPV6 PREFER SRC PUBLIC IPV6 PREFER
+SRC HOME   IPV6 PREFER SRC CGA IPV6 PREFER SRC COA
+If a flag set includes a combination of 'X' and 'Y', and if 'Y' is not applicable or available in the system, then the selected address has attribute 'X' and system default for the attribute 'Y'.
+For example, on a system that has only public addresses, the valid combination of flags: IPV6 PREFER SRC TMP
+IPV6 PREFER SRC HOME would result in the selected address being a public home address, since no temporary addresses are available.
+The IPv6 Basic Socket API [RFC3493] defines socket options for IPv6.
+To allow applications to influence address selection mechanisms, this document adds a new socket option at the IPPROTO IPV6 level.
+This socket option is called IPV6 ADDR PREFERENCES.
+It can be used with setsockopt() and getsockopt() calls to set and get the address selection preferences affecting all packets sent via a given socket.
+The socket option value (optval) is a 32 bit unsigned integer argument.
+The argument consists of a number of flags where each flag indicates an address selection preference that modifies one of the rules in the default address selection specification.
+The following flags are defined to alter or set the default rule of source address selection rules discussed in default address selection specification [RFC3484].
+They are defined as a result of including the <netinet/in.h> header:
+SRC HOME /  Prefer Home address as source
+/ IPV6 PREFER SRC COA /  Prefer Care of address
+as source  / IPV6 PREFER SRC TMP /  Prefer Temporary address as source
+/ IPV6 PREFER SRC PUBLIC /  Prefer Public address as source  / IPV6 PREFER SRC CGA /  Prefer CGA address as source
+/ IPV6 PREFER SRC NONCGA
+Prefer a non CGA address as source
+No source preference flag for the longest matching prefix is defined here because it is believed to be handled by the policy table defined in the default address selection specification.
+When the IPV6 ADDR PREFERENCES is successfully set with setsockopt(), the option value given is used to specify the address preference for any connection initiation through the socket and all subsequent packets sent via that socket.
+If no option is set, the system selects a default value as per default address selection algorithm or by some other equivalent means.
+Setting contradictory flags at the same time results in the error EINVAL.
+Additions to the Protocol Independent Nodename Translation Section 8 of the Default Address Selection [RFC3484] document indicates possible implementation strategies for getaddrinfo()
+One of them suggests that getaddrinfo() collects available source/destination pairs from the network layer after being sorted at the network layer with full knowledge of source address selection.
+Another strategy is to call down to the network layer to retrieve source address information and then sort the list in the context of getaddrinfo().
+This implies that getaddrinfo() should be aware of the address selection preferences of the application, since getaddrinfo() is independent of any socket the application might be using.
+Thus, if an application alters the default address selection rules by using setsockopt() with the IPV6 ADDR PREFERENCES option, the application should also use the corresponding address selection preference flags with its getaddrinfo() call.
+For that purpose, the addrinfo data structure defined in Basic IPV6 Socket API Extension [RFC3493] has been extended with an extended "ai eflags" flag set field to provide the designers freedom from adding more flags as necessary without crowding the valuable bit space in the "ai flags" flag set field.
+; Note that the additional field for extended flags are added at the bottom of the addrinfo structure to preserve binary compatibility of the new functionality with the old applications that use the existing addrinfo data structure.
+A new flag (AI EXTFLAGS) is defined for the "ai flags" flag set field of the addrinfo data structure to tell the system to look for the "ai eflags" extended flag set field in the addrinfo structure.
+It is defined in the <netdb.h> header:
+AI EXTFLAGS /  extended flag set present
+If the AI EXTFLAGS flag is set in "ai flags" flag set field of the addrinfo data structure, then the getaddrinfo() implementation MUST look for the "ai eflags" values stored in the extended flag set field "ai eflags" of the addrinfo data structure.
+The flags stored in the "ai eflags" field are only meaningful if the AI EXTFLAGS flag is set in the "ai flags" flag set field of the addrinfo data structure.
+By default, AI EXTFLAGS is not set in the "ai flags" flag set field.
+If AI EXTFLAGS is set in the "ai flags" flag set field, and the "ai eflags" extended flag set field is 0 (zero) or undefined, then AI EXTFLAGS is ignored.
+The IPV6 source address preference values (IPV6 PREFER SRC  ) defined for the IPV6 ADDR PREFERENCES socket option are also defined as address selection preference flags for the "ai eflags" extended flag  set field of the addrinfo data structure, so that getaddrinfo() can return matching destination addresses corresponding to the source address preferences expressed by the caller application.
+Thus, an application passes source address selection hints to getaddrinfo by setting AI EXTFLAGS in the "ai flags" field of the addrinfo structure, and the corresponding address selection preference flags (IPV6 PREFER SRC  ) in the "ai eflags" field.
+Currently, AI EXTFLAGS is defined for the AF INET6 socket protocol family only.
+But its usage should be extendable to other socket protocol families   such as AF INET or as appropriate.
+If contradictory flags, such as IPV6 PREFER SRC HOME and IPV6 PREFER SRC COA, are set in ai eflags, the getaddrinfo() fails and return the value EAI BADEXTFLAGS, defined as a result of including the <netdb.h> header.
+This error value MUST be interpreted into a descriptive text string when passed to the gai strerror() function [RFC3493].
+An application should call getsockopt() prior to calling setsockopt() if the application needs to be able to restore the socket back to the system default preferences.
+Note that this is suggested for portability.
+int optlen   sizeof (save flags)
+In order to allow different implementations to do different parts of address selection in getaddrinfo() and in the protocol stack, this specification requires that applications set the semantically equivalent flags when calling getaddrinfo() and setsockopt().
+For example, if the application sets the IPV6 PREFER SRC COA flag, it MUST use the same for the "ai eflag" field of the addrinfo data structure when calling getaddrinfo().
+If applications are not setting the semantically equivalent flags, the behavior of the implementation is undefined.
+An example of usage of this API is given below:
+Within the same application, if a specific source address is set by either bind() or IPV6 PKTINFO socket option, while at the same time an address selection preference is expressed with the IPV6 ADDR PREFERENCES socket option, then the source address setting carried by bind() or IPV6 PKTINFO takes precedence over the address selection setting.
+() should silently ignore any address preference flags that are not supported in the system.
+For example, a host that does not implement Mobile IPv6, should not fail setsockopt() or getaddrinfo()
+that specify preferences for home or care of addresses.
+The socket option calls should return error ( 1) and set errno to EINVAL when contradictory flags values are passed to them.
+If an implementation supports both stream and datagram sockets, it should implement the address preference mechanism API described in this document on both types of sockets.
+An implementation supporting this API MUST implement both getaddrinfo() extension flags and socket option flags processing for portability of applications.
+The following flags are set as default values on a system (which is consistent with [RFC3484] defaults):
+SRC PUBLIC IPV6 PREFER SRC CGA 11.
+Mapping to Default Address Selection Rules
+This API defines only those flags that are deemed to be useful by the applications to alter default address selection rules.
+Thus, we discuss the mapping of each set of flags to the corresponding rule number in the address selection document [RFC3484].
+Source address selection rule #4 (prefer home address):
+IPV6 PREFER SRC HOME (default)
+IPV6 PREFER SRC COA Source address selection rule #7 (prefer public address):
+IPV6 PREFER SRC PUBLIC (default)
+At this time, this document does not define flags to alter
+source address selection rule #2 (prefer appropriate scope for destination) and destination address selection rule #8 (prefer smaller scope), as the implementers felt that there were no practical applications that can take advantage of reverting the scoping rules of IPv6 default address selection.
+Flags altering other destination address selection rules (#4, prefer home address and #7, prefer native transport) could have applications, but the problem is that the local system cannot systematically determine whether a destination address is a tunnel address for destination rule #7 (although it can when the destination address is one of its own, or can be syntactically recognized as a tunnel address, e.g., a 6 to 4 address.)
+The flags defined for source address selection rule #4 (prefer home address) should also take care of destination address selection rule #4.
+Thus, at this point, it was decided not to define flags for these destination rules.
+Also, note that there is no corresponding destination address selection rule for source address selection rule #7 (prefer public addresses) of default address selection document [RFC3484].
+However, this API provides a way for an application to make sure that the source address preference set in setsockopt() is taken into account by the getaddrinfo() function.
+Let's consider an example to understand this scenario.
+DA and DB are two global destination addresses and the node has two global source addresses SA and SB through interface A and B respectively.
+SA is a temporary address while SB is a public address.
+The application has set IPV6 PREFER SRC TMP in the setsockopt() flag.
+The route to DA points to interface A and the route to DB points to interface B. Thus, when AI EXTFLAGS in ai flags and IPV6 PREFER SRC TMP in ai eflags are set, getaddrinfo() returns DA before DB in the list of destination addresses and thus, SA will be used to communicate with the destination DA.
+Similarly, getaddrinfo() returns DB before DA when AI EXTFLAGS and ai eflags are set to IPV6 PREFER SRC PUBLIC.
+Thus, the source address preference is taking effect into destination address selection as well as source address selection by the getaddrinfo() function.
+The following numerical example clarifies the above further.
+Imagine a host with two addresses: 1234::1:1 public 9876::1:2 temporary
+The destination has the following two addresses: 1234::9:3 9876::9:4
+By default, getaddrinfo() will return the destination addresses in the following order:
+1234::9:3 9876::9:4 because the public source is preferred and 1234 matches more bits with the public source address.
+On the other hand, if ai flags is set to AI EXTFLAGS and ai eflags to IPV6 PREFER SRC TMP, getaddrinfo will return the addresses in the reverse order since the temporary source address will be preferred.
+Other source address rules (that are not mentioned here) were also deemed not applicable for changing its default on a per application basis.
+IPv4 Mapped IPv6 Addresses IPv4 mapped IPv6 addresses for AF INET6 sockets are supported in this API.
+In some cases, the application of IPv4 mapped addresses are limited because the API attributes are IPv6 specific.
+For example, IPv6 temporary addresses and cryptographically generated addresses have no IPv4 counterparts.
+Thus, the IPV6 PREFER SRC TMP or IPV6 PREFER SRC CGA are not directly applicable to an IPv4 mapped IPv6 address.
+However, the IPv4 mapped address support may be useful for mobile IPv4 applications shifting the source address between the home address and the care of address.
+Thus, the IPV6 PREFER SRC COA and IPV6 PREFER SRC HOME are applicable to an IPv4 mapped IPv6 address.
+At this point, it is not well understood whether this particular API has any value to IPv4 addresses or AF INET family of sockets, but a similar model still applies to AF INET socket family if corresponding address flags are defined.
+The following list summarizes the constants, structure, and extern definitions discussed in this memo, sorted by header.
+IPV6 PREFER SRC HOME <netdb.h
+IPV6 PREFER SRC COA <netinet/in.h
+IPV6 PREFER SRC CGA <
+sockaddr in6  , uint32 t); <netinet/in.h>
+, const struct sockaddr  , socklen t); 15.
+This document conforms to the same security implications as specified in the Basic IPv6 socket API [RFC3493] and address selection rules [RFC3484].
+Allowing applications to specify a preference for temporary addresses provides per application (and per socket) ability to use the privacy benefits of the temporary addresses.
+The setting of certain address preferences (e.g., not using a CGA address, or not using a temporary address) may be restricted to privileged processes because of security implications.

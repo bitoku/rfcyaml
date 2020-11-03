@@ -1,0 +1,242 @@
+Abstract This document describes a number of use cases together with directions and interpretations for organizations and relying parties when creating or encountering Resource Public Key Infrastructure (RPKI) object scenarios in the public RPKI.
+All of these items are discussed here in relation to the Internet routing system.
+This document describes a number of use cases together with directions and interpretations for organizations and relying parties when creating or encountering Resource Public Key Infrastructure (RPKI) object scenarios in the public RPKI.
+All of these items are discussed here in relation to the Internet routing system.
+It is assumed that the reader is familiar with the terms and concepts described in "Internet X.509 Public Key Infrastructure Certificate and Certificate Revocation List (CRL) Profile" [RFC5280], "A Profile for X.509 PKIX Resource Certificates" [RFC6487], "X.509 Extensions for IP Addresses and AS Identifiers" [RFC3779], "A Profile for Route Origin Authorizations (ROAs)" [RFC6482], "Validation of Route Origination Using the Resource Certificate Public Key Infrastructure (PKI) and Route Origin Authorizations (ROAs)" [RFC6483], and "BGP Prefix Origin Validation" [RFC6811].
+The documentation prefixes recommended in [RFC5737] are insufficient for use as example prefixes in this document.
+Therefore, this document uses RFC 1918
+[RFC1918] address space for constructing example prefixes.
+Definitions For all of the use cases in this document
+, it is assumed that RPKI objects (e.g., resource certificates, ROAs) validate in accordance with [RFC6487] and [RFC6480].
+In other words, we assume that corrupted RPKI objects, if any, have been detected and eliminated.
+The following definitions are in use in this document.
+Some of these definitions are reused or adapted from [RFC6811] with authors' permission.
+Resource:  An IP address prefix (simply called prefix or subnet) or an Autonomous System Number (ASN).
+A set of resources provided to an entity or organization for its use.
+Sub allocation:  A set of resources subordinate to an allocation assigned to another entity or organization.
+A prefix consists of a pair (IP address, prefix length), interpreted as is customary (see [RFC4632]).
+Data derived from a received BGP update, as defined in [RFC4271], Section 1.1.
+The route includes one prefix and an AS PATH, among other things.
+ROA:  Route Origin Authorization (ROA) is an RPKI object signed by a prefix holder authorizing origination of said prefix from an origin AS specified in said ROA.
+AS 0 ROA:  A ROA with ASN value 0
+(zero) in the AS ID field.
+AS 0 ROA is an attestation by a prefix holder that the prefix described in the ROA, and any more specific prefix, should not be used in a routing context [RFC6483].
+ROA prefix:  The prefix from a ROA.
+The origin ASN from a ROA.
+The maximum length up to which more specific prefixes of a ROA prefix may be originated from the corresponding ROA ASN.
+The maxLength is specified in the ROA.
+Route prefix:  A prefix derived from a route.
+The origin AS number derived from a route.
+The origin AS number is:  the rightmost AS in the final segment of the AS PATH attribute in the route if that segment is of type AS SEQUENCE, or  the BGP speaker's own AS number if that segment is of type AS CONFED SEQUENCE or AS CONFED SET or if the AS PATH is empty, or  the distinguished value "NONE" if the final segment of the AS PATH attribute is of any other type.
+Covering ROA prefix:  A ROA prefix that is an exact match or a less specific when compared to the route prefix under consideration.
+In other words, the route prefix is said to have a covering ROA prefix when there exists a ROA such that the ROA prefix length is less than or equal to the route prefix length and the ROA prefix address matches the route prefix address for all bits specified by the ROA prefix length.
+Covering ROA:  If a ROA contains a covering ROA prefix for a route prefix under consideration, then the ROA is said to be a covering ROA for the route prefix.
+No covering ROA exists for a route prefix under consideration.
+No other covering ROA:  No other covering ROA exists (besides what is (are) already cited) for a route prefix under consideration.
+Multi homed prefix or subnet:  A prefix (i.e., subnet) for which a route is originated through two or more autonomous systems.
+A route's {prefix, origin AS} pair is said to be matched by a ROA when the route prefix has a covering ROA, and in addition, the route prefix length is less than or equal to the maxLength in said
+covering ROA and the route origin ASN is equal to the ASN in said covering ROA.
+Given these definitions, any given BGP route will be found to have one of the following "validation states":
+The route prefix has no covering ROA.
+Valid: The route's {prefix, origin AS} pair is matched by at least one ROA.
+The route prefix has at least one covering ROA and the route's {prefix, origin AS} pair is not matched by any ROA.
+It is to be noted that no ROA can have the value "NONE" as its ROA ASN.
+Thus, a route whose origin ASN is "NONE" cannot be matched by any ROA.
+Similarly, no valid route can have an origin ASN of zero [AS0 PROC].
+Thus, no route can be matched by a ROA whose ASN is zero (i.e., an AS 0 ROA)
+General Interpretation of RPKI Object Semantics
+In the interpretation of relying parties (RPs), or relying party routing software, it is important that a 'make before break' operational policy be applied.
+In part, this means that an RP should implement a routing decision process where a route is assumed to be intended (i.e., considered unsuspicious) unless proven otherwise by the existence of a valid RPKI object that explicitly invalidates the route (see Section 7.1 for examples).
+Also, especially in cases when a prefix is newly acquired by allocation/sub allocation or due to prefix ownership transfer, a ROA should be registered in RPKI prior to advertisement of the prefix in BGP.
+This is highly recommended for the following reasons.
+Observe that in the transfer case (considering a prefix transfer from Org A to Org B), even though Org A's resource cert would be revoked before issuing a resource cert to Org B, there may be some latency before all relying parties discard the previously received ROA of Org A for that prefix.
+The latency may be due to CRL propagation delay in the RPKI system or due to periodic polling by RPs, etc.
+Also, observe that in the sub allocation case (from parent Org A to child Org B), there may be an existing ROA registered by Org A (with their own origin ASN) for a covering aggregate prefix relative to the prefix in consideration.
+If the new prefix owner (Org B) has not already registered their own ROA (i.e., ROA with their origin ASN), then the presence of a different covering ROA (i.e., one with a different origin ASN) belonging to Org A would result in invalid assessment for the route advertised by the new owner (Org B).
+Thus, in both cases (transfer or sub allocation), it is prudent for the new owner (Org B) to ensure that its route for the prefix will be valid by proactively issuing a ROA before advertising the route.
+The ROA should be issued with sufficient lead time taking into consideration the RPKI propagation delays.
+As stated earlier in Section 1.3, for all of the use cases in this document, it is assumed that RPKI objects (e.g., resource certificates, ROAs) validate in accordance with [RFC6487] and [RFC6480].
+In other words, we assume that corrupted RPKI objects, if any, have been detected and eliminated.
+While many of the examples provided here illustrate organizations using their own autonomous system numbers to originate routes, it should be recognized that a prefix holder need not necessarily be the holder of the autonomous system number used for the route origination.
+This section deals with the various use cases where an organization has Internet resources and will announce routes to the Internet.
+It is based on operational observations of the existing routing system.
+In the following use cases, the phrase "relying parties interpret the route as intended" is generally meant to indicate that "relying parties interpret an announced route as having a valid origination AS".
+An organization (Org A with ASN 64496) has been allocated the prefix 10.1.2.0/24.
+It wishes to announce the /24 prefix from ASN 64496 such that relying parties interpret the route as intended.
+Aggregate with a More Specific An organization (Org A with ASN 64496) has been allocated the prefix 10.1.0.0/16.
+It wishes to announce the more specific prefix 10.1.0.0/20 from ASN 64496 as well as the aggregate route such that relying parties interpret the routes as intended.
+Aggregate with a More Specific from a Different ASN An organization (Org A with ASN 64496 and ASN 64511) has been allocated the prefix 10.1.0.0/16.
+It wishes to announce the more specific prefix 10.1.0.0/20 from ASN 64511 as well as the aggregate route from ASN 64496 such that relying parties interpret the routes as intended.
+Sub Allocation to a Multi Homed Customer An organization (Org A with ASN 64496) has been allocated the prefix 10.1.0.0/16; it wishes to announce the more specific prefix 10.1.0.0/20 from ASN 64496.
+It has further delegated 10.1.16.0/20 to a customer (Org B with ASN 64511) who is multi homed and will originate the prefix route from ASN 64511.
+ASN 64496 will also announce the aggregate route such that relying parties interpret the routes as intended.
+Restriction of a New Allocation An organization has recently been allocated the prefix 10.1.0.0/16.
+Its network deployment is not yet ready to announce the prefix and wishes to restrict all possible announcements of 10.1.0.0/16 and more specifics in routing using RPKI.
+This is known as an AS 0 ROA [RFC6483].
+Also, please see the definition and related comments in Section 1.3.
+An organization has recently been allocated an additional ASN 64511.
+Its network deployment is not yet ready to use this ASN and wishes to restrict all possible uses of ASN 64511 using RPKI.
+It is currently not possible to restrict use of autonomous system numbers.
+Restriction of a Part of an Allocation An organization (Org A with ASN 64496) has been allocated the prefix 10.1.0.0/16.
+Its network topology permits the announcement of 10.1.0.0/17.
+Org A wishes to restrict any possible announcement of 10.1.128.0/17 or more specifics of that /17 using RPKI.
+An organization (Org A with ASN 64496) has been allocated the prefix 10.1.0.0/16; it wishes to announce the aggregate and any or all more specific prefixes up to and including a maximum length of /20, but never any more specific than a /20.
+Restriction of Sub Allocation Prefix
+Length An organization (Org A with ASN 64496) has been allocated the prefix 10.1.0.0/16.
+allocates several /20 prefixes to its multi  homed customers: Org B with ASN 64501 and Org C with ASN 64499, respectively.
+It wishes to restrict those customers from advertising any corresponding routes more specific than a /22.
+The issuing party (Org A) should create ROAs containing the following:
+Aggregation and Origination by an Upstream Provider Consider four organizations with the following resources, which were acquired independently from any transit provider.
+These organizations share a common upstream provider Transit X (ASN 64497) that originates an aggregate of these prefixes with the permission of all four organizations.
+It is currently not possible for an upstream provider to make a valid aggregate announcement of independent prefixes.
+Rogue Aggregation and Origination by an Upstream Provider Consider four organizations with the following resources that were acquired independently from any transit provider.
+These organizations share a common upstream provider Transit X (ASN 64497) that originates an aggregate of these prefixes where possible.
+In this situation, Org B (ASN 64503, 10.1.3.0/24) does not wish for its prefix to be aggregated by the upstream provider.
+It is currently not possible for an upstream provider to make a valid aggregate announcement of independent prefixes.
+Adjacency or Path Validation Use Cases Use cases pertaining to adjacency or path validation
+are beyond the scope of this document and would be addressed in a separate document.
+Partial Deployment Use Cases 5.1.
+Parent Does Not Participate in RPKI
+An organization (Org A with ASN 64511) is multi homed and has been assigned the prefix 10.1.0.0/20 from its upstream (Transit X with ASN 64496).
+Org A wishes to announce the prefix 10.1.0.0/20 from ASN 64511 to its other upstream(s).
+Org A also wishes to create RPKI statements about the resource; however, Transit X (ASN 64496), which announces the aggregate 10.1.0.0/16, has not yet adopted RPKI.
+Only Some Children Participate in RPKI
+An organization (Org A with ASN 64496) has been allocated the prefix 10.1.0.0/16 and participates in RPKI; it wishes to announce the more specific prefix 10.1.0.0/20 from ASN 64496.
+It has further delegated 10.1.16.0/20 and 10.1.32.0/20 to customers Org B with ASN 64511 and Org C with ASN 64502 (respectively), who are multi homed.
+Org B (ASN 64511) does not participate in RPKI.
+Org C (ASN 64502) participates in RPKI.
+Grandchild Does Not Participate in RPKI
+Consider the previous example, with an extension by which Org B, who does not participate in RPKI, further allocates 10.1.17.0/24 to Org X with ASN 64505.
+Org X does not participate in RPKI.
+For transfer use cases, based on the preceding sections, it should be easy to deduce what new ROAs need to be created and what existing ROAs need to be maintained (or revoked).
+The resource transfer and timing of revocation/creation of the ROAs need to be performed based on the make before break principle and using suitable Regional Internet Registry (RIR) procedures (see Section 2.1).
+In Use Prefix and Autonomous System Number Org A holds the resource 10.1.0.0/20, and it is currently in use and originated from AS 64496 with valid RPKI objects in place.
+Org B has acquired both the prefix and ASN and desires an RPKI transfer on a particular date and time without adversely affecting the operational use of the resource.
+In Use Prefix Org A holds the resource 10.1.0.0/16, and it is currently in use and originated from AS 64496 with valid RPKI objects in place.
+Org A has agreed to transfer the entire /16 address block to Org B and will no longer originate the prefix or more specifics of it.
+Consequently, Org B desires an RPKI transfer of this resource on a particular date and time.
+This prefix will be originated by AS 64511 as a result of this transfer.
+Transfer of Unused Prefix Org A holds the resources 10.1.0.0/16 and AS 64507 (with RPKI objects).
+Org A currently announces 10.1.0.0/16 from AS 64507.
+Org B has acquired an unused portion (10.1.4.0/24) of the prefix from Org A and desires an RPKI transfer on a particular date and time.
+Org B will originate a route 10.1.4.0/24 from AS 64496.
+The following RPKI objects would be created/sustained:
+Org A may optionally provide ROA coverage for Org B by creating the following ROA preceding the RPKI transfer.
+The ROA itself is then naturally revoked when 10.1.4.0/24 is transferred to Org B's resource certificate.
+Relying Party Use Cases 7.1.
+Prefix Origin Validation Use Cases
+These use cases try to systematically enumerate the situations a relying party may encounter while receiving a BGP update and making use of ROA information to interpret the validity of the prefix origin information in the routes derived from the update.
+We enumerate the situations or scenarios and include a recommendation for the expected outcome of prefix origin validation.
+For a description of prefix  origin validation algorithms, see [RFC6483] and [RFC6811].
+We use the terms Valid, Invalid, and NotFound as defined in [RFC6811] and summarized earlier in Section 1.3.
+Also see [RFC6472] for a recommendation to deprecate AS SETs in BGP updates.
+The use cases described here can be potentially used as test cases for testing and evaluation of prefix origin validation in router implementations; see, for example, [BRITE].
+Covering ROA Prefix, maxLength Satisfied, and AS Match ROA:
+{10.1.0.0/16, maxLength   20, AS 64496} Route has {10.1.0.0/17, Origin   AS 64496
+} Recommended RPKI prefix origin validation interpretation:
+The route prefix has a covering ROA prefix, and the route origin ASN matches the ROA ASN.
+This is a straightforward prefix  origin validation use case; it follows from the primary intention of creation of the ROA by a prefix holder.
+Covering ROA Prefix, maxLength Exceeded, and AS Match ROA: {10.1.0.0/16, maxLength   20,
+AS 64496} Route has {10.1.0.0/22, Origin   AS 64496}
+No other covering ROA Recommended RPKI prefix origin validation interpretation:  Route is Invalid.
+In this case, the maxLength specified in the ROA is exceeded by the route prefix.
+Covering ROA Prefix, maxLength Satisfied, and AS Mismatch ROA: {10.1.0.0/16, maxLength   24, AS 64496} Route has {10.1.88.0/24, Origin   AS 64511
+No other covering ROA Recommended RPKI prefix origin validation interpretation:  Route is Invalid.
+In this case, an AS other than the one specified in the ROA is originating the route.
+This may be a prefix or subprefix hijack situation.
+Covering ROA Prefix, maxLength Exceeded, and AS Mismatch ROA: {10.1.0.0/16, maxLength   22,
+AS 64496} Route has {10.1.88.0/24, Origin   AS 64511
+No other covering ROA Recommended RPKI prefix origin validation interpretation:  Route is Invalid.
+In this case, the maxLength specified in the ROA is exceeded by the route prefix, and also an AS other than the one specified in the ROA is originating the route.
+This may be a subprefix hijack situation.
+Not Found Route has {10.1.3.0/24, Origin   AS 64511
+No covering ROA Recommended RPKI prefix origin validation interpretation:  Route's validation status is NotFound.
+In this case, there is no covering ROA for the route prefix.
+It could be a prefix or subprefix hijack situation, but this announcement does not contradict any existing ROA.
+During partial deployment, there would be some legitimate prefix origin announcements for which ROAs may not have been issued yet.
+Covering ROA Prefix and the ROA Is an AS 0 ROA ROA: {10.1.0.0/16, maxLength   32, AS 0} Route has {10.1.5.0/24, Origin   AS 64511
+} Recommended RPKI prefix origin validation interpretation:  Route's validation status is Invalid.
+Comment:  An AS 0 ROA implies by definition that the prefix listed in it and all of the more specifics of that prefix should not be used in a routing context [
+Also, please see related comments in Section 1.3.
+Not Found but ROAs Exist for a Covering Set of More Specifics ROA: {10.1.0.0/18, maxLength   20,
+AS 64496} ROA: {10.1.64.0/18, maxLength   20,
+AS 64496} ROA: {10.1.128.0/18, maxLength   20,
+AS 64496} ROA: {10.1.192.0/18, maxLength   20,
+AS 64496} Route has {10.1.0.0/16, Origin   AS 64496}
+No covering ROA Recommended RPKI prefix origin validation interpretation:  Route's validation status is NotFound.
+In this case, the route prefix is an aggregate (/16), and it turns out that there exist ROAs for more specifics (/18s) that, if combined, can help support validation of the announced prefix  origin pair.
+But it is very hard in general to break up an announced prefix into constituent more specifics and check for ROA coverage for those more specifics, and hence this type of accommodation is not recommended.
+AS SET in Route and Covering ROA Prefix
+Not Found Route has {10.1.0.0/16, AS SET
+[AS 64496, AS 64497, AS 64498, AS 64499] appears in the rightmost position in the AS PATH}
+No covering ROA Recommended RPKI prefix origin validation interpretation:  Route's validation status is NotFound.
+An extremely small percentage (~0.1%) of external BGP (eBGP) updates are seen to have an AS SET in them; this is known as proxy aggregation.
+In this case, the route with the AS SET does not conflict with any ROA (i.e., the route prefix has no covering ROA prefix).
+Therefore, the route gets NotFound validation status.
+Singleton AS in AS SET (in the Route), Covering ROA Prefix, and AS Match Route has {10.1.0.0/24, AS SET [AS 64496] appears in the rightmost position in the AS PATH} ROA: {10.1.0.0/22, maxLength   24, AS 64496} Recommended RPKI prefix origin validation interpretation:
+In the spirit of [RFC6472], any route with an AS SET in it should not be considered valid (by ROA based validation).
+If the route contains an AS SET and a covering ROA prefix exists for the route prefix, then the route should get an Invalid status.
+(Note: AS match or mismatch consideration does not apply.)
+Singleton AS in AS SET (in the Route), Covering ROA Prefix, and AS Mismatch Route has {10.1.0.0/24, AS SET [AS 64496] appears in the rightmost position in the AS PATH} ROA: {10.1.0.0/22, maxLength   24, AS 64511} Recommended RPKI prefix origin validation interpretation:  Route is Invalid.
+If the route contains an AS SET and a covering ROA prefix exists for the route prefix, then the route should get an Invalid status.
+(Note: AS match or mismatch consideration does not apply.)
+Multiple ASs in AS SET (in the Route) and Covering ROA Prefix Route has {10.1.0.0/22, AS SET
+[AS 64496, AS 64497, AS 64498, AS 64499] appears in the rightmost position in the AS PATH} ROA: {10.1.0.0/22, maxLength   24, AS 64509}
+No other covering ROA Recommended RPKI prefix origin validation interpretation:  Route is Invalid.
+If the route contains an AS SET and a covering ROA prefix exists for the route prefix, then the route should get an Invalid status.
+Multiple ASs in AS SET (in the Route) and ROAs Exist for a Covering Set of More Specifics ROA: {10.1.0.0/18, maxLength   20,
+AS 64496} ROA: {10.1.64.0/18, maxLength   20,
+AS 64497} ROA: {10.1.128.0/18, maxLength   20,
+AS 64498} ROA: {10.1.192.0/18, maxLength   20,
+AS 64499} Route has {10.1.0.0/16, AS SET [AS 64496, AS 64497, AS 64498, AS 64499] appears in the rightmost position in the AS PATH}
+No covering ROA Recommended RPKI prefix origin validation interpretation:  Route's validation status is NotFound.
+In this case, the aggregate of the prefixes in the ROAs is a covering prefix (i.e., exact match or less specific) relative to the route prefix.
+The ASs in each of the contributing ROAs together form a set that matches the AS SET in the route.
+But it is very hard in general to break up an announced prefix into constituent more specifics and check for ROA coverage for those more specifics.
+In any case, it may be noted once again that in the spirit of [RFC6472], any route with an AS SET in it should not be considered valid (by ROA based validation).
+In fact, the route under consideration would have received an Invalid status if the route prefix had at least one covering ROA prefix.
+ROA Expiry or Receipt of a CRL Revoking a ROA
+Here we enumerate use cases corresponding to router actions when RPKI objects expire or are revoked.
+In the cases that follow, the terms "expired ROA" or "revoked ROA" are shorthand and describe the expiry or revocation of the End Entity (EE) or resource certificate that causes a relying party to consider the corresponding ROA to have expired or been revoked, respectively.
+ROA of Parent Prefix Is Revoked
+A certificate revocation list (CRL) is received that reveals that the ROA {10.1.0.0/22, maxLength   24, ASN 64496} is revoked.
+Further, a route exists in the Internet routing system for 10.1.3.0/24 originated from ASN 64496.
+In the absence of said revoked ROA, no covering ROA prefix exists for the route prefix (i.e., 10.1.3.0/24).
+The Relying Party interpretation would be: Route's validation status is NotFound.
+ROA of Prefix Revoked while Parent Prefix Has Covering ROA Prefix with Different ASN A CRL is received that reveals that the ROA {10.1.3.0/24, maxLength   24, ASN 64496} is revoked.
+Further, a route exists in the Internet routing system for 10.1.3.0/24 originated from ASN 64496.
+Additionally, a valid ROA exists for a parent prefix 10.1.0.0/22, and said ROA is {10.1.0.0/22, maxLength   24, ASN 64511}.
+No other covering ROA exists for the 10.1.3.0/24 prefix.
+The Relying Party interpretation would be: Route is Invalid.
+ROA of Prefix Revoked while That of Parent Prefix
+Prevails A CRL is received that reveals that the ROA {10.1.3.0/24, maxLength   24, ASN 64496} is revoked.
+Further, a route exists in the Internet routing system for 10.1.3.0/24 originated from ASN 64496.
+Additionally, a valid ROA exists for a parent prefix 10.1.0.0/22, and said ROA is {10.1.0.0/22, maxLength   24, ASN 64496}.
+The Relying Party interpretation would be: Route is Valid.
+Perhaps the revocation of the ROA for prefix 10.1.3.0/24 was initiated just to eliminate redundancy.)
+ROA of Grandparent Prefix Revoked while That of Parent Prefix
+Prevails A CRL is received that reveals that the ROA {10.1.0.0/20, maxLength   24, ASN 64496} is revoked.
+Further, a route exists in the Internet routing system for 10.1.3.0/24 originated from ASN 64496.
+Additionally, a valid ROA exists for a parent prefix 10.1.0.0/22, and said ROA is {10.1.0.0/22, maxLength   24, ASN 64496}.
+The Relying Party interpretation would be: Route is Valid.
+The ROA for less specific grandparent prefix 10.1.0.0/20 was revoked or withdrawn.)
+Expiry of ROA of Parent Prefix A scan of the ROA list reveals that the ROA {10.1.0.0/22, maxLength   24, ASN 64496} has expired.
+Further, a route exists in the Internet routing system for 10.1.3.0/24 originated from ASN 64496.
+In the absence of said expired ROA, no covering ROA prefix exists for the route prefix (i.e., 10.1.3.0/24).
+The Relying Party interpretation would be: Route's validation status is NotFound.
+Expiry of ROA of Prefix while Parent Prefix Has Covering ROA with Different ASN A scan of the ROA list reveals that the ROA {10.1.3.0/24, maxLength   24, ASN 64496} has expired.
+Further, a route exists in the Internet routing system for 10.1.3.0/24 originated from ASN 64496.
+Additionally, a valid ROA exists for a parent prefix 10.1.0.0/22, and said ROA is {10.1.0.0/22, maxLength   24, ASN 64511}.
+No other covering ROA exists for the prefix (i.e., 10.1.3.0/24).
+The Relying Party interpretation would be: Route is Invalid.
+Expiry of ROA of Prefix while That of Parent Prefix Prevails
+A scan of the ROA list reveals that the ROA {10.1.3.0/24, maxLength   24, ASN 64496} has expired.
+Further, a route exists in the Internet routing system for 10.1.3.0/24 originated from ASN 64496.
+Additionally, a valid ROA exists for a parent prefix 10.1.0.0/22, and said ROA is {10.1.0.0/22, maxLength   24, ASN 64496}.
+The Relying Party interpretation would be: Route is Valid.
+Expiry of ROA of Grandparent Prefix while That of Parent Prefix Prevails
+A scan of the ROA list reveals that the ROA {10.1.0.0/20, maxLength   24, ASN 64496} has expired.
+Further, a route exists in the Internet routing system for 10.1.3.0/24 originated from ASN 64496.
+Additionally, a valid ROA exists for a parent prefix 10.1.0.0/22, and said ROA is {10.1.0.0/22, maxLength   24, ASN 64496}.
+The Relying Party interpretation would be: Route is Valid.
+This memo requires no security considerations.

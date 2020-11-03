@@ -1,0 +1,96 @@
+Abstract To help reduce well known threats against BGP including prefix mis  announcing and monkey in the middle attacks, one of the security requirements is the ability to validate the origination Autonomous System (AS) of BGP routes.
+More specifically, one needs to validate that the AS number claiming to originate an address prefix (as derived from the AS PATH attribute of the BGP route) is in fact authorized by the prefix holder to do so.
+This document describes a simple validation mechanism to partially satisfy this requirement.
+Introduction A BGP route associates an address prefix with a set of Autonomous Systems (ASes) that identify the interdomain path the prefix has traversed in the form of BGP announcements.
+This set is represented as the AS PATH attribute in BGP [RFC4271] and starts with the AS that originated the prefix.
+To help reduce well known threats against BGP including prefix mis announcing and monkey in the middle attacks, one of the security requirements is the ability to validate the origination AS of BGP routes.
+More specifically, one needs to validate that the AS number claiming to originate an address prefix (as derived from the AS PATH attribute of the BGP route) is in fact authorized by the prefix holder to do so.
+This document describes a simple validation mechanism to partially satisfy this requirement.
+The Resource Public Key Infrastructure (RPKI) describes an approach to build a formally verifiable database of IP addresses and AS numbers as resources.
+The overall architecture of RPKI as defined in [RFC6480] consists of three main components:  a public key infrastructure (PKI) with the necessary certificate objects,  digitally signed routing objects, and  a distributed repository system to hold the objects that would also support periodic retrieval.
+The RPKI system is based on resource certificates that define extensions to X.509 to represent IP addresses and AS identifiers [RFC3779], thus the name RPKI.
+Route Origin Authorizations (ROAs) [RFC6482] are separate digitally signed objects that define associations between ASes and IP address blocks.
+Finally, the repository system is operated in a distributed fashion through the IANA, Regional Internet Registry (RIR) hierarchy, and ISPs.
+In order to benefit from the RPKI system, it is envisioned that relying parties at either the AS or organization level obtain a local copy of the signed object collection, verify the signatures, and process them.
+The cache must also be refreshed periodically.
+The exact access mechanism used to retrieve the local cache is beyond the scope of this document.
+Individual BGP speakers can utilize the processed data contained in the local cache to validate BGP announcements.
+The protocol details to retrieve the processed data from the local cache to the BGP speakers is beyond the scope of this document (refer to [RFC6810] for such a mechanism).
+This document proposes a means by which a BGP speaker can make use of the processed data in order to assign a "validation state" to each prefix in a received BGP UPDATE message.
+Note that the complete path attestation against the AS PATH attribute of a route is outside the scope of this document.
+Like the DNS, the global RPKI presents only a loosely consistent view, depending on timing, updating, fetching, etc.
+Thus, one cache or router may have different data about a particular prefix than another cache or router.
+There is no 'fix' for this; it is the nature of distributed data with distributed caches.
+Although RPKI provides the context for this document, it is equally possible to use any other database that is able to map prefixes to their authorized origin ASes.
+Each distinct database will have its own particular operational and security characteristics; such characteristics are beyond the scope of this document.
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" are to be interpreted as described in RFC 2119
+[RFC2119] only when they appear in all upper case.
+They may also appear in lower or mixed case as English words, without special meaning.
+Prefix to AS Mapping Database
+The BGP speaker loads validated objects from the cache into local storage.
+The objects loaded have the content (IP address, prefix length, maximum length, origin AS number).
+We refer to such a locally stored object as a "Validated ROA Payload" or "VRP".
+We define several terms in addition to "VRP".
+Where these terms are used, they are capitalized:  Prefix: (IP address, prefix length), interpreted as is customary (see [RFC4632]).
+Data derived from a received BGP UPDATE, as defined in [RFC4271], Section 1.1.
+The Route includes one Prefix and an AS PATH; it may include other attributes to characterize the prefix.
+The Prefix from a VRP.
+The origin AS number from a VRP.
+The Prefix derived from a route.
+A Route Prefix is said to be Covered by a VRP when the VRP prefix length is less than or equal to the Route prefix length, and the VRP prefix address and the Route prefix address are identical for all bits specified by the VRP prefix length.
+(That is, the Route prefix is either identical to the VRP prefix or more specific than the VRP prefix.)
+A Route Prefix is said to be Matched by a VRP when the Route Prefix is Covered by that VRP, the Route prefix length is less than or equal to the VRP maximum length, and the Route Origin ASN is equal to the VRP ASN.
+Given these definitions, any given BGP Route will be found to have one of the following validation states:
+No VRP Covers the Route Prefix.
+At least one VRP Matches the Route Prefix.
+Invalid: At least one VRP Covers the Route Prefix, but no VRP Matches it.
+We observe that no VRP can have the value "NONE" as its VRP ASN.
+Thus, a Route whose Origin ASN is "NONE" cannot be Matched by any VRP.
+Similarly, no valid Route can have an Origin ASN of zero [AS0].
+Thus, no Route can be Matched by a VRP whose ASN is zero.
+When a BGP speaker receives an UPDATE from a neighbor, it SHOULD perform a lookup as described above for each of the Routes in the UPDATE message.
+The lookup SHOULD also be applied to routes that are redistributed into BGP from another source, such as another protocol or a locally defined static route.
+An implementation MAY provide configuration options to control which routes the lookup is applied to.
+The validation state of the Route MUST be set to reflect the result of the lookup.
+The implementation should consider the validation state as described in the document as a local property or attribute of the Route.
+If validation is not performed on a Route, the implementation SHOULD initialize the validation state of such a route to "NotFound".
+Use of the validation state is discussed in Sections 3 and 5.
+An implementation MUST NOT exclude a route from the Adj RIB In or from consideration in the decision process as a side effect of its validation state, unless explicitly configured to do so.
+We observe that a Route can be Matched or Covered by more than one VRP.
+This procedure does not mandate an order in which VRPs must be visited; however, the validation state output is fully determined.
+The following pseudo code illustrates the procedure above.
+In case of ambiguity, the procedure above, rather than the pseudo code, should be taken as authoritative.
+//Iterate through all the Covering entries in the local VRP //database, pfx validate table.
+entry   next lookup result(pfx validate table, route prefix); while (entry !
+NULL) { prefix exists   TRUE; if (route prefix length <  entry max length) { if (route origin as !
+NONE && entry origin as !
+0 && route origin as   entry origin as) { result
+one or more VRP entries Covered the route prefix, but //none
+Matched, return "Invalid" validation state.
+if (prefix exists   TRUE) { result
+; } return (result); 3.
+An implementation MUST provide the ability to match and set the validation state of routes as part of its route policy filtering function.
+Use of validation state in route policy is elaborated in Section 5.
+For more details on operational policy considerations, see [ORIGIN OPS].
+An implementation MUST also support four octet AS numbers [RFC6793].
+Each BGP speaker supporting prefix validation as described in this document is expected to communicate with one or more RPKI caches, each of which stores a local copy of the global RPKI database.
+The protocol mechanisms used to gather and validate these data and present them to BGP speakers are described in [RFC6810].
+The prefix to AS mappings used by the BGP speaker are expected to be updated over time.
+When a mapping is added or deleted, the implementation MUST re validate any affected prefixes and run the BGP decision process if needed.
+An "affected prefix" is any prefix that was matched by a deleted or updated mapping, or could be matched by an added or updated mapping.
+Once a Route is selected for validation, it is categorized according the procedure given in Section 2.
+Subsequently, routing policy as discussed in Section 3 can be used to take action based on the validation state.
+Policies that could be implemented include filtering routes based on validation state (for example, rejecting all "invalid" routes) or adjusting a route's degree of preference in the selection algorithm based on its validation state.
+The latter could be accomplished by adjusting the value of such attributes as LOCAL PREF.
+Considering invalid routes for BGP decision process is a purely local policy matter and should be done with utmost care.
+In some cases (particularly when the selection algorithm is influenced by the adjustment of a route property that is not propagated into Internal BGP (IBGP)) it could be necessary for routing correctness to propagate the validation state to the IBGP peer.
+This can be accomplished on the sending side by setting a community or extended community based on the validation state, and on the receiving side by matching the (extended) community and setting the validation state.
+Although this specification discusses one portion of a system to validate BGP routes, it should be noted that it relies on a database (RPKI or other) to provide validation information.
+As such, the security properties of that database must be considered in order to determine the security provided by the overall solution.
+If "invalid" routes are blocked as this specification suggests, the overall system provides a possible denial of service vector; for example, if an attacker is able to inject (or remove) one or more records into (or from)
+the validation database, it could lead an otherwise valid route to be marked as invalid.
+In addition, this system is only able to provide limited protection against a determined attacker
+the attacker need only prepend the "valid" source AS to a forged BGP route announcement in order to defeat the protection provided by this system.
+This mechanism does not protect against "AS in the middle attacks" or provide any path validation.
+It only attempts to verify the origin.
+In general, this system should be thought of more as a protection against misconfiguration than as true "security" in the strong sense.

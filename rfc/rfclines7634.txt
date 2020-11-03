@@ -1,0 +1,185 @@
+Abstract This document describes the use of the ChaCha20 stream cipher along with the Poly1305 authenticator, combined into an AEAD algorithm for the Internet Key Exchange Protocol version 2 (IKEv2) and for IPsec.
+The Advanced Encryption Standard (AES)
+[FIPS 197] has become the go  to algorithm for encryption.
+It is now the most commonly used algorithm in many areas, including IPsec Virtual Private Networks (VPNs).
+On most modern platforms, AES is anywhere from four to ten times as fast as the previously popular cipher, Triple Data Encryption Standard (3DES) [SP800 67].
+3DES also uses a 64 bit block; this means that the amount of data that can be encrypted before rekeying is required is limited.
+These reasons make AES not only the best choice, but the only viable choice for IPsec.
+The problem is that if future advances in cryptanalysis reveal a weakness in AES, VPN users will be in an unenviable position.
+With the only other widely supported cipher for IPsec implementations being the much slower 3DES, it is not feasible to reconfigure IPsec installations away from AES.
+[Standby Cipher] describes this issue and the need for a standby cipher in greater detail.
+This document proposes the fast and secure ChaCha20 stream cipher as such a standby cipher in an Authenticated Encryption with Associated Data (AEAD) construction with the Poly1305 authenticator for use with the Encapsulated Security Protocol (ESP)
+[RFC4303] and the Internet Key Exchange Protocol version 2 (IKEv2)
+The algorithms are described in a separate document ([RFC7539]).
+This document only describes the IPsec specific things.
+Conventions Used in This Document
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "
+SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC2119].
+and Poly1305 for ESP AEAD
+POLY1305 ([RFC7539]) is a combined mode algorithm, or AEAD.
+Usage follows the AEAD construction in Section 2.8 of RFC 7539:
+The Initialization Vector (IV) is 64 bits and is used as part of the nonce.
+The IV MUST be unique for each invocation for a particular security association (SA) but does not need to be unpredictable.
+The use of a counter or a linear feedback shift register (LFSR) is RECOMMENDED.
+Salt is prepended to the 64 bit IV to form the 96 bit nonce.
+The salt is fixed per SA, and it is not transmitted as part of the ESP packet.
+The encryption key is 256 bits.
+The Internet Key Exchange Protocol generates a bitstring
+called KEYMAT using a pseudorandom function (PRF).
+That KEYMAT is divided into keys for encryption, message authentication, and whatever else is needed.
+The KEYMAT requested for each ChaCha20
+Poly1305 key is 36 octets.
+The first 32 octets are the 256 bit ChaCha20
+key, and the remaining 4 octets are used as the Salt value in the nonce.
+The ChaCha20 encryption algorithm requires the following parameters: a 256 bit key, a 96 bit nonce, and a 32 bit Initial Block Counter.
+For ESP, we set these as follows:
+The key is set as mentioned above.
+The 96 bit nonce is formed from a concatenation of the 32 bit Salt and the 64 bit IV, as described above.
+The Initial Block Counter is set to one (1).
+The reason that one is used for the initial counter rather than zero is that zero is reserved for generating the one time Poly1305 key (see below).
+As the ChaCha20 block function is not applied directly to the plaintext, no padding should be necessary.
+However, in keeping with the specification in RFC 4303, the plaintext always has a pad length octet and a Next Header octet, and it may require padding octets so as to align the buffer to an integral multiple of 4 octets.
+The same key and nonce, along with a block counter of zero, are passed to the ChaCha20 block function, and the top 256 bits of the result are used as the Poly1305 key.
+Finally, the Poly1305 function is run on the data to be authenticated, which is, as specified in Section 2.8 of [RFC7539], a concatenation of the following in the order below:  The Authenticated Additional Data (AAD); see Section 2.1.
+octet padding that rounds the length up to 16 octets.
+This is 4 or 8 octets depending on the length of the AAD.
+octet padding that rounds the total length up to an integral multiple of 16 octets.
+The length of the AAD in octets (as a 64 bit integer encoded in little endian byte order).
+The length of the ciphertext in octets (as a 64 bit integer encoded in little endian byte order).
+The 128 bit output of Poly1305 is used as the tag.
+All 16 octets are included in the packet.
+Integrity Check Value ICV   (variable)
+The IV field is 64 bits.
+It is the final 64 bits of the 96 bit nonce.
+If the counter method is used for generating unique IVs, then the final 32 bits of the IV will be equal to the Sequence Number field.
+The length of the Padding field need not exceed 4 octets.
+However, neither RFC 4303 nor this specification require using the minimal padding length.
+The Integrity Check Value field contains the 16 octet tag.
+The construction of the Additional Authenticated Data (AAD) is similar to the one in [RFC4106].
+For security associations (SAs) with 32 bit sequence numbers, the AAD is 8 octets: a 4 octet SPI followed by a 4 octet sequence number ordered exactly as it is in the packet.
+For SAs with an Extended Sequence Number (ESN), the AAD is 12 octets: a 4 octet SPI followed by an 8 octet sequence number as a 64 bit integer in big endian byte order.
+AEAD algorithms can be used in IKE, as described in [RFC5282].
+The Encrypted Payload is as described in Section 3 of RFC 5282.
+Poly1305 keying material is derived similarly to ESP: 36 octets are requested for each of SK ei and SK er, of which the first 32 form the key and the last 4 form the salt.
+No octets are requested for SK ai and SK ar.
+The IV is 64 bits, as described in Section 2, and is included explicitly in the Encrypted payload.
+The sender SHOULD include no padding and set the Pad Length field to zero.
+The receiver MUST accept any length of padding.
+The AAD is as described in Section 5.1 of RFC 5282, so it is 32 octets (28 for the IKEv2 header plus 4 octets for the encrypted payload header), assuming no unencrypted payloads.
+ChaCha20 Poly1305 algorithm for use in IKE or IPsec, the value ENCR
+POLY1305 (28) should be used in the transform substructure of the SA payload as the ENCR (type 1) transform ID.
+As with other AEAD algorithms, INTEG (type 3)
+transform substructures MUST NOT be specified, or just one INTEG transform MAY be included with value NONE (0).
+The ChaCha20 cipher is designed to provide 256 bit security.
+The Poly1305 authenticator is designed to ensure that forged messages are rejected with a probability of 1 (n/(2^102)) for a 16n octet message, even after sending 2^64 legitimate messages, so it is SUF CMA (strong unforgeability against chosen message attacks) in the terminology of [AE].
+The most important security consideration in implementing this document is the uniqueness of the nonce used in ChaCha20.
+The nonce should be selected uniquely for a particular key, but unpredictability of the nonce is not required.
+Counters and LFSRs are both acceptable ways of generating unique nonces.
+Another issue with implementing these algorithms is avoiding side channels.
+This is trivial for ChaCha20, but requires some care for Poly1305.
+Considerations for implementations of these algorithms are in [RFC7539].
+The Salt value in used nonce construction in ESP and IKEv2 is derived from the keystream, same as the encryption key.
+It is never transmitted on the wire, but the security of the algorithm does not depend on its secrecy.
+Thus, implementations that keep keys and other secret material within some security boundary MAY export the Salt from the security boundary.
+This may be useful if the API provided by the library accepts the nonce as a parameter rather than the IV.
+IANA Considerations IANA has assigned the value 28 as a transform identifier for the algorithm described in this document in the "Transform Type 1 Encryption Algorithm Transform IDs" registry with name ENCR
+CHACHA20 POLY1305 and this document as reference for both ESP and IKEv2.
+For this example, we will use a tunnel mode ESP SA using the ChaCha20 Poly1305 algorithm.
+The keying material is as follows:
+KEYMAT: 000  80 81 82 83 84 85 86 87 88 89 8a 8b 8c 8d 8e 8f
+96 97 98 99 9a 9b 9c 9d 9e
+Obviously not a great PRF.
+The first 32 octets are the key and the final 4 octets (0xa0 0xa1
+0xa2 0xa3) are the salt.
+For the packet, we will use an ICMP packet from 198.51.100.5 to 192.0.2.5:
+54 a6 f2 00 00
+40 01 e7 78 c6 33 64 05
+02 05 08 00 5b 7a 3a 08 00 00
+16 17 18 19 1a 1b 1c 1d
+2d 2e 2f 30 31 32 33
+The SA details are as follows:
+The key and Salt are as above.
+The SPI is 0x01 0x02
+The next sequence number is 5; ESN is not enabled.
+The gateway IP address for this side is 203.0.113.153; The peer address is 203.0.113.5.
+The 64 bit IV is 0x10 0x11
+Putting together the salt and IV we get the nonce:
+a2 a3 10 11 12 13
+The plaintext to encrypt consists of the source IP packet plus the padding:
+Plaintext (includes padding and pad length): 000
+54 a6 f2 00 00
+40 01 e7 78 c6 33 64 05
+02 05 08 00 5b 7a 3a 08 00 00
+16 17 18 19 1a 1b 1c 1d
+2d 2e 2f 30 31 32 33
+With the key, nonce, and plaintext available, we can call the ChaCha20 function and encrypt the packet, producing the ciphertext:
+24 03 94 28 b9 7f 41 7e 3c 13 75 3a 4f 05 08
+c3 52 e6 a7 fa b1 b9 82 d4 66 ef 40 7a e5 c6
+14 ee 80 99 d5 28 44 eb 61 aa 95
+c9 be fe 2f ac c6 38 e8
+50 27 73 f6 fb 94 e6 64
+91 65 b8 28 29 f6 41
+To calculate the tag, we need a one time Poly1305 key, which we calculate by calling the ChaCha20 function again with the same key and nonce, but a block count of zero.
+Poly1305 one time key: 000
+af 1f 41 2c c1 15 ad ce 5e 4d
+0e 29 d5 c1 30
+46 31 21 0e 0f
+31 c0 45 4f e7 0f d7 c2
+The AAD is constructed by concatenating the SPI to the sequence number: 000
+01 02 03 04 00 00 00
+The input to the Poly1305 function is constructed by concatenating and padding the AAD and ciphertext:
+01 02 03 04 00 00 00 05 00 00 00 00 00 00 00 00
+24 03 94 28 b9 7f 41 7e
+3c 13 75 3a 4f 05 08
+67 c3 52 e6 a7 fa b1 b9 82 d4 66 ef 40 7a e5 c6  g.
+14 ee 80 99 d5 28 44 eb 61 aa 95
+c9 be fe 2f ac c6 38 e8
+50 27 73 f6 fb 94 e6 64
+91 65 b8 28 29 f6 41 e0 00 00 00 00 00 00
+08 00 00 00 00 00
+The resulting tag is: Tag: 000  76 aa a8 26 6b 7f b0 f7 b1 1b 36
+99 07 e1 ad 43  v..
+C Putting it all together, the resulting packet is as follows:
+45 00 00 8c 23 45 00 00 40
+32 de 5b cb 00
+01 02 03 04 00 00 00
+16 17 24 03 94 28 b9 7f 41 7e
+4f 05 08 7b 67 c3 52
+e6 a7 fa b1 b9 82 d4 66
+40 7a e5 c6 14
+ee 80 99 d5 28 44 eb 61
+c6 38 e8 f3 cb ec 16 3f
+94 e6 64 da 91 65
+b8 28 29 f6 41 e0 76
+6b 7f b0 f7 b1 1b 36
+For the IKEv2 example, we'll use the following:
+0x9f, the same as in Appendix A.
+The Salt is 0xa0 0xa1
+The IV will also be the same as in the previous example.
+The fact that the IV and Salt are both the same means that the nonce is also the same.
+Because the key and nonce are the same, so is the one time Poly1305 key.
+The packet will be an INFORMATIONAL request carrying a single payload: a Notify payload with type SET WINDOW SIZE, setting the window size to 10.
+0xc1 0xc2 0xc3 0xc4 0xc5
+Message ID shall be 9.
+Plaintext (with no padding and a zero pad length): 000
+61 03 94 70 1f 8d 01 7f 7c 12 92 48 89
+The AAD is constructed by appending the IKE header to the encrypted payload header.
+Note that the length field in the IKE header and the length field in the encrypted payload header have to be calculated before constructing the AAD:
+2e 20 25 00 00 00
+In this case, the length of the AAD is an integral multiple of 16, so when constructing the input to Poly1305 there was no need for padding.
+The ciphertext is 13 octets long, so it is followed by 3 zero octets.
+The input to Poly1305 is 32 octets of AAD, 13 octets of ciphertext, 3 octets of zero padding, and two 8 octet length fields in little endian byte order.
+2e 20 25 00 00 00
+61 03 94 70 1f 8d 01 7f 7c 12 92 48 89 00 00 00
+bf e2 52 36 ef d7 cd c6 70
+66 90 63 15 b2
+29 10 11 12 13
+p 016  1f 8d 01 7f 7c 12 92 48 89
+6b 71 bf e2 52 36
+The IKE Message: 000  c0 c1 c2
+2e 20 25 00 00 00
+7c 12 92 48 89
+The below file in the snoop format [RFC1761] contains three packets:
+The first is the ICMP packet from the example in Appendix A, the second is the ESP packet from the same appendix, and the third is the IKEv2 packet from this appendix.
+To convert this text back into a file, you can use a Unix command line tool such as "openssl enc  d  a"
+: c25vb3AAAAAAAAACAAAABAAAAGIAAABiAAAAegAAAABVPq8PAAADVdhs6fUQBHgx wbcpwggARQAAVKbyAABAAed4xjNkBcAAAgUIAFt6OggAAFU77BAABzYnCAkKCwwN Dg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3AAAAmgAA AJoAAACyAAAAAFU

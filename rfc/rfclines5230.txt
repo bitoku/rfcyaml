@@ -1,0 +1,128 @@
+Abstract This document describes an extension to the Sieve email filtering language for an autoresponder similar to that of the Unix "vacation" command for replying to messages.
+Various safety features are included to prevent problems such as message loops.
+This document defines an extension to the Sieve language defined in [RFC5228] for notification that messages to a particular recipient will not be answered immediately.
+Conventions Used in This Document Conventions for notations are as in [RFC5228] section 1.1.
+The key words "MUST", "MUST NOT", "SHOULD", "SHOULD NOT", "REQUIRED", and "MAY" in this document are to be interpreted as defined in [RFC2119].
+Capability Identifier Sieve implementations that implement vacation have an identifier of "vacation" for use with the capability mechanism.
+<reason: string> The "vacation" action implements a vacation autoresponder similar to the vacation command available under many versions of Unix.
+Its purpose is to provide correspondents with notification that the user is away for an extended period of time and that they should not expect quick responses.
+Vacation" is used to respond to a message with another message.
+Vacation's messages are always addressed to the Return Path address (that is, the envelope from address) of the message being responded to.
+The ":days" argument is used to specify the period in which addresses are kept and are not responded to, and is always specified in days.
+The minimum value used for this parameter is normally 1.
+Sites MAY define a different minimum value as long as the minimum is greater than 0.
+Sites MAY also define a maximum days value, which MUST be greater than 7, and SHOULD be greater than 30.
+If ":days" is omitted, the default value is either 7 or the minimum value (as defined above), whichever is greater.
+If the parameter given to ":days" is less than the minimum value, then the minimum value is used instead.
+If ":days" exceeds the site defined maximum, the site defined maximum is used instead.
+Previous Response Tracking "Vacation" keeps track of all the responses it has sent to each address in some period (as specified by the :days optional argument).
+If vacation has not previously sent the response to this address within the given time period, it sends the "reason" argument to the SMTP MAIL FROM address [RFC2821] of the message that is being responded to.
+(The SMTP MAIL FROM address should be available in the Return path: header field if Sieve processing occurs after final delivery.)
+Tracking is not just per address, but must also take the vacation response itself into account.
+A script writer might, for example, have a vacation action that will send a general notice only once in any two week period.
+However, even if a sender has received this general notice, it may be important to send a specific notice when a message about something timely or something specific has been detected.
+A particular vacation response can be identified in one of two ways.
+The first way is via an explicit :handle argument, which attaches a name to the response.
+All vacation statements that use the same handle will be considered the same response for tracking purposes.
+The second way is via a synthesis of the :subject, :from, :mime, and reason vacation command arguments.
+All vacation actions that do not contain an explicit handle and that use an identical combination of these arguments are considered the same for tracking purposes.
+For instance, if coyote@desert.example.org sends mail to roadrunner@acme.example.com twice, once with the subject "Cyrus bug" and once with the subject "come over for dinner", and roadrunner@acme.example.com has the script shown below, coyote@desert.example.org would receive two responses, one with the first message, one with the second.
+require "vacation"; if header :contains "subject" "cyrus" { vacation "
+There is one important exception to this rule, however.
+If the Sieve variables extension [RFC5229] is used, the arguments MUST NOT have undergone variable expansion prior to their use in response tracking.
+This is so that examples like the following script will only generate a single response to each incoming message with a different subject line.
+subject "Automatic response to: ${1}
+The argument to ":handle" is a string that identifies the type of response being sent.
+For instance, if tweety@cage.example.org sends mail to spike@doghouse.example.com twice, one with the subject "lunch?"
+and once with the subject "dinner?"
+, and spike@doghouse.example.com has the script shown below, tweety@cage.example.org will only receive a single response.
+(Which response is sent depends on the order in which the messages are processed.)
+require "vacation"; if header :contains "subject" "lunch" { vacation :handle "ran away" "
+One way to implement the necessary mechanism here is to store a hash of either the current handle and the recipient address or, if no handle is provided, a hash of the vacation action parameters specifying the message content and the recipient address.
+If a script is changed, implementations MAY reset the records of who has been responded to and when they have been responded to.
+Care must be taken in constructing a hash of vacation action parameters.
+In particular, since most parameters are optional, it is important not to let the same string used as the value for different parameters produce the same hash value.
+One possible way to accomplish this is to apply the hash to a series of counted or null terminated strings, one for each possible parameter in particular order.
+Implementations are free to limit the number of remembered responses; however, the limit MUST NOT be less than 1000.
+When limiting the number of tracked responses, implementations SHOULD discard the oldest ones first.
+The ":subject" parameter specifies a subject line to attach to any vacation response that is generated.
+UTF 8 characters can be used in the string argument; implementations MUST convert the string to [RFC2047] encoded words if and only if non ASCII characters are present.
+Implementations MUST generate an appropriate default subject line as specified below if no :subject parameter is specified.
+A ":from" parameter may be used to specify an alternate address to use in the From field of vacation messages.
+The string must specify a valid [RFC2822] mailbox list.
+Implementations SHOULD check the syntax and generate an error when a syntactically invalid ":from" parameter is specified.
+Implementations MAY also impose restrictions on what addresses can specified in a ":from" parameter; it is suggested that values that fail such a validity check simply be ignored rather than cause the vacation action to fail.
+The ":mime" parameter, if supplied, specifies that the reason string is, in fact, a MIME entity as defined in [RFC2045] section 2.4, including both MIME headers and content.
+If the optional :mime parameter is not supplied, the reason string is considered a UTF 8 string.
+I'm at the beach relaxing.
+HTML 4.0//EN" "http://www.w3.org/TR/REC html40/strict.dtd"> <
+>I'm at the <A HREF
+Address Parameter and Limiting Replies to Personal Messages "Vacation" MUST NOT respond to a message unless the recipient user's email address is in a "To", "Cc", "Bcc", "Resent To", "Resent Cc", or "Resent Bcc" line of the original message.
+An email address is considered to belong to the recipient if it is one of: 1.
+an email address known by the implementation to be associated with the recipient, 2.
+the final envelope recipient address if it's available to the implementation, or 3.
+an address specified by the script writer via the ":addresses" argument described in the next paragraph.
+Users can supply additional mail addresses that are theirs with the ":addresses" argument, which takes a string list listing additional addresses that a user might have.
+These addresses are considered to belong to the recipient user in addition to the addresses known to the implementation.
+4.6.  Restricting Replies to Automated Processes and Mailing Lists Implementations MAY refuse to send a vacation response to a message that contains any header or content that makes it appear that a response would not be appropriate.
+Implementations MUST have a list of addresses that "vacation" MUST NOT send mail to.
+However, the contents of this list are implementation defined.
+The purpose of this list is to stop mail from going to addresses used by system daemons that would not care if the user is actually reading her mail.
+Implementations are encouraged, however, to include well known addresses like "MAILER DAEMON", "LISTSERV", "majordomo", and other addresses typically used only by automated systems.
+Additionally, addresses ending in " request" or beginning in "owner ", i.e., reserved for mailing list software, are also suggested.
+Implementors may take guidance from [RFC2142], but should be careful.
+Some addresses, like "POSTMASTER", are generally actually managed by people, and people do care if the user is going to be unavailable.
+Implementations SHOULD NOT respond to any message that contains a "List Id" [RFC2919], "List Help", "List Subscribe", "List  Unsubscribe", "List Post", "List Owner", or "List Archive" [RFC2369] header field.
+Implementations SHOULD NOT respond to any message that has an "Auto  submitted" header field with a value other than "no".
+This header field is described in [RFC3834].
+Interaction with Other Sieve Actions Vacation does not affect Sieve's implicit keep action.
+Vacation can only be executed once per script.
+A script MUST fail with an appropriate error if it attempts to execute two or more vacation actions.
+Implementations MUST NOT consider vacation used with discard, keep, fileinto, or redirect an error.
+The vacation action is incompatible with the Sieve reject and refuse actions [REJECT].
+Examples Here is a simple use of vacation.
+require "vacation"; vacation :days 23 :addresses ["tjs@example.edu", "ts4z@landru.example.edu"]
+"I'm away until October 19.
+require "vacation"; if header :contains "from" "boss@example.edu" { redirect "pleeb@isp.example.org";
+This section details the requirements for the generated response message.
+It is worth noting that the input message and arguments may be in UTF 8, and that implementations MUST deal with UTF 8 input, although implementations MAY transcode to other character sets as regional taste dictates.
+When :mime is used, the reason argument also contains MIME header information.
+The headers must conform to MIME conventions; in particular, 8bit text is not allowed.
+Implementations SHOULD reject vacation :mime actions containing 8bit header material.
+The SMTP MAIL FROM address of the message envelope SHOULD be set to <>.
+NOTIFY NEVER SHOULD also be set in the RCPT TO line during the SMTP transaction if the NOTARY SMTP extension [RFC3461] is available.
+The Date field SHOULD be set to the date and time when the vacation response was generated.
+Note that this may not be the same as the time the message was delivered to the user.
+Subject Users can specify the Subject of the reply with the ":subject" parameter.
+If the :subject parameter is not supplied, then the subject is generated as follows:
+The subject is set to the characters "Auto: " followed by the original subject.
+An appropriate fixed Subject, such as "Automated reply", SHOULD be used in the event that :subject isn't specified and the original message doesn't contain a Subject field.
+Unless explicitly overridden with a :from parameter, the From field SHOULD be set to the address of the owner of the Sieve script.
+To The To field SHOULD be set to the address of the recipient of the response.
+Auto Submitted An Auto Submitted field with a value of "auto replied"
+SHOULD be included in the message header of any vacation message sent.
+The body of the message is taken from the reason string in the vacation command.
+Relationship to Recommendations for Automatic Responses to Electronic Mail
+The vacation extension implements a "Personal Responder" in the terminology defined in [RFC3834].
+Care has been taken in this specification to comply with the recommendations of [RFC3834] regarding how personal responders should behave.
+Internationalization Considerations Internationalization capabilities provided by the base Sieve language are discussed in [RFC5228].
+However, the vacation extension is the first Sieve extension to be defined that is capable of creating entirely new messages.
+This section deals with internationalization issues raised by the use of the vacation extension.
+Vacation messages are normally written using the UTF 8 charset, allowing text to be written in most of the world's languages.
+Additionally, the :mime parameter allows specification of arbitrary MIME content.
+In particular, this makes it possible to use multipart/alternative objects to specify vacation responses in multiple languages simultaneously.
+The Sieve language itself allows a vacation response to be selected based on the content of the original message.
+; } Note that this rather simplistic test of the field values fails to take the structure of the fields into account and hence could be fooled by some more complex field values.
+A more elaborate test could be used to deal with this problem.
+The approach of explicitly coding language selection criteria in scripts is preferred because in many cases language selection issues are conflated with other selection issues.
+A graphical Sieve generation interface could in principle be used to hide the complexity of specifying response selection criteria from end users.
+Figuring out the right set of options to present in a graphical interface is likely a nontrivial proposition, but this is more because of the need to employ a variety of criteria to select different sorts of responses to send to different classes of people than because of the issues involved in selecting a response in an appropriate language.
+It is critical that implementations correctly implement the behavior and restrictions described throughout this document.
+Replies MUST NOT be sent out in response to messages not sent directly to the user, and replies MUST NOT be sent out more often than the :days argument states unless the script changes.
+If mail is forwarded from a site that uses subaddressing, it may be impossible to list all recipient addresses with ":addresses".
+Security issues associated with mail auto responders are fully discussed in the security considerations section of [RFC3834].
+This document is believed not to introduce any additional security considerations in this general area.
+The following template specifies the IANA registration of the vacation Sieve extension specified in this document:
+Registration of new Sieve extension Capability name:
+The Sieve discussion list <ietf mta
+This information has been added to the list of Sieve extensions given on http://www.iana.org/assignments/sieve extensions.

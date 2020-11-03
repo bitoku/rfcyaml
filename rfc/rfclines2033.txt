@@ -1,0 +1,77 @@
+1.  Abstract SMTP [SMTP] [HOST REQ] and its service extensions [ESMTP] provide a mechanism for transferring mail reliably and efficiently.
+The design of the SMTP protocol effectively requires the server to manage a mail delivery queue.
+In some limited circumstances, outside the area of mail exchange between independent hosts on public networks, it is desirable to implement a system where a mail receiver does not manage a queue.
+This document describes the LMTP protocol for transporting mail into such systems.
+Although LMTP is an alternative protocol to ESMTP, it uses (with a few changes)
+the syntax and semantics of ESMTP.
+This design permits LMTP to utilize the extensions defined for ESMTP.
+LMTP should be used only by specific prior arrangement and configuration, and it MUST NOT be used on TCP port 25.
+Conventions Used in this Document
+In examples, "C:" and "S:" indicate lines sent by the client and server respectively.
+The design of the SMTP protocol effectively requires the server to manage a mail delivery queue.
+This is because a single mail transaction may specify multiple recipients and the final ".
+" of the DATA command may return only one reply code, to indicate the status of the entire transaction.
+If, for example, a server is given a transaction for two recipients, delivery to the first succeeds, and delivery to the second encounters a temporary failure condition, there is no mechanism to inform the client of the situation.
+The server must queue the message and later attempt to deliver it to the second recipient.
+This queuing requirement is beneficial in the situation for which SMTP was originally designed: store and forward relay of mail between networked hosts.
+In some limited situations, it is desirable to have a server which does not manage a queue, instead relying on the client to perform queue management.
+As an example, consider a hypothetical host with a mail system designed as follows:
+The first is a queue manager, which acts as a traditional SMTP agent, transferring messages to and from other hosts over TCP and managing a mail queue in persistent storage.
+The other two are agents which handle delivery for addresses in domains for which the host takes responsibility.
+One agent performs gatewaying to and from some other mail system.
+The other agent delivers the message into a persistent mail spool.
+It would be desirable to use SMTP over a local inter process communication channel to transfer messages from the queue manager to the delivery agents.
+It would, however, significantly increase the complexity of the delivery agents to require them to manage their own mail queues.
+The common practice of invoking a delivery agent with the envelope address(es) as command line arguments, then having the delivery agent communicate status with an exit code has three serious problems: the agent can only return one exit code to be applied to all recipients, it is difficult to extend the interface to deal with ESMTP extensions such as DSN [DSN] and ENHANCEDSTATUSCODES [ENHANCEDSTATUSCODES], and exits performed by system libraries due to temporary conditions frequently get interpreted as permanent errors.
+The LMTP protocol causes the server to return, after the final ".
+" of the DATA command, one reply for each recipient.
+Connections which should use the LMTP protocol are drawn in the diagram above using asterisks.
+Note that it is not beneficial to use the LMTP protocol when transferring messages to the queue manager, either from the network or from a delivery agent.
+The queue manager does implement a mail queue, so it may store the message and take responsibility for later delivering it.
+The LMTP protocol is identical to the SMTP protocol SMTP [SMTP]
+[HOST REQ] with its service extensions [ESMTP], except as modified by this document.
+A "successful" RCPT command is defined as an RCPT command which returns a Positive Completion reply code.
+A "Positive Completion reply code" is defined in Appendix E of STD 10
+, RFC 821 [SMTP] as a reply code which "2" as the first digit.
+The LHLO, HELO and EHLO commands The HELO and EHLO
+commands of ESMTP are replaced by the LHLO command.
+This permits a misconfiguration where both parties are not using the same protocol to be detected.
+The LHLO command has identical semantics to the EHLO command of ESMTP [ESMTP].
+The HELO and EHLO commands of ESMTP are not present in LMTP.
+A LMTP server MUST NOT return a Postive Completion reply code to these commands.
+The 500 reply code is recommended.
+The DATA command In the LMTP protocol
+, there is one additional restriction placed on the DATA command, and one change to how replies to the final ".
+The additional restriction is that when there have been no successful RCPT commands in the mail transaction, the DATA command MUST fail with a 503 reply code.
+The change is that after the final ".
+", the server returns one reply for each previously successful RCPT command in the mail transaction, in the order that the RCPT commands were issued.
+Even if there were multiple successful RCPT commands giving the same forward path, there must be one reply for each successful RCPT command.
+It must take this responsibility
+seriously, i.e., it MUST NOT lose the message for frivolous reasons, e.g., because the host later crashes or because of a predictable resource shortage.
+A multiline reply is still considered a single reply and corresponds to a single RCPT command.
+S: 220 foo.edu LMTP server ready C:
+250 foo.edu S: 250 PIPELINING S: 250 SIZE C:
+> S: 250 OK C: RCPT TO:<jones@foo.edu
+> S: 250 OK C:
+DATA S: 354 Start mail input; end with <CRLF>.<CRLF>
+452 <green@foo.edu> is temporarily over quota C:
+QUIT S: 221 foo.edu closing connection NOTE: in the above example, the domain names of both the client and server are identical.
+This is because in the example the client and server are different subsystems of the same mail domain.
+If the server supports the ESMTP CHUNKING extension [BINARYMIME], a BDAT command containing the LAST parameter returns one reply for each previously successful RCPT command in the mail transaction, in the order that the RCPT commands were issued.
+Even if there were multiple successful RCPT commands giving the same forward path, there must be one reply for each successful RCPT command.
+If there were no previously successful RCPT commands in the mail transaction, then the BDAT LAST command returns zero replies.
+When one of these replies to the BDAT
+LAST command is a Positive Completion reply, the server is accepting responsibility for delivering or relaying the message to the corresponding recipient.
+It must take this responsibility seriously, i.e., it MUST NOT lose the message for frivolous reasons, e.g., because the host later crashes or because of a predictable resource shortage.
+A multiline reply is still considered a single reply and corresponds to a single RCPT command.
+The behavior of BDAT commands without the LAST parameter is not changed; they still return exactly one reply.
+As LMTP is a different protocol than SMTP, it MUST NOT be used on the TCP service port 25.
+A server implementation MUST implement the PIPELINING [PIPELINING] and ENHANCEDSTATUSCODES [ENHANCEDSTATUSCODES] ESMTP extensions.
+A server implementation SHOULD implement the 8BITMIME [8BITMIME] extension.
+Use of LMTP can aggravate the situation described in [DUP MSGS].
+To avoid this synchronization problem, the following requirements are made of implementations: A server implementation which is capable of quickly accepting responsibility for delivering or relaying a message to multiple recipients and which is capable of sending any necessary notification messages SHOULD NOT implement the LMTP protocol.
+The LMTP protocol SHOULD NOT be used over wide area networks.
+The server SHOULD send each reply as soon as possible.
+If it is going to spend a nontrivial amount of time handling delivery for the next recipient, it SHOULD flush any outgoing LMTP buffer, so the reply may be quickly received by the client.
+The client SHOULD process the replies as they come in, instead of waiting for all of the replies to arrive before processing any of them.
+If the connection closes after replies for some, but not all, recipients have arrived, the client MUST process the replies that arrived and treat the rest as temporary failures.

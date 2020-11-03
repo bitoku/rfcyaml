@@ -1,0 +1,555 @@
+Abstract This document provides a set of "torture tests" for implementers of the Signaling Compression (SigComp) protocol.
+The torture tests check each of the SigComp Universal Decompressor Virtual Machine instructions in turn, focusing in particular on the boundary and error cases that are not generally encountered when running well behaved compression algorithms.
+Tests are also provided for other SigComp entities such as the dispatcher and the state handler.
+This document provides a set of "torture tests" for implementers of the SigComp protocol, RFC 3320 [2].
+The idea behind SigComp is to standardize a Universal Decompressor Virtual Machine (UDVM) that can be programmed to understand the output of many well known compressors including DEFLATE and LZW.
+The bytecode for the chosen decompressor is uploaded to the UDVM as part of the SigComp message flow.
+The SigComp User's Guide [1] gives examples of a number of different algorithms that can be used by the SigComp protocol.
+However, the bytecode for the corresponding decompressors is relatively well behaved and does not test the boundary and error cases that may potentially be exploited by malicious SigComp messages.
+This document is divided into a number of sections, each containing a piece of code designed to test a particular function of one of the SigComp entities (UDVM, dispatcher, and state handler).
+The specific boundary and error cases tested by the bytecode are also listed, as are the output the code should produce and the number of UDVM cycles that should be used.
+Each test runs in the SigComp minimum decompression memory size (that is, 2K), within the minimum number of cycles per bit (that is, 16) and in tests where state is stored 2K state memory size is needed.
+The following sections each provide code to test one or more UDVM instructions.
+In the interests of readability, the code is given using the SigComp assembly language: a description of how to convert this assembly code into UDVM bytecode can be found in the SigComp User's Guide [1].
+The raw UDVM bytecode for each torture test is given in Appendix A.
+Each section also lists the number of UDVM cycles required to execute the code.
+Note that this figure only takes into account the cost of executing each UDVM instruction (in particular, it ignores the fact that the UDVM can gain extra cycles as a result of inputting more data).
+This section gives assembly code to test the AND, OR, NOT, LSHIFT, and RSHIFT instructions.
+When the instructions have a multitype operand, the code tests the case where the multitype contains a fixed integer value, and the case where it contains a memory address at which the 2 byte operand value can be found.
+In addition, the code is designed to test that the following boundary cases have been correctly implemented:
+The instructions overwrite themselves with the result of the bit manipulation operation, in which case execution continues normally.
+The LSHIFT or RSHIFT instructions shift bits beyond the 2 byte boundary, in which case the bits must be discarded.
+The UDVM registers byte copy left and byte copy right are used to store the results of the bit manipulation operations.
+Since no byte copying is taking place, these registers should behave in exactly the same manner as ordinary UDVM memory addresses.
+The output of the code is 0x0150
+Executing the code costs a total of 22 UDVM cycles.
+Arithmetic This section gives assembly code to test the ADD, SUBTRACT, MULTIPLY, DIVIDE, and REMAINDER instructions.
+The code is designed to test that the following boundary cases have been correctly implemented:
+The instructions overwrite themselves with the result of the arithmetic operation, resulting in continuation as if the bytes were not bytecode.
+The result does not lie between 0 and 2^
+16 1 inclusive, in which case it must be taken modulo 2^16.
+The divisor in the DIVIDE or REMAINDER instructions is 0 (in which case decompression failure must occur).
+INPUT BYTES (1, type lsb, decomp failure) SUBTRACT ($type, 1)
+JUMP (start) :decomp failure DECOMPRESSION FAILURE
+; Now the value in $type should be 0xffff, 0x0000, or 0x0001 ; according to whether the input was 0x00, 0x01, or 0x02.
+at (255) :start ; The multitypes are values ; For all three messages ; $start   1728
+(first 2 bytes of ADD instr)
+1 so ; $b becomes 0 and decompression failure ; occurs at DIVIDE ($a, $b) END MESSAGE (0, 0, 0, 0, 0, 0, 0)
+If the compressed message is 0x00, then the output of the code is 0x0000
+0000 0004 and the execution cost should be 25 UDVM cycles.
+However, if the compressed message is 0x01 or 0x02, then decompression failure occurs.
+Sorting This section gives assembly code to test the SORT ASCENDING and SORT  DESCENDING instructions.
+The code is designed to test that the following boundary cases have been correctly implemented:
+The sorting instructions sort integers with the same value, in which case the original ordering of the integers must be preserved.
+SORT DESCENDING (256, 2, 23)
+SORT ASCENDING (256, 2, 23) OUTPUT (302, 45) END MESSAGE (0, 0, 0, 0, 0, 0, 0) at (256) word (10, 10, 17, 7, 22, 3, 3, 3, 19, 1, 16, 14, 8, 2, 13, 20, 18, 23, 15, 21, 12, 6, 9) word (28263, 8297, 30057, 8308, 26996, 11296, 31087, 29991, 8275, 18031, 28263, 24864, 30066, 29284, 28448, 29807, 28206, 11776, 28773, 28704, 28276, 29285, 28265)
+The output of the code is 0x466f 7264
+2c20 796f 7527 7265 2074 7572
+6e74 6f20 6120 7065 6e67 7569 6e2e
+6974 2e, and the number of cycles required is 371.
+This section gives assembly code to test the SHA 1 instruction.
+The code performs four tests on the SHA 1 algorithm itself and, in addition, checks the following boundary cases specific to the UDVM: 1.
+The input string for the SHA 1 hash is obtained by byte copying over an area of the UDVM memory.
+The SHA 1 hash overwrites its own input string.
+SHA 1 (test one, 3, hash value) OUTPUT (hash value, 20)
+SHA 1 (test two, 56, hash value)
+OUTPUT (hash value, 20) ;
+Set up a 1 byte buffer LOAD
+(byte copy left, test three)
+(byte copy right, test four) ; Perform SHA 1 over 16384 bytes in a 1 byte buffer SHA 1 (test three, 16384, hash value)
+OUTPUT (hash value, 20) ;
+Set up an 8 byte buffer LOAD
+(byte copy left, test four)
+(byte copy right, test end) ; Perform SHA 1 over 640 bytes in an 8 byte buffer SHA 1 (test four, 640, test four) OUTPUT (test four, 20)
+END MESSAGE (0, 0, 0, 0, 0, 0, 0) :test one byte (97, 98, 99) :test two byte (97, 98, 99, 100, 98, 99, 100, 101, 99, 100, 101, 102, 100, 101, 102, 103, 101, 102, 103, 104, 102, 103, 104, 105, 103, 104, 105, 106, 104, 105, 106, 107, 105, 106, 107, 108, 106, 107, 108, 109, 107, 108, 109, 110, 108, 109, 110, 111, 109, 110, 111, 112, 110, 111, 112, 113) :test three byte (97) :test four byte (48, 49, 50, 51, 52, 53, 54, 55) :
+The output of the code is as follows:
+1f32 8e6f 4b55 73e3 666e 122f 0x4f46 0452
+Executing the code costs a total of 17176 UDVM cycles.
+This section gives assembly code to test the LOAD and MULTILOAD instructions.
+The code is designed to test the following boundary cases: 1.
+The MULTILOAD instruction overwrites itself or any of its operands, in which case decompression failure occurs.
+The memory references of MULTILOAD instruction operands are evaluated step by step rather than all at once before starting to copy data.
+; address 132 contains 134   0x0086
+LOAD ($location b, $location b)
+; address 134 contains 134
+INPUT BYTES (1, start lsb, decompression failure)
+ADD ($start, 60) MULTILOAD ($start, 3, overlap start, overlap end, 128) :
+position set (overlap start, (position 7))
+MULTILOAD ($start, 4, 42, 128, $location a, $location b) :
+end set (overlap end, (end 1)) OUTPUT (128, 8) END MESSAGE (0, 0, 0, 0, 0, 0, 0) :decompression failure DECOMPRESSION FAILURE The INPUT BYTES, MULTIPLY, and ADD instructions give the following values for $start   $64 just before the MULTILOADs begin:
+Consequently, after the first MULTILOAD the values of $start are the following:
+162   7 bytes before 2nd MULTILOAD instruction
+Consequently, execution of the 2nd MULTILOAD (and any remaining code) gives the following: Input
+Outcome 0x00    MULTILOAD reads and writes operand by operand.
+The output is 0x0084 0084
+002a 0080 002a 002a, and the cost of executing the code is 36 UDVM cycles.
+The first write of the MULTILOAD instruction would overwrite the last byte of the final MULTILOAD operand, so decompression failure occurs.
+The last write of the MULTILOAD would overwrite the MULTILOAD opcode, so decompression failure occurs.
+This section gives assembly code to test the COPY instruction.
+The code is designed to test that the following boundary cases have been correctly implemented:
+The COPY instruction copies data from both outside the circular buffer and inside the circular buffer within the same operation.
+The COPY instruction performs byte by byte copying (i.e., some of the later bytes to be copied are themselves written into the UDVM memory by the COPY instruction currently being executed).
+The COPY instruction overwrites itself and continues executing.
+The COPY instruction overwrites the UDVM registers byte copy left and byte
+The COPY instruction writes to and reads from the right of the buffer beginning at byte
+The COPY instruction implements byte copying rules when the destination wraps around the buffer.
+Set up buffer between addresses 64 & 128 LOAD (32, 16384)
+LOAD (byte copy left, 64)
+The output is above, and executing the code costs a total of 365 UDVM cycles.
+COPY LITERAL and COPY OFFSET
+This section gives assembly code to test the COPY LITERAL and COPY  OFFSET instructions.
+The code is designed to test similar boundary cases to the code for the COPY instruction, as well as the following condition specific to COPY LITERAL and COPY OFFSET: 1.
+The COPY LITERAL or COPY
+OFFSET instruction overwrites the value of its destination.
+The COPY OFFSET instruction reads from an offset that wraps around the buffer (i.e., the offset is larger than the distance between byte copy left and the destination).
+(byte copy right, 128) LOAD (destination, 33)
+COPY LITERAL (32, 128, $destination)
+buffer LOAD (offset, 6) COPY OFFSET ($offset, 4, $destination)
+4845 4647 4748 4546, ; which is 'GHHEFGGHEF' END MESSAGE (0, 0, 0, 0, 0, 0, 0)
+The output of the code is above, and the cost of execution is 216 UDVM cycles.
+This section gives assembly code to test the MEMSET instruction.
+The code is designed to test that the following boundary cases have been correctly implemented:
+The MEMSET instruction overwrites the registers byte copy left and byte
+The output values of the MEMSET instruction do not lie between 0 and 255 inclusive (in which case they must be taken modulo 2^8).
+; before and during the MEMSET: ; byte copy left: 0x0080
+byte copy right: 0x0081 ; after the MEMSET: ; byte copy left: 0x0001
+4f5e 6d7c 8b9a ; a9b8 c7d6 e5f4 0312 END MESSAGE (0, 0, 0, 0, 0, 0, 0)
+The output of the code is 0x8040
+Executing the code costs 166 UDVM cycles.
+This section gives assembly code to test the CRC instruction.
+The code does not test any specific boundary cases (as there do not appear to be any) but focuses instead on verifying the CRC algorithm.
+INPUT BYTES (2, crc value, decompression failure) ; reads in 2 bytes representing ; the CRC value of the byte string ; of 44 bytes starting at 0x0046
+END MESSAGE (0, 0, 0, 0, 0, 0, 0) :decompression failure DECOMPRESSION FAILURE
+If the compressed message is 0x62cb, then the code should successfully terminate with no output, and with a total execution cost of 95 UDVM cycles.
+For different 2 byte compressed messages, the code should terminate with a decompression failure.
+This section gives assembly code to test the INPUT BITS instruction.
+The code is designed to test that the following boundary cases have been correctly implemented:
+The INPUT BITS instruction changes between any of the four possible bit orderings defined by the input bit order register.
+The INPUT BITS instruction inputs 0 bits.
+The INPUT BITS instruction requests data that lies beyond the end of the compressed message.
+An example of a compressed message is 0x932e ac71, which decompresses to give the output 0x0000 0002
+Executing the code costs 66 UDVM cycles.
+This section gives assembly code to test the INPUT HUFFMAN instruction.
+The code is designed to test that the following boundary cases have been correctly implemented:
+The INPUT HUFFMAN instruction changes between any of the four possible bit orderings defined by the input bit order register.
+The INPUT HUFFMAN instruction inputs 0 bits.
+The INPUT HUFFMAN instruction requests data that lies beyond the end of the compressed message.
+$input bit order, $input bit order, $input bit order, 0, 65535, 0)
+ADD ($input bit order, 1) REMAINDER ($input bit order, 7) ADD ($input bit order, 1)
+JUMP (start) :end of message END MESSAGE (0, 0, 0, 0, 0, 0, 0)
+An example of a compressed message is 0x932e ac71 66d8 6f, which decompresses to give the output 0x0000 0003
+Executing the code costs 84 UDVM cycles.
+As the code is run, the input bit order changes through all possible values to check usage of the H and P bits.
+The number of bits to input each time is taken from the value of input bit order.
+The sequence is the following:
+This section gives assembly code to test the INPUT BYTES instruction.
+The code is designed to test that the following boundary cases have been correctly implemented:
+The INPUT BYTES instruction inputs 0 bytes.
+The INPUT BYTES instruction requests data that lies beyond the end of the compressed message.
+The INPUT BYTES instruction is used after part of a byte has been input (e.g., by the INPUT BITS instruction).
+output end at (128) LOAD
+(byte copy left, output start)
+(byte copy right, output end) :start INPUT BITS ($input bit order, result, end of message) OUTPUT (result, 2)
+ADD ($input bit order, 2)
+REMAINDER ($input bit order, 7)
+INPUT BYTES ($input bit order, output start, end of message) OUTPUT
+(output start, $input bit order) ADD ($input bit order, 1)
+JUMP (start) :end of message END MESSAGE (0, 0, 0, 0, 0, 0, 0)
+An example of a compressed message is 0x932e ac71 66d8
+b5dc 9659 9d6a, which decompresses to give the output
+Executing the code costs 130 UDVM cycles.
+As the code is run, the input bit order changes through all possible values to check usage of the F and P bits.
+The number of bits or bytes to input each time is taken from the value of input bit order.
+For each INPUT BYTES instruction, the remaining bits of the byte are thrown away.
+The P bit always changes on the byte boundary so no bits are thrown away.
+The sequence is the following:
+3 no bits left so terminate 2.13.
+This section gives assembly code to test the PUSH, POP, CALL, and RETURN instructions.
+The code is designed to test that the following boundary cases have been correctly implemented:
+The stack manipulation instructions overwrite the UDVM register stack location.
+The CALL instruction specifies a reference operand rather than an absolute value.
+The PUSH instruction pushes the value contained in stack fill onto the stack.
+The stack location register contains an odd integer.
+; Stack now contains 2, 1, 66 ; so
+$stack location   66 OUTPUT (64,
+JUMP (address a) at (192) :address a LOAD (stack location, 32)
+SUBTRACT ($next address, address b)
+; pop 383 from the stack and jump ; there   384, which is lsb of ; stack fill, which now contains 25, ; which is UDVM instruction RETURN ; pop 448 from the stack and jump ; there at (448) END MESSAGE (0, 0, 0, 0, 0, 0, 0)
+The output of the code is 0x0003
+0002 0001 0042 0042 0000
+0001 0001, and a total of 40 UDVM cycles are used.
+This section gives assembly code to test the JUMP, COMPARE, and SWITCH instructions.
+The code is designed to test that the following boundary cases have been correctly implemented:
+The address operands are specified as references to memory addresses rather than as absolute values.
+address c ADD ($counter, 1)
+The output of the code is 0x0001 0102 0203 0304 0405 0506 0707 0708 0808 0909, and a total of 131 UDVM cycles are used.
+This section gives assembly code to test the STATE CREATE and STATE  FREE instructions.
+The code is designed to test that the following boundary cases have been correctly implemented:
+An item of state is created that duplicates an existing state item.
+An item of state is freed when the state has not been created.
+An item of state is created and then freed by the same message.
+The STATE FREE instruction frees a state item by sending fewer bytes of the state identifier than the minimum access length.
+The STATE FREE instruction has partial identifier length operand shorter than 6 or longer
+The STATE FREE instruction specifies a partial identifier that matches with two state items in the compartment.
+The bytes of the identifier are written to the position specified in the STATE FREE instruction after the STATE FREE instruction has been run (and before END MESSAGE).
+set (state length, 10) at (127) :
+INPUT BYTES (1, states lsb, decompression failure) :test one LSHIFT ($states, 11) COMPARE ($states, 32768, test two, create state a2, create state a2) :create state a2 STATE CREATE (state length, state address2, 0, 20, 0) :test two LSHIFT ($states, 1) COMPARE ($states, 32768, test three, create state a, create state a)
+:create state a STATE CREATE (state length, state address, 0, 20, 0) :test three LSHIFT ($states, 1) COMPARE ($states, 32768, test four, free state, free state) :free state INPUT BYTES (1, min len lsb, decompression failure)
+COPY (identifier1, $min len, state identifier) :test four LSHIFT ($states, 1) COMPARE ($states, 32768, test five, free state2, free state2) :
+free state2 STATE FREE (identifier1, 6) :
+test five LSHIFT ($states, 1) COMPARE ($states, 32768, end, create state b, create state b)
+:create state b END MESSAGE (0, 0, state length, state address, 0, 20, 0) :
+end END MESSAGE (0, 0, 0, 0, 0, 0, 0) :
+identifier1 byte (67, 122, 232, 10, 15, 220, 30, 106, 135, 193, 182, 42, 118, 118, 185, 115, 49, 140, 14, 245) at (256) :state address byte (192, 204, 63, 238, 121, 188, 252, 143, 209, 8) :
+state address2 byte (101, 232, 3, 82, 238, 41, 119, 23, 223, 87)
+Upon reaching the END MESSAGE instruction, the UDVM does not output any decompressed data, but instead may make one or more state creation or state free requests to the state handler.
+Assuming that the application does not veto the state creation request (and that sufficient state memory is available)
+the code results in 0, 1, or 2 state items being present in the compartment.
+The following table lists ten different compressed messages, the states created and freed by each, the number of states left after each message, and the number of UDVM cycles used.
+There are 3 state creation instructions: create state a, which has hash identifier1 create state b (in END MESSAGE), which is identical to state a create state a2, which has a different identifier, but the first 6 bytes are the same as those of identifier1.
+(id1, 6)   state b; create state b    1
+create state a2; create state a;
+free (id1, 6)   matches both so no free;
+both so no free;   2
+This section gives assembly code to test the STATE ACCESS instruction.
+The code is designed to test that the following boundary cases have been correctly implemented:
+A subset of the bytes contained in a state item is copied to the UDVM memory.
+Bytes are copied from beyond the end of the state value.
+The state instruction operand is set to 0.
+The state cannot be accessed because the partial state identifier is too short.
+The state identifier is overwritten by the state item being accessed.
+The following bytecode needs to be run first to set up the state for the rest of the test.
+This is the bytecode for the rest of the test.
+INPUT BYTES (1, type lsb, decompression failure) COMPARE ($type, 1, execute state, extract state, error conditions) :execute state STATE ACCESS (state identifier, 20, 0, 0, 0, 512) :extract state STATE ACCESS (state identifier, 20, 12, 4, state value, 0) OUTPUT (state value, 4)
+JUMP (end) :error conditions COMPARE ($type, 3, state not found
+, id too short, state too short) :
+state not found STATE ACCESS (128, 20, 0, 0, 0, 0)
+:id too short STATE ACCESS (state identifier, 19, 6, 4, state value, 0)
+JUMP (end) :state too short STATE ACCESS (state identifier, 20, 12, 5, state value, 0)
+:end END MESSAGE (0, 0, 0, 0, 0, 0, 0) at (512) :state identifier byte (0x5d, 0xf8, 0xbc, 0x3e, 0x20, 0x93, 0xb5, 0xab, 0xe1, 0xf1, 0x70, 0x13, 0x42, 0x4c, 0xe7, 0xfe, 0x05, 0xe0, 0x69, 0x39)
+If the compressed message is 0x00, then the output of the code is 0x7465 7374, and a total of 26 UDVM cycles are used.
+If the compressed message is 0x01, then the output of the code is also 0x7465 7374
+but in this case using a total of 15 UDVM cycles.
+If the compressed message is 0x02, 0x03, or 0x04, then decompression failure occurs.
+The following sections give code to test the various functions of the SigComp dispatcher.
+This section gives assembly code to test that the SigComp "Useful Values" are correctly initialized in the UDVM memory.
+It also tests that the UDVM is correctly terminated if the bytecode uses too many UDVM cycles or tries to write beyond the end of the available memory.
+The code tests that the following boundary cases have been correctly implemented:
+The bytecode uses exactly as many UDVM cycles as are available (in which case no problems should arise) or one cycle too many (in which case decompression failure should occur).
+A liberal implementation could allow more cycles to be used than are strictly available, in which case decompression failure will not occur.
+This is an implementation choice.
+If this choice is made, the implementer must be sure that the cycles are checked eventually and that decompression failure does occur when bytecode uses an excessive number of cycles.
+This is tested in Section 3.2.
+The bytecode writes to the highest memory address available (in which case no problems should arise) or to the memory address immediately following the highest available address (in which case decompression failure must occur).
+(byte copy right, 33) :test version ; Input a byte containing the version of SigComp being run INPUT BYTES (1, check memory lsb, decompression failure)
+COMPARE ($sigcomp version, $check memory, decompression failure, test state access, decompression failure) :test state access COMPARE (
+id length, 0, decompression failure, test length equals zero, test state length) :test length equals zero
+; No state was accessed so state length ; should be zero (first message) COMPARE ($state length, 0, decompression failure, end, decompression failure) :test state length ; State was accessed so state length ; should be 960 COMPARE ($state length, 960, decompression failure, test udvm memory, decompression failure) :test udvm memory ;
+Copy one byte to ; udvm memory size   input 1 ;
+Succeed when input byte is 0x00 ;
+Fail when input byte is 0x01 INPUT BYTES (1, check memory lsb, decompression failure)
+ADD ($check memory, $udvm memory size) SUBTRACT ($check memory, 1)
+COPY (32, 1, $check memory) :
+LOAD (remaining cycles, $partial state id length) ADD ($remaining cycles, 3)
+ADD ($remaining cycles, 1000) MULTIPLY ($remaining cycles, $cycles per bit)
+ADD ($remaining cycles, $check cycles)
+set (cycles used by bytecode, 856)
+SUBTRACT ($remaining cycles, cycles used by bytecode) COPY (32, $remaining cycles, 32)
+; Copy to use up all cycles available   input byte ; Succeeds when input byte   0x00 ; Fail when input byte   0x01 :end ; Create 960 bytes of state for future ; reference END MESSAGE (0, 0, 960, 64, 128, 6, 0)
+The bytecode must be executed a total of four times in order to fully test the SigComp Useful Values.
+In the first case, the bytecode is uploaded as part of the SigComp message with a 1 byte compressed message corresponding to the version of SigComp being run.
+This causes the UDVM to request creation of a new state item and uses a total of 968 UDVM cycles.
+Subsequent tests access this state by uploading the state identifier as part of the SigComp message.
+Note that the SigComp message should not contain a returned feedback item (as this would cause the bytecode to calculate the total number of available UDVM cycles incorrectly).
+A 3 byte compressed message is required for the second and subsequent cases, the first byte of which is the version of SigComp in use, 0xnn.
+If the message is 0xnn0000, then the UDVM should successfully terminate using exactly the number of available UDVM cycles.
+However, if the message is 0xnn0001, then the UDVM should use too many cycles and hence terminate with decompression failure.
+Furthermore, if the message is 0xnn0100, then decompression failure must occur because the UDVM attempts to write beyond its available memory.
+As discussed in Section 3.1, it is possible to write an implementation that takes a liberal approach to checking the cycles used and allows some extra cycles.
+The implementer must be sure that decompression failure does not occur too early and that in the case of excessive use of cycles, decompression failure does eventually occur.
+This test checks that: 1.  Decompression failure occurs eventually when there is an infinite loop.
+(byte copy left, 4, 32, 41, 0, 34) ; Set up a 10 byte buffer ; Set the value to copy ; Copy it 100 times, ; output the value, ; increment the counter :loop COPY (value, 2, $byte copy left) COPY OFFSET (2, 100, $copy next) OUTPUT (value, 2)
+If the cycles are counted exactly and cycles per bit (cpb)   16, then decompression failure will occur at COPY OFFSET
+If cpb   32, then decompression failure will occur when value
+If they are not counted exactly, then decompression failure MUST occur eventually.
+This section provides a set of messages to test the SigComp header over a message based transport such as UDP.
+The messages test that the following boundary cases have been correctly implemented:
+The UDVM bytecode is copied to different areas of the UDVM memory.
+The decompression memory size is set to an incorrect value.
+The SigComp message is too short.
+The destination address is invalid.
+The basic version of the code used in the test is given below.
+OUTPUT (udvm memory size, 2) END MESSAGE (0, 0, 0, 0, 0, 0, 1) :
+code end set (header size, 3)
+set (code size, (code end code start))
+set (total message size, (header size   code size))
+A number of complete SigComp messages are given below, each containing some or all of the above code.
+In each case, it is indicated whether the message will successfully output the decompression memory size or whether it will cause a decompression failure to occur (together with the reason for the failure):
+Outputs the decompression memory size 0x0000
+Fails (message too short) 0x0000 0000 0000
+The messages should be decompressed in the order given to check that an error in one message does not interfere with the successful decompression of subsequent messages.
+The two messages that successfully decompress each use a total of 5 UDVM cycles.
+This section provides a byte stream to test the SigComp header and delimiters over a stream based transport such as TCP.
+The byte stream tests all of the boundary cases covered in Section 3.2, as well as the following cases specific to stream based transports
+Quoted bytes are used by the record marking scheme.
+Multiple delimiters are used between the same pair of messages.
+Unnecessary delimiters are included at the start of the stream.
+The basic version of the code used in the test is given below.
+/ 2 MULTIPLY ($udvm memory size, 2)
+OUTPUT (udvm memory size, 2)
+OUTPUT (test record marking, 5) END MESSAGE (0, 0, 0, 0, 0, 0, 0) :test record marking byte (255, 255, 255, 255, 255)
+The above assembly code has been compiled and used to generate the following byte stream: 0xffff
+f801 7108 0002 2200 0222
+a092 0523 0000 0000 0000
+00ff 00ff 0x03ff ffff ffff ffff f801
+a3d2 0523 0000 0000 0x0000
+ffff ffff ffff ffff ff
+Note that this byte stream can be divided into five distinct portions (two SigComp messages and three sets of delimiters) as illustrated below:
+7108 0002 2200 0222 a092 0523
+When the complete byte stream is supplied to the decompressor dispatcher, the record marking scheme must use the delimiters to partition the stream into two distinct SigComp messages.
+Both of these messages successfully output the decompression memory size (as a 2 byte value), followed by 5 consecutive 0xff bytes to test that the record marking scheme is working correctly.
+A total of 11 UDVM cycles are used in each case.
+It must also be checked that the dispatcher can handle the same error cases as covered in Section 3.2.
+Each of the following byte streams should cause a decompression failure to occur for the reason stated:
+Input Past the End of a Message
+This section gives assembly code to test that the implementation correctly handles input past the end of a SigComp message.
+The code is designed to test that the following boundary cases have been correctly implemented:
+An INPUT instruction requests data that lies beyond the end of the message.
+In this case, the dispatcher should not return any data to the UDVM.
+Moreover, the message bytes held by the dispatcher should still be available for retrieval by subsequent INPUT instructions.
+The INPUT BYTES instruction is used after part of a byte has been input (e.g., by the INPUT BITS instruction).
+In this case, the remaining partial byte must be discarded, even if the INPUT BYTES instruction requests data that lies beyond the end of the message.
+right at (128) LOAD (byte copy left,
+LOAD (byte copy right, right) :
+start ; Input bits to ensure that the remaining message is not byte aligned INPUT BITS (9, result, decompression failure1) ; Input 0x1FF (9 bits) ; Attempt to read 7 bytes INPUT BYTES (7, result, next bytes) ; This should fail, throw away ; 7 bits with value Ox7a and ; jump to next bytes :
+This instruction is never ; executed but is used to ; separate success and failure ; to input bytes.
+next bytes ; Read 7 bits this removes the byte alignment of the message ; If the bits have not been thrown away where they should be, then ; the message will be 1 byte longer than necessary and the output ; will be incorrect.
+If the compressed message is 0xfffa 0068 6921, then the code terminates successfully with the output 0x6869 21, and a total of 23 UDVM cycles are used.
+However, if the compressed message is 0xfffa 0068 69, then decompression failure occurs (at the final INPUT BITS).
+Torture Tests for State Handler
+The following sections give code to test the various functions of the SigComp state handler.
+This section gives assembly code to test the SigComp feedback mechanism.
+The code is designed to test that the following boundary cases have been correctly implemented:
+Both the short and the long versions of the SigComp feedback item are used.
+The chain of returned SigComp parameters is terminated by a non  zero value.
+:length of partial state id b
+INPUT BYTES (1, type lsb, decompression failure) COMPARE ($type, 1, short feedback item, long feedback item, decompression failure) :short feedback item set (requested feedback data, 127) set (short feedback value, ((flags   256)   requested feedback data))
+LOAD (requested feedback location, short feedback value)
+(return sigcomp parameters) :long feedback item set (requested feedback field, 255) set (long feedback value, (
+(flags   256)   requested feedback field))
+LOAD (requested feedback location, long feedback value)
+MEMSET (requested feedback bytes, 127, 1, 1) :return sigcomp parameters set (cpb, 0) set (dms, 1)
+(returned parameters location, sigcomp parameters)
+MEMSET (partial state identifier c, 20, 0, 1)
+END MESSAGE (requested feedback location, returned parameters location, 0, 0, 0, 0, 0) :decompression failure DECOMPRESSION
+When the above code is executed, it supplies a requested feedback item to the state handler.
+If the compressed message is 0x00, then the short (1 byte) version of the feedback is used.
+Executing the bytecode in this case costs a total of 52 UDVM cycles.
+Assuming that the feedback request is successful, the feedback item should be returned in the first SigComp message to be sent in the reverse direction.
+The SigComp message returning the feedback should begin as follows:
+So the first 2 bytes of the returning SigComp message should be 0xfn7f where n   c, d, e, or f (the choice of n is determined by the compressor generating the returning SigComp message, which is not under the control of the above code).
+If the compressed message is 0x01, then the long version of the feedback item is used.
+Executing the bytecode in this case costs a total of 179 UDVM cycles and the SigComp message returning the feedback should begin as follows:
+So the first 129 bytes of the SigComp message should be 0xfnff 0102 0304 ...
+7e7f where n   c, d, e, or f as above.
+As well as testing the requested and returned feedback items, the above code also announces values for each of the SigComp parameters.
+The supplied version of the code announces only the minimum possible values for the cycles per bit, decompression memory size, state memory size, and SigComp version
+(although this can easily be adjusted to test different values for these parameters).
+The code should also announce the availability of state items with the following partial state identifiers: 0x0001 0203 0405 0x0001
+1213 Note that different implementations may make use of the announcement information in different ways.
+It is a valid implementation choice to simply ignore all of the announcement data and use only the minimum resources that are guaranteed to be available to all endpoints.
+However, the above code is useful for checking that an endpoint interprets the announcement data correctly (in particular ensuring that it does not mistakenly use resources that have not in fact been announced).
+The following section gives assembly code to test the memory management features of the state handler.
+The code checks that the correct states are retained by the state handler when insufficient memory is available to store all of the requested states.
+The code is designed to test that the following boundary cases have been correctly implemented:
+A state item is created that exceeds the total state memory size for the compartment.
+States are created with a non zero state retention priority.
+A new state item is created that has a lower state retention priority than existing state items in the compartment.
+For the duration of this test, it is assumed that all states will be saved in a single compartment with a state memory size of 2048 bytes.
+(byte copy left, 2, state start, order data)
+INPUT BYTES (1, type lsb, decompression failure) COMPARE ($type, 5, general test, large state, verify state) :general test COMPARE ($type, 3, start, state present, state not present) :start MULTIPLY ($type, 6)
+ADD ($type, order data) LOAD (order, $type) ADD ($type, 6) ; Finish with the value
+(order data   6 n) in order where ; n is the input value 0x00, 0x01, or 0x02 ; type   order   6 ; These values are used to index into the 'order data' ; that is used to work out state retention priorities and lengths :loop COPY ($order, 2, state retention priority) COMPARE ($order, $type, continue, end, decompression failure) :continue ;
+Set up a state creation each time through the loop LOAD (state length, $state retention priority)
+STATE CREATE ($state length, state start, 0, 6, $state retention priority)
+state present ; Access the states that should be present STATE ACCESS (state identifier a, 6, 0, 0, 0, 0)
+STATE ACCESS (state identifier b, 6, 0, 0, 0, 0)
+STATE ACCESS (state identifier c, 6, 0, 0, 0, 0)
+STATE ACCESS (state identifier e, 6, 0, 0, 0, 0)
+JUMP (end) :state not present
+; Check that the state that shouldn't be present is not present.
+STATE ACCESS (state identifier d, 6, 0, 0, 0, 0)
+JUMP (end) :large state STATE CREATE (2048, state start, 0, 6, 0)
+JUMP (end) :verify state STATE ACCESS (large state identifier, 6, 0, 0, 0, 0)
+:end END MESSAGE (0, 0, 0, 0, 0, 0, 0) at (512) :state start byte (116, 101, 115, 116) :order data
+; This data is used to generate the retention priority ; and state length of each state creation.
+word (0, 1, 2, 3, 4, 3, 2, 1, 0) :state identifier a byte (142, 234, 75, 67, 167, 135) :state identifier b byte (249, 1, 14, 239, 86, 123) :state identifier c byte (35, 154, 52, 107, 21, 166) :state identifier d byte (180, 15, 192, 228, 77, 44) :state identifier e byte (212, 162, 33, 71, 230, 10) :large state identifier byte (239, 242, 188, 15, 182, 175)
+The above code must be executed a total of 7 times in order to complete the test.
+Each time the code is executed, a 1 byte compressed message should be provided as below.
+The effects of the messages are given below.
+States are described in the form (name, x, y) where name corresponds to the name of the identifier in the mnemonic code,
+x is the length of the state, and y is the retention priority of the state.
+This section gives assembly code to test the interaction between multiple SigComp compartments.
+The code is designed to test that the following boundary cases have been correctly implemented:
+The same state item is saved in more than one compartment.
+A state item stored in multiple compartments has the same state identifier but a different state retention priority in each case.
+A state item is deleted from one compartment but still belongs to a different compartment.
+A state item belonging to multiple compartments is deleted from every compartment to which it belongs.
+The test requires a total of three compartments to be available, which will be referred to as Compartment 0, Compartment 1, and Compartment 2.
+Each of the three compartments should have a state memory size of 2048 bytes.
+(byte copy left, 2, state start, state end)
+INPUT BYTES (1, type lsb, decompression failure) COMPARE ($type, 3, create state, overwrite state, temp) :
+temp COMPARE ($type, 5, overwrite state, access state, error conditions) :create state ;
+514 ADD ($type, state start)
+STATE CREATE (448, $type, 0, 6, 0) ; create state again, beginning in different place in buffer ; starting byte identified by $type according to input:
+STATE CREATE (448, $type, 0, 6, 0) :
+common state STATE CREATE (448, temp three, 0, 6, $type)
+JUMP (end) :overwrite state STATE CREATE (1984, 32, 0, 6, 0)
+JUMP (end) :access state STATE ACCESS (state identifier c, 6, 0, 0, 0, 0)
+STATE ACCESS (state identifier d, 6, 0, 0, 0, 0)
+STATE ACCESS (state identifier f, 6, 0, 0, 0, 0)
+STATE ACCESS (state identifier g, 6, 0, 0, 0, 0) :
+end END MESSAGE (0, 0, 0, 0, 0, 0, 0) :error conditions COMPARE ($type, 7,
+access a, access b, access e)
+:access a STATE ACCESS (state identifier a, 6, 0, 0, 0, 0)
+JUMP (end) :access b STATE ACCESS (state identifier b, 6, 0, 0, 0, 0)
+JUMP (end) :access e STATE ACCESS (state identifier e, 6, 0, 0, 0, 0)
+515 set (temp three, (state end 1))
+The above code must be executed a total of 9 times in order to complete the test.
+Each time the code is executed, a 1 byte compressed message N should be provided, taking the values 0x00 to 0x08 in ascending order (so the compressed message should be 0x00 the first time the code is run, 0x01 the second, and so on).
+If the code makes a state creation request, then the state must be saved in Compartment (N modulo 3).
+When the compressed message is 0x00, 0x01, or 0x02, the code makes four state creation requests in compartments 0, 1, and 2, respectively.
+This creates a total of seven distinct state items referred to as State a through State g.
+The states should be distributed among the three compartments as illustrated in Figure 1 (note that some states belong to more than one compartment).
+When the compressed message is 0x03 or 0x04, the code overwrites all of the states in Compartments 0 and 1, respectively.
+This means that States a, b, and e will be unavailable because they are no longer present in any of the three compartments.
+When the compressed message is 0x05, the code checks that the States c, d, f, and g are still available.
+Decompression should terminate successfully in this case.
+When the compressed message is 0x06, 0x07, or 0x08, the code attempts to access States a, b, and e, respectively.
+Decompression failure should occur in this case because the relevant states are no longer available.
+The cost in UDVM cycles for each compressed message is given below (except for messages 0x06, 0x07, and 0x08 where decompression failure should to occur):
+0x07 0x08 Cost in UDVM cycles:
+States created in the three compartments 4.4.
+This section gives assembly code to test accessing SIP SDP static dictionary state [3].
+The code first accesses the state and then outputs the result.
+STATE ACCESS (sip dictionary, 20, 0xcfe, 1, input, 0)
+STATE ACCESS (sip dictionary, 6, 0xcff, 1, input2, 0)
+STATE ACCESS (sip dictionary, 12, 0xd00, 1, input3, 0)
+END MESSAGE (0, 0, 0, 0, 0, 0, 0) :sip dictionary byte (0xfb, 0xe5, 0x07, 0xdf, 0xe5, 0xe6)
+byte (0xaa, 0x5a, 0xf2, 0xab, 0xb9, 0x14)
+, 0x9c, 0xe6) byte (0x1b, 0xa5)
+The output of the code is 0x5349 50, and the cost is 11 UDVM cycles.
+This section gives assembly code to test storing bytecode using END MESSAGE and later loading the bytecode using a partial state identifier within the SigComp header.
+The assembly code is designed to test the following cases: 1.
+The bytes to be saved are changed after the state create request has been made.
+The uploaded bytecode is modified before execution.
+The bytecode is loaded using the partial state identifier and is modified before execution.
+The bytecode is loaded to an address lower than 128, using the partial state identifier.
+The bytecode is loaded using the partial state identifier.
+Part of the loaded memory is reserved area, which is overwritten after loading the bytecode.
+The loading of the bytecode fails because the partial state identifier is too short.
+at (30) :save area1 set (saved instr1, (save area1
+:save area2 set (saved instr2, (save area2
+code start COPY (start saved, saved len, save area1) ; copy 'ok2', OUTPUT (save area2,3) END MESSAGE ; to position 30 and create as state STATE CREATE (saved len, save area1, saved
+instr1, 6, 10) set (modify1,
+STATE CREATE (saved len, save area2, saved instr2, 20, 10)
+STATE CREATE (saved len, save area2, saved instr2, 12, 10) ; copy 'ok2', OUTPUT (save area2,3) END MESSAGE ; to position 80 and create as state twice with ;
+min access len 20 and 12 JUMP (modify) :
+ok1 byte (0x4f, 0x4b, 0x31) set (
+after output minus1, (after output 1)) :
+Now is OUTPUT (ok1, 2)
+so output is 0x4f4b :after output ; Save from ok1 to the opcode of END MESSAGE set (modify len, ((after output   1) ok1))
+start saved byte (0x4f, 0x4b, 0x32) :code start2 ; Translated bytecode for OUTPUT (save area2, 3) byte (0x22, 0xa0, 0x50, 0x03) ; Translated bytecode for END MESSAGE (0, 0, 0, 0, 0, 0, 0) ; The zeros do not need to be sent because UDVM is initialised to 0 byte (0x23) :
+First message: mnemonic code annotated above 0xf804 6112
+a0be 081e 2008 1e21 060a 0e23
+4b32 22a0 5003 2302 Second message: access and run last state saved by previous message 'ok1', INPUT BYTES, OUTPUT, END MESSAGE.
+9103 Third message: access and run state from save area2 with 12 bytes of state identifier 'ok2', INPUT BYTES, OUTPUT, END MESSAGE.
+a289 ff Fourth message: access and run state from save area1.
+The state is 'ok2', INPUT BYTES, OUTPUT, END MESSAGE but the first two bytes should be overwritten when initialising UDVM memory.
+d567 83 Fifth message: attempt to access state from save area2 with fewer than 20 bytes of state identifier.
+This document describes torture tests for the SigComp protocol RFC 3320 [2].
+Consequently, the security considerations for this document match those of SigComp.
+In addition, the torture tests include tests for a significant number of "boundary and error cases" for execution of the UDVM bytecode.
+Boundary and error problems are common vectors for security attacks, so ensuring that a UDVM implementation executes this set of torture tests correctly should contribute to the security of the implementation.
+Appendix A.  UDVM Bytecode for the Torture Tests
+The following sections list the raw UDVM bytecode generated for each test.
+The bytecode is presented in the form of a complete SigComp message, including the appropriate header.
+It is followed by input messages, the output they produce, and where the decompression succeeds the number of cycles used.
+In some cases, the test is designed to be run several times with different compressed messages appended to the code.
+In the cases where multiple whole messages are used for a test, e.g., Appendix A.2.3, these are supplied.
+In the case where decompression failure occurs, the high level reason for it is given as a reason code defined in NACK [4].
+Note that the different assemblers can output different bytecode for the same piece of assembly code, so a valid assembler can produce results different from those presented below.
+However, the following bytecode should always generate the same results on any UDVM.
+0720 0108 20a3 e909 20a0 650a 200b 2286 0406
+0000 0x0000 0a00 0a00 1100 0700 1600 0300 0300 0300 1300 0100 1000
+2c20 796f 7527 7265 2074 7572
+6e67 0x2069 6e74 6f20 6120 7065 6e67
+6974 2e Cycles: 371 A.1.4.
+6f6d 6e6f 706e 6f70 7161 0x3031
+None Output: 0xa999 3e36 4706 816a
+1f32 8e6f 4b55 73e3 666e 122f 0x4f46 0452
+LOAD and MULTILOAD 0xf803 610e
+a041 0112 2004 3022 3004 0x1230
+4040 4040 4040 4040 4040 4040 4040 4040 4040 0x4040
+4040 4040 4040 4040 4141 4141 4141
+4141 4141 4141 4141 4141 4141 4141 4141
+4141 4141 4141 4141 4141 4141 4141 4141
+4141 4141 4141 4141 4141 4141 4141 4141
+4141 4141 4141 4141 4141 4141 4141 4141
+2087 2222 8608 0x0ea0 44a0 9c13 2002 2222 a09c 020e
+None Output: 0x4141 4141 0061 4141 4141
+MEMSET 0xf801 810e 8687 0ea0
+None Cycles: 95 Input: 0xabcd
+ee23 Input: 0x932e ac71 Output:
+e623 Input: 0x932e ac71 66d8
+1d22 a046 0206 2202 0a22 0x071c
+9a97 34d8 0x0007 0001 3387 4e00 08dc 9651
+Stack Manipulation 0xf814 110e a046 8610 0210
+8611 6311 a046 2286 0x0816
+0002 0001 0042 0042 0000
+None Output: 0x0001 0102 0203 0304 0405 0506 0707
+0aa1 0a00 1400 0422 0x0117
+8f16 0606 1c01 a047 0x9fd2
+12a0 e363 a048 0422 0117
+None Cycles: 23 Input: 0x02
+None Cycles: 24 Input: 0x0405
+None Cycles: 23 Input: 0x09 Output:
+None Cycles: 34 Input: 0x1e06
+STATE ACCESS Set up bytecode:
+a136 0x1f89 1306 04a0 4600
+Cycles: 15 Input: 0x02 DECOMPRESSION FAILURE
+STATE NOT FOUND (len < min acc len)
+4221 1c01 a047 f817 4263 f306 f317 4300
+44a3 c0e1 07e1 1c01 a047 9fda 0623
+a049 9fca 0ea0 4443 0622
+1 byte of SigComp version Output:
+None Cycles: 968 0xf93a db1d
+Input: 1 byte of SigComp version then 0x0000
+None Cycles: cycles per bit   1080 Input: 1 byte of SigComp version then 0x0001
+Input: 1 byte of SigComp version then 0x0100
+a10f 8604 2029 0022 12a0
+None Output: decompression memory size Cycles: 5 0xf800 f106 0011 2200 0223 0000 0000 0000
+None Output: decompression memory size Cycles: 5 A.2.4.
+f801 7108 0002 2200 0222
+a092 0523 0000 0000 0000
+00ff 00ff 0x03ff ffff ffff ffff f801
+a3d2 0523 0000 0000 0x0000
+ffff ffff ffff ffff ff
+ff Input: None DECOMPRESSION FAILURE
+Input Past the End of a Message 0xf803 210e 86a0 460e
+21 Cycles: 23 Input: 0xfffa 0068
+USER REQUESTED  (not enough bits)
+None Cycles: 52 Input: 0x01
+State Memory Management 0xf81b a10f
+3406 0x0000 0000 1602 2300 0000 0000
+6573 0x7400 0000 0100 0200 0300 0400 0300 0200
+None Cycles: 2603 Input: 0x02
+Multiple Compartments 0xf81b 110f 8602
+2289 20a1 c062 0006 0006 2203
+2b20 a7c0 0x2000 0600 1622
+None Cycles: 1994 Input: 0x05 Output:
+e507 dfe5 e6aa 5af2 abb9 0x14ce
+a0be 081e 2008 1e21 060a 0e23
+None Output: 0x4f4b 31 Cycles:
+None Output: 0x4f4b 32 Cycles: 5 0xf95b
+32 Cycles: 5 0xf9de 8126

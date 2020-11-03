@@ -1,0 +1,172 @@
+Abstract This memo catalogs several known Transmission Control Protocol (TCP) implementation problems dealing with Path Maximum Transmission Unit Discovery (PMTUD), including the long standing black hole problem, stretch acknowlegements (ACKs) due to confusion between Maximum Segment Size (MSS) and segment size, and MSS advertisement based on PMTU.
+This memo catalogs several known TCP implementation problems dealing with Path MTU Discovery [RFC1191], including the long standing black hole problem, stretch ACKs due to confusion between MSS and segment size, and MSS advertisement based on PMTU.
+The goal in doing so is to improve conditions in the existing Internet by enhancing the quality of current TCP/IP implementations.
+While Path MTU Discovery (PMTUD) can be used with any upper layer protocol, it is most commonly used by TCP;  this document does not attempt to treat problems encountered by other upper layer protocols.
+Path MTU Discovery for IPv6 [RFC1981] treats only IPv6 dependent issues, but not the TCP issues brought up in this document.
+Each problem is defined as follows: Name of Problem
+The name associated with the problem.
+In this memo, the name is given as a subsection heading.
+Classification One or more problem categories for which the problem is classified:  "congestion control", "performance", "reliability", "non interoperation   connectivity failure".
+Description A definition of the problem, succinct but including necessary background material.
+A brief summary of the sorts of environments for which the problem is significant.
+Implications Why the problem is viewed as a problem.
+The RFCs defining the TCP specification with which the problem conflicts.
+These RFCs often qualify behavior using terms such as MUST, SHOULD, MAY, and others written capitalized.
+See RFC 2119 for the exact interpretation of these terms.
+Trace file demonstrating the problem
+One or more ASCII trace files demonstrating the problem, if applicable.
+Trace file demonstrating correct behavior
+One or more examples of how correct behavior appears in a trace, if applicable.
+References References that further discuss the problem.
+How to detect How to test an implementation to see if it exhibits the problem.
+This discussion may include difficulties and subtleties associated with causing the problem to manifest itself, and with interpreting traces to detect the presence of the problem (if applicable).
+How to fix For known causes of the problem, how to correct the implementation.
+Name of Problem Black Hole Detection Classification Non interoperation
+Description A host performs Path MTU Discovery by sending out as large a packet as possible, with the Don't Fragment (DF) bit set in the IP header.
+If the packet is too large for a router to forward on to a particular link, the router must send an ICMP Destination Unreachable   Fragmentation Needed message to the source address.
+The host then adjusts the packet size based on the ICMP message.
+As was pointed out in [RFC1435], routers don't always do this correctly   many routers fail to send the ICMP messages, for a variety of reasons ranging from kernel bugs to configuration problems.
+Firewalls are often misconfigured to suppress all ICMP messages.
+IPsec [RFC2401] and IP in IP [RFC2003] tunnels shouldn't cause these sorts of problems, if the implementations follow the advice in the appropriate documents.
+PMTUD, as documented in [RFC1191], fails when the appropriate ICMP messages are not received by the originating host.
+The upper  layer protocol continues to try to send large packets and, without the ICMP messages, never discovers that it needs to reduce the size of those packets.
+Its packets are disappearing into a PMTUD black hole.
+When PMTUD fails due to the lack of ICMP messages, TCP will also completely fail under some conditions.
+This failure is especially difficult to debug, as pings and some interactive TCP connections to the destination host work.
+Bulk transfers fail with the first large packet and the connection eventually times out.
+These situations can almost always be blamed on a misconfiguration within the network, which should be corrected.
+However it seems inappropriate for some TCP implementations to suffer interoperability failures over paths which do not affect other TCP implementations (i.e. those without PMTUD).
+This creates a market disincentive for deploying TCP implementation with PMTUD enabled.
+Relevant RFCs RFC 1191 describes Path MTU Discovery.
+RFC 1435 provides an early description of these sorts of problems.
+Trace file demonstrating the problem Made using tcpdump [Jacobson89] recording at an intermediate host.
+S 1748427200:1748427200(0) win 49152 <mss 1460>
+ack 1748427201 win 16384 <mss 65240
+ack 1 win 49152 (DF)
+ack 1 win 49152 (DF)
+ack 1 win 49152 (DF)
+ack 1 win 49152 (DF)
+ack 1 win 49152 (DF)
+R 1461:1461(0) ack 1 win 49152
+The short SYN packet has no trouble traversing the network, due to its small size.
+Similarly, ICMP echo packets used to diagnose connectivity problems will succeed.
+Large data packets fail to traverse the network.
+Eventually the connection times out.
+This can be especially confusing when the application starts out with a very small write, which succeeds, following up with many large writes, which then fail.
+Trace file demonstrating correct behavior Made using tcpdump recording at an intermediate host.
+S 271394446:271394446(0) win 8192 <mss 1460
+ack 271394447 win 16384 <mss 65240
+ack 1 win 8760 (DF)
+ack 1 win 8760 (DF)
+ack 1 win 8760 (DF)
+ack 537 win 16384 16:49:04.021245
+ack 1609 win 16384 16:49:04.126142
+In this case, the sender sees four packets fail to traverse the network (using a two packet initial send window) and turns off PMTUD.
+All subsequent packets have the DF flag turned off, and the size set to the default value of 536 [RFC1122].
+This problem has been discussed extensively on the tcp impl mailing list;  the name "black hole" has been in use for many years.
+How to detect This shows up as a TCP connection which hangs (fails to make progress) until closed by timeout (this often manifests itself as a connection that connects and starts to transfer, then eventually terminates after 15 minutes with zero bytes transfered).
+This is particularly annoying with an application like ftp, which will work perfectly while it uses small packets for control information, and then fail on bulk transfers.
+A series of ICMP echo packets will show that the two end hosts are still capable of passing packets,  a series of MTU sized ICMP echo packets will show some fragmentation, and a series of MTU sized ICMP echo packets with DF set will fail.
+This can be confusing for network engineers trying to diagnose the problem.
+There are several traceroute implementations that do PMTUD, and can demonstrate the problem.
+How to fix TCP should notice that the connection is timing out.
+After several timeouts, TCP should attempt to send smaller packets, perhaps turning off the DF flag for each packet.
+If this succeeds, it should continue to turn off PMTUD for the connection for some reasonable period of time, after which it should probe again to try to determine if the path has changed.
+Note that, under IPv6, there is no DF bit
+it is implicitly on at all times.
+Fragmentation is not allowed in routers, only at the originating host.
+Fortunately, the minimum supported MTU for IPv6 is 1280 octets, which is significantly larger than the 68 octet minimum in IPv4.
+This should make it more reasonable for IPv6 TCP implementations to fall back to 1280 octet packets, when IPv4 implementations will probably have to turn off DF to respond to black hole detection.
+Ideally, the ICMP black holes should be fixed when they are found.
+If hosts start to implement black hole detection, it may be that these problems will go unnoticed and unfixed.
+This is especially unfortunate, since detection can take several seconds each time, and these delays could result in a significant, hidden degradation of performance.
+Hosts that implement black hole detection should probably log detected black holes, so that they can be fixed.
+Name of Problem Stretch ACK due to PMTUD Classification Congestion Control / Performance Description When a naively implemented TCP stack communicates with a PMTUD equipped stack, it will try to generate an ACK for every second full sized segment.
+If it determines the full sized segment based on the advertised MSS, this can degrade badly in the face of PMTUD.
+The PMTU can wind up being a small fraction of the advertised MSS; in this case, an ACK would be generated only very infrequently.
+Significance Stretch ACKs have a variety of unfortunate effects, more fully outlined in [RFC2525].
+Most of these have to do with encouraging a more bursty connection, due to the infrequent arrival of ACKs.
+They can also impede congestion window growth.
+The complete implications of stretch ACKs are outlined in [RFC2525].
+Relevant RFCs RFC 1122 outlines the requirements for frequency of ACK generation.
+[RFC2581] expands on this and clarifies that delayed ACK is a SHOULD, not a MUST.
+Trace file demonstrating it Made using tcpdump recording at an intermediate host.
+The timestamp options from all but the first two packets have been removed for clarity.
+S 3183102292:3183102292(0) win 16384 <mss 4312,nop,
+ack 3183102293 win 49152 <mss 4312,nop,wscale 1,nop
+B unreachable need to frag (mtu 1500)!
+) Note that the interval between ACKs is significantly larger than two times the segment size;  it works out to be almost exactly two times the advertised MSS.
+This transfer was long enough that it could be verified that the stretch ACK was not the result of lost ACK packets.
+Trace file demonstrating correct behavior Made using tcpdump recording at an intermediate host.
+The timestamp options from all but the first two packets have been removed for clarity.
+S 2972697496:2972697496(0) win 16384 <mss 4312,nop,
+S 245639054:245639054(0) ack 2972697497 win 34496 <mss 4312
+B unreachable need to frag (mtu 1500)!
+ack 1 win 17248 (DF) .
+ack 1 win 17248 (DF)
+ack 1 win 17248 (DF)
+ack 1487741 win 64680 (DF)
+ack 1493581 win 64680 (DF)
+ack 1496501 win 64680 (DF)
+ack 1 win 17248 (DF)
+ack 1 win 17248 (DF) 18:13:35.616565
+In this trace, an ACK is generated for every two segments that arrive.
+(The segment size is slightly larger in this trace, even though the source hosts are the same, because of the lack of timestamp options in this trace.)
+How to detect This condition can be observed in a packet trace when the advertised MSS is significantly larger than the actual PMTU of a connection.
+How to fix Several solutions for this problem have been proposed: A simple solution is to ACK every other packet, regardless of size.
+This has the drawback of generating large numbers of ACKs in the face of lots of very small packets;  this shows up with applications like the X Window System.
+A slightly more complex solution would monitor the size of incoming segments and try to determine what segment size the sender is using.
+This requires slightly more state in the receiver, but has the advantage of making receiver silly window syndrome avoidance computations more accurate [RFC813].
+Name of Problem Determining MSS from PMTU Classification Performance Description
+The MSS advertised at the start of a connection should be based on the MTU of the interfaces on the system.
+(For efficiency and other reasons this may not be the largest MSS possible.)
+Some systems use PMTUD determined values to determine the MSS to advertise.
+This results in an advertised MSS that is smaller than the largest MTU the system can receive.
+The advertised MSS is an indication to the remote system about the largest TCP segment that can be received [RFC879].
+If this value is too small, the remote system will be forced to use a smaller segment size when sending, purely because the local system found a particular PMTU earlier.
+Given the asymmetric nature of many routes on the Internet [Paxson97], it seems entirely possible that the return PMTU is different from the sending PMTU.
+Limiting the segment size in this way can reduce performance and frustrate the PMTUD algorithm.
+Even if the route was symmetric, setting this artificially lowered limit on segment size will make it impossible to probe later to determine if the PMTU has changed.
+The whole point of PMTUD is to send as large a segment as possible.
+If long running connections cannot successfully probe for larger PMTU, then potential performance gains will be impossible to realize.
+This destroys the whole point of PMTUD.
+[RFC879] provides a complete discussion of MSS calculations and appropriate values.
+Note that this practice does not violate any of the specifications in these RFCs.
+This trace was made using tcpdump running on an intermediate host.
+Host A initiates two separate consecutive connections, A1 and A2, to host B.  Router C is the location of the MTU bottleneck.
+As usual, TCP options are removed from all non SYN packets.
+S 1523306220:1523306220(0) win 8760 <mss 1460
+S 729966260:729966260(0) ack 1523306221 win 16384 <mss 65240> 22:33:32.310307 A1
+129.99.238.5 unreachable need to frag (mtu 1024)
+ack 985 win 16384 22:33:32.845651 A1
+ack 1 win 8856 (DF)
+ack 985 win 16384 22:33:33.724392 A1
+ack 1 win 8856 (DF)
+ack 2445 win 14924 22:33:33.728591 A1
+ack 1 win 8856 (DF)
+ack 8194 win 15492 22:33:34.239303 B
+F 1:1(0) ack 8194 win 16384 22:33:34.242971 A1
+ack 1523591300 win 16384 <mss 65240
+ack 1 win 8856 (DF)
+ack 1 win 8856 (DF)
+Trace file demonstrating correct behavior
+As before, this trace was made using tcpdump running on an intermediate host.
+Host A initiates two separate consecutive connections, A1 and A2, to host B.  Router C is the location of the MTU bottleneck.
+As usual, TCP options are removed from all non SYN packets.
+S 3402991286:3402991286(0) win 32768 <mss 4312,wscale 0,nop,timestamp 1123370309 0, echo 1123370309
+ack 3402991287 win 16384 <mss 65240,nop,
+129.99.238.5 unreachable need to frag (mtu 1024)
+ack 985 win 16384 22:36:59.039255 A1
+ack 1026 win 16344 22:36:59.039828 B
+F 1:1(0) ack 1026 win 16384 22:36:59.043037 A1
+S 3404812097:3404812097(0) win 32768 <mss 4312,wscale 0,nop,timestamp 1123372916 0, echo 1123372916
+S 949814769:949814769(0) ack 3404812098 win 16384 <mss 65240,nop,
+ack 1026 win 16384 22:37:01.449007 B
+F 1:1(0) ack 1026 win
+) Note that the same MSS was used for both session A1 and session A2.
+How to detect This can be detected using a packet trace of two separate connections;  the first should invoke PMTUD; the second should start soon enough after the first that the PMTU value does not time out.
+How to fix The MSS should be determined based on the MTUs of the interfaces on the system, as outlined in [RFC1122] and [RFC1191].
+The one security concern raised by this memo is that ICMP black holes are often caused by over zealous security administrators who block all ICMP messages.
+It is vitally important that those who design and deploy security systems understand the impact of strict filtering on upper layer protocols.
+The safest web site in the world is worthless if most TCP implementations cannot transfer data from it.
+It would be far nicer to have all of the black holes fixed rather than fixing all of the TCP implementations.

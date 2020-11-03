@@ -1,0 +1,133 @@
+Abstract This document discusses SMTP operational experiences in IPv4/v6 dual stack environments.
+As IPv6 capable SMTP servers are deployed, it has become apparent that certain configurations of MX records are necessary for stable dual stack (IPv4 and IPv6)
+This document clarifies the existing problems in the transition period between IPv4 SMTP and IPv6 SMTP.
+It also defines operational requirements for stable IPv4/v6 SMTP operation.
+This document does not define any new protocol.
+Introduction Delivery of mail messages to the final mail drop is not always done by direct IP communication between the submitter and final receiver, and there may be some intermediate hosts that relay the messages.
+So it is difficult to know at message submission (also at receiver side) that all intermediate relay hosts are properly configured.
+It is not easy to configure all systems consistently since the DNS configuration used by mail message delivery systems is more complex than other Internet services.
+During the transition period from IPv4 to IPv6, more care should be applied to IPv4/v6 interoperability.
+This document talks about SMTP operational experiences in IPv4/v6 dual stack environments.
+As IPv6 capable SMTP servers are deployed, it has become apparent that certain configurations of MX records are necessary for stable dual stack (IPv4 and IPv6)
+This document does not discuss the problems encountered when the sending MTA and the receiving MTA have no common protocol (e.g., the sending MTA is IPv4 only while the receiving MTA is IPv6 only).
+Such a situation can be resolved by making either side dual stack or by making either side use a protocol translator (see Appendix A on issues with protocol translator).
+Basic DNS Resource Record Definitions for Mail Routing Mail messages on the Internet are typically delivered based on the Domain Name System [Mockapetris].
+MX RRs are looked up in DNS to retrieve the names of hosts running MTAs associated with the domain part of the mail address.
+DNS lookup uses IN class for both IPv4 and IPv6, and similarly IN MX records will be used for mail routing for both IPv4 and IPv6.
+Hosts which have IPv6 connectivity and also want to have the mails delivered using IPv6 must define IPv6 addresses for the host name as well as IPv4 addresses [Thomson].
+An MX RR has two parameters, a preference value and the name of destination host.
+The name of the destination host will be used to look up an IP address to initiate an SMTP connection [Partridge].
+For example, an IPv6 only site may have the following DNS definitions: example.org.
+IN MX   10 mx10.example.org. mx1.example.org.
+In the transition period from IPv4 to IPv6, there are many IPv4 only sites, and such sites will not have mail interoperability with IPv6  only sites.
+For the transition period, all mail domains should have MX records such that MX targets with IPv4 and IPv6 addresses exist, e.g., example.org.
+IN MX   10 mx10.example.org. mx1.example.org.
+IN AAAA 2001:db8:ffff::1 IN A    192.0.2.1 mx10.example.org.
+IN AAAA 2001:db8:ffff::2 IN A
+But, not every MX target may support dual stack operation.
+Some host entries may have only A RRs or AAAA RRs: example.org.
+IN MX   10 mx10.example.org. mx1.example.org.
+The following sections discuss how the sender side should operate with IPv4/v6 combined RRs (section 3), and how the receiver should define RRs to maintain interoperability between IPv4 and IPv6 networks (section 4).
+SMTP Sender Algorithm in a Dual Stack Environment
+In a dual stack environment, MX records for a domain resemble the following: example.org.
+IN MX   10 mx10.example.org. mx1.example.org.
+; dual stack IN AAAA 2001:db8:ffff::1 mx10.example.org.
+IN AAAA 2001:db8:ffff::2 ; IPv6 only For a single MX record
+, there are multiple possible final states, including: (a
+) one or more A records for the IPv4 destination, (b) one or more AAAA records for the IPv6 destination,
+(c) a mixture of A and AAAA records.
+Because multiple MX records may be defined using different preference values, multiple addresses must be traversed based on multiple MXs.
+Domains without MX records and failure recovery cases must be handled properly as well.
+The algorithm for a dual stack SMTP sender is basically the same as that for an IPv4 only sender, but it now includes AAAA lookups of MX records for SMTP over IPv6 delivery.
+IPv4/v6 dual stack destinations should be treated just like multihomed destinations, as described in RFC 2821 [Klensin], section 5.
+When there is no destination address record found (i.e., the sender MTA is IPv4 only and there are no A records available), the case should be treated just like MX records without address records, and deliveries should fail.
+; if the sender MTA is IPv4 only, email delivery to a.example.org ; should fail with the same error as deliveries to b.example.org.
+IN AAAA 2001:db8:ffff::1 ; IPv6 only b.example.org.
+An algorithm for a dual stack SMTP sender is as follows:
+(1)  Lookup the MX record for the destination domain.
+If a CNAME record is returned, go to the top of step (1) with replacing the destination domain by the query's result.
+If any MX records are returned, go to step (2) with the query's result (explicit MX).
+If NODATA (i.e., empty answer with NOERROR(0) RCODE) is returned, there is no MX record but the name is valid.
+Assume that there is a record like "name.
+IN MX 0 name." (implicit MX)
+and go to step (3).
+If HOST NOT FOUND (i.e., empty answer with NXDOMAIN(3) RCODE) is returned, there is no such domain.
+Raise a permanent email delivery failure.
+If SERVFAIL is returned, retry after a certain period of time.
+(2)  Compare each host name in MX records with the names of the sending host.
+If there is match, drop MX records which have an equal or larger value than the lowest preference matching MX record (including itself).
+If multiple MX records remain, sort the MX records in ascending order based on their preference values.
+Loop over steps (3) to (9) on each host name in MX records in a sequence.
+If no MX records remain, the sending host must be the primary MX host.
+Other routing rules should be applied.
+If the sending MTA has IPv4 capability, lookup the A records.
+Keep the resulting addresses until step (5).
+If the sending MTA has IPv6 capability, lookup the AAAA records.
+IPv6 addresses for hosts defined by MX records may be informed in an additional information section of the DNS queries' result as well as IPv4 addresses.
+If there is no additional address information for the MX hosts, separate queries for A or AAAA records should be sent.
+There is no way to query A and AAAA records at once in current DNS implementation.
+If there is no A and no AAAA record present, try the next MX record (go to step (3)).
+Note that the next MX record could have the same preference.
+If one or more address records are found, an implementation may sort addresses based on the implementation's preference of A or AAAA records.
+To encourage the transition from IPv4 SMTP to IPv6 SMTP, AAAA records should take precedence.
+The sorting may only reorder addresses from MX records of the same preference.
+RFC 2821 section 5 paragraph 4 suggests randomization of destination addresses.
+Randomization should only happen among A records, and among AAAA records (do not mix A and AAAA records).
+For each of the addresses, loop over steps (7) to (9).
+(7)  Try to make a TCP connection to the destination's SMTP port (25).
+The client needs to follow timeouts documented in RFC 2821 section 4.5.3.2.
+If successful, go to step (9).
+If unsuccessful and there is another available address, try the next available address.
+If all addresses are not reachable and if a list of MX records is being traversed, try the next MX record (go to step (3)).
+If there is no list of MX records, or if the end of the list of MX records has been reached, raise a temporary email delivery failure.
+(9)  Attempt to deliver the email over the connection established, as specified in RFC 2821.
+If a transient failure condition is reported, try the next MX record (go to step (3)).
+If an error condition is reported, raise a permanent email delivery error, and do not try further MX records.
+If successful, SMTP delivery has succeeded.
+MX Configuration in the Recipient Domain 4.1.
+Ensuring Reachability for Both Protocol Versions
+If a site has dual stack reachability, the site should configure both A and AAAA records for its MX hosts (NOTE:
+MX hosts can be outside of the site).
+This will help both IPv4 and IPv6 senders in reaching the site efficiently.
+Reachability Between the Primary and Secondary MX
+When registering MX records in a DNS database in a dual stack environment, reachability between MX hosts must be considered carefully.
+Suppose all inbound email is to be gathered at the primary MX host, "mx1.example.org.": example.org.
+If "mx1.example.org" is an IPv6 only node, and the others are IPv4
+only nodes, there is no reachability between the primary MX host and the other MX hosts.
+When email reaches one of the lower MX hosts, it cannot be relayed to the primary MX host based on MX preferencing mechanism.
+Therefore, mx1.example.org will not be able to collect all the emails (unless there is another transport mechanism(s) between lower preference MX hosts and mx1.example.org).
+; This configuration is troublesome.
+; No secondary MX can reach mx1.example.org.
+; IPv6 only IN MX   10  mx10.example.org.
+; IPv4 only IN MX   100 mx100.example.org.
+; IPv4 only The easiest possible configuration is to configure the primary MX host as a dual stack node.
+By doing so, secondary MX hosts will have no problem reaching the primary MX host.
+; This configuration works well.
+; The secondary MX hosts are able to relay email to the primary MX ; host without any problems.
+; IPv4 only IN MX   100 mx100.example.org.
+; IPv6 only It may not be necessary for the primary MX host and lower MX hosts to directly reach one another with IPv4 or IPv6 transport.
+For example, it is possible to establish a routing path with UUCP or an IPv4/v6 translator.
+It is also possible to drop messages into a single mailbox with shared storage using NFS or something else offered by a dual stack server.
+It is the receiver site's responsibility that all messages delivered to MX hosts arrive at the recipient's mail drop.
+In such cases, a dual stack MX host may not be listed in the MX list.
+Many of the existing IPv6 ready MTA's appear to work in the way documented in section 3.
+where IPv6 ready MTA's were confused by broken DNS servers.
+When attempting to obtain a canonical hostname, some broken name servers return SERVFAIL (RCODE 2), a temporary failure on AAAA record lookups.
+Upon this temporary failure, the email is queued for a later attempt.
+In the interest of IPv4/v6 interoperability, these broken DNS servers should be fixed.
+A document by Yasuhiro Morishita [Morishita] has more detail on misconfigured/misbehaving DNS servers and their negative side effects.
+How should scoped addresses (i.e., link local addresses) in email addresses be interpreted on MTA's?
+We suggest prohibiting the use of IPv6 address literals in destination specification.
+A future specification of SMTP (revision of RFC 2821) should be updated to include IPv6 concerns presented in this memo, such as (1)
+the additional query of AAAA RRs where A RRs and/or MX RRs are suggested, and (2) the ordering between IPv6 destination and IPv4 destination.
+It could be problematic if the route addr email address format [Crocker] (or "obs route" address format in [Resnick]) is used across multiple scope zones.
+MTAs would need to reject email with route  addr email address formats that cross scope zone borders.
+Considerations on Translators IPv6 only MTA to IPv4
+only MTA cases could use help from IPv6 to IPv4 translators such as [Hagino].
+Normally there are no special SMTP considerations for translators needed.
+If there is SMTP traffic from an IPv6 MTA to an IPv4 MTA over an IPv6 to IPv4 translator, the IPv4 MTA will consider this normal IPv4 SMTP traffic.
+[St.Johns] may require special consideration when translators are used.
+Also, there are MTAs which perform strict checks on the SMTP HELO/EHLO "domain" parameter (perform reverse/forward DNS lookups and see if the "domain" really associates to the SMTP client's IP address).
+In such a case, we need a special consideration when translators will be used (for instance, override "domain" parameter by translator's FQDN/address).
+If the SMTP peer is IPv4 only, it won't understand the "[IPv6:blah]" syntax and mails won't go out of the (broken) MTA.
+These implementations have to be corrected.

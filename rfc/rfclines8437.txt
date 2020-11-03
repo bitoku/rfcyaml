@@ -1,0 +1,91 @@
+Abstract This specification extends the Internet Message Access Protocol (IMAP) to allow an administrative client to reuse the same IMAP connection on behalf of multiple IMAP user identities.
+server deployments often have peer systems with administrative privilege that perform actions on behalf of IMAP end users.
+For example, a voicemail gateway can use IMAP to store a user's voicemail and mark that voicemail as \Seen when the user listens to it via the phone interface.
+These systems can issue the IMAP AUTHENTICATE command with administrative credentials to act on behalf of other users.
+However, with the IMAP base specification, these specialized IMAP clients must close the connection and create a new connection for each user.
+For efficiency reasons, it is desirable for these clients to reuse the same connection, particularly if SSL has been negotiated.
+This specification proposes the UNAUTHENTICATE command to achieve this goal.
+The IMAP state machine described in Section 3 of RFC 3501 does not have a transition from authenticated or selected state to not authenticated state.
+The UNAUTHENTICATE command adds this transition.
+Conventions Used in This Document
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "
+SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in BCP 14
+when, and only when, they appear in all capitals, as shown here.
+UNAUTHENTICATE Command Arguments:  None Responses:
+No specific response for this command
+This command directs the server to reset all connection state except for the state of the TLS [RFC8446] layer.
+Upon completion, the server connection is placed in not authenticated state.
+This represents Transition 7 in the State Machine Diagram (Section 5).
+If a mailbox was selected, the mailbox ceases to be selected, but no expunge event is generated.
+If a Simple Authentication and Security Layer (SASL)
+[RFC4422] was active, the server terminates its outgoing security layer immediately after sending the CRLF following the OK response.
+The client's outgoing security layer terminates immediately after the CRLF following the UNAUTHENTICATE command.
+Note that a BAD response only occurs if UNAUTHENTICATE is issued in an invalid state, is not advertised by the server, or does not follow the command syntax in the specification.
+A NO response is not permitted.
+As a result, specification compliant implementations will interoperate across security layer termination.
+After sending this command, the client is free to issue a new AUTHENTICATE or LOGIN command as permitted based on the server's capabilities.
+If no SASL security layer was active, the client is permitted to pipeline the UNAUTHENTICATE command with a subsequent AUTHENTICATE command.
+If the IMAP server also advertises SASL IR [RFC4959], this permits an administrative client to re authenticate in one round trip.
+Because of this pipelining optimization, a server advertising UNAUTHENTICATE is not permitted to respond to the UNAUTHENTICATE command with a NO response if it is unable to reset the state associated with the connection.
+Servers MAY close the connection with an untagged BYE response if this preferably rare situation occurs.
+Servers MAY choose to advertise the UNAUTHENTICATE capability only after authentication has completed.
+As a result, clients may need to issue an IMAP CAPABILITY command after authentication in order to determine the availability of UNAUTHENTICATE.
+The IMAP ID [RFC2971] command provides properties about the client primarily for use in server log or audit files.
+Because IMAP ID is not related to application authentication or user identity in any way, and caching it for the duration of the client connection can be useful, the interaction between IMAP ID and the UNAUTHENTICATE command is defined by the implementation.
+This section describes interactions between this extension and other IMAP extensions or usage models.
+The connection state for the following list of IMAP extensions MUST be reset if both a) the specified extension is advertised and b) the UNAUTHENTICATE command is advertised and used.
+This list may not be complete; the requirement to reset the connection state applies to all current and future extensions except STARTTLS and ID.
+Additional requirements apply to specific stateful extensions as follows:  Cached identity information, such as group memberships, that are used to evaluate access control lists [RFC4314] MUST be reset.
+After an UNAUTHENTICATE command is issued, CONDSTORE servers [RFC7162] MUST behave as if no CONDSTORE enabling command was issued.
+If IMAP COMPRESS [RFC4978] is active, the server terminates its outgoing compression layer after it sends the CRLF following the OK response.
+The client terminates its outgoing compression layer after the CRLF following the UNAUTHENTICATE command.
+When it matters, the compression layer terminates before a SASL layer terminates.
+Any extensions enabled by the IMAP ENABLE [RFC5161]
+command cease to be enabled when the UNAUTHENTICATE command is issued.
+This includes, but is not limited to, CONDSTORE [RFC7162], QRESYNC [RFC7162], METADATA [RFC5464], METADATA SERVER [RFC5464], and UTF8 ACCEPT [RFC6855].
+A server advertising LANGUAGE [RFC5255] will revert to the "i default" language.
+When a server advertises CONTEXT SEARCH or CONTEXT SORT [RFC5267], the UNAUTHENTICATE command includes an implicit CANCELUPDATE for all server contexts.
+When a server advertises NOTIFY
+[RFC5465], the UNAUTHENTICATE command cancels the server state related to the NOTIFY command and reverts to default IMAP base specification behavior for notifications.
+Client Certificates, SASL EXTERNAL, and imaps
+When a TLS [RFC8446] security layer is negotiated using either the STARTTLS command or the imaps port [RFC8314], IMAP servers may be configured to request a client certificate, and IMAP clients may provide one.
+Client credentials at the TLS layer do not normally impact the application layer; however, they do have an impact when the SASL EXTERNAL mechanism [RFC4422] in an IMAP AUTHENTICATE command is used to direct the server to use the provided client certificate to authenticate as the specified IMAP user.
+The UNAUTHENTICATE command breaks any application level binding of the TLS client credentials but does not discard the client credentials.
+As a result, an administrative client may use a client certificate with administrative privilege to act on behalf of multiple IMAP users in the same connection via the EXTERNAL mechanism and the UNAUTHENTICATE command.
+Some server implementations using the imaps port will request and use a TLS client certificate to authenticate immediately as the default IMAP identity associated with that certificate.
+These implementations indicate this behavior by using the PREAUTH greeting, as indicated by Transition 2 in the State Machine Diagram (Section 5).
+As a result, TLS client certificates cannot be used for administrative proxy authentication with the imaps port unless the UNAUTHENTICATE command is also advertised.
+In that case, an administrative client can respond to the PREAUTH greeting with an UNAUTHENTICATE command and then issue an AUTHENTICATE EXTERNAL command.
+both sides close the connection
+Revised IMAP state machine transitions: 1.
+Connection without pre authentication (OK greeting)
+Pre authenticated connection (PREAUTH greeting)
+Rejected connection (BYE greeting) 4.
+Successful LOGIN or AUTHENTICATE command 5.
+Successful SELECT or EXAMINE command 6.
+CLOSE, UNSELECT [RFC3691], or failed SELECT or EXAMINE command 7.
+LOGOUT command, server shutdown, or connection closed 6.
+The following syntax specification uses the Augmented Backus Naur Form (ABNF), as described in [RFC5234].
+Amended terms are defined in [RFC3501].
+IANA Considerations IANA has added the UNAUTHENTICATE capability to the "IMAP Capabilities" registry.
+The original IMAP state machine was designed to allow a server  implementation approach in which each IMAP authentication identity matches an operating system identity and the server revokes all administrative privilege once authentication completes.
+This extension is not compatible with that implementation approach.
+However, that approach has significant performance costs on Unix systems, and this extension is designed for environments where efficiency is a relatively high priority deployment goal.
+This extension is therefore appropriate for some deployments but may not be appropriate for the most security sensitive environments.
+IMAP server implementations are complicated and can retain a lot of state related to an authenticated user.
+Server implementers need to take care to reset all server state such that authentication as a subsequent user does not inherit any data or privileges from the previous user.
+State data associated with a user can include cached identity information such as group membership used to evaluate access control lists [RFC4314], active notifications [RFC5465], access to per user data such as flags, etc.
+IMAP server systems are often deployed in a two tier model where a server side IMAP proxy routes to an IMAP backend that handles all connections for a subset of possible users.
+Some IMAP proxies enter a pass through mode after authentication.
+If enabled, the UNAUTHENTICATE command would allow a client, on a subsequent authentication, to bypass any security restrictions present in the proxy layer but not in the backend server layer.
+As a result, IMAP server implementations of this extension MUST provide a way to disable it when it is not needed.
+Use of an IMAP proxy that processes the UNAUTHENTICATE command at the proxy layer eliminates this concern.
+Another option to mitigate this concern is for servers to only enable the UNAUTHENTICATE extension if the supplied authentication credentials are associated with an administrative identity.
+For the most part, this extension will have no impact on the privacy considerations already present in an IMAP implementation.
+However, if this extension were used between data centers, it could improve end user privacy by increasing the difficultly of traffic analysis due to connection reuse.
+The author deliberately chose to add a separate UNAUTHENTICATE command instead of allowing the LOGIN or AUTHENTICATE commands to be issued when the connection is in a state other than unauthenticated.
+The primary reason for this choice is that the code that transitions from not authenticated state to authenticated state in a server is often the most security sensitive code, because it needs to assume and handle unconditionally hostile attackers.
+That sensitive code is simpler if it only handles a single server state (unauthenticated) and the state transition is as simple as possible.
+Smaller and simpler code is easier to audit and write in a secure way.
+A secondary reason to have a separate command is that it is simpler to enable or disable the feature with that design.
+See the discussion in the Security Considerations section recommending that implementations provide a way to disable this extension.

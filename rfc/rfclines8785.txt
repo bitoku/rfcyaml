@@ -1,0 +1,176 @@
+Abstract Cryptographic operations like hashing and signing need the data to be expressed in an invariant format so that the operations are reliably repeatable.
+One way to address this is to create a canonical representation of the data.
+Canonicalization also permits data to be exchanged in its original form on the "wire" while cryptographic operations performed on the canonicalized counterpart of the data in the producer and consumer endpoints generate consistent results.
+This document describes the JSON Canonicalization Scheme (JCS).
+This specification defines how to create a canonical representation of JSON data by building on the strict serialization methods for JSON primitives defined by ECMAScript, constraining JSON data to the Internet JSON (I JSON) subset, and by using deterministic property sorting.
+This document describes the JSON Canonicalization Scheme (JCS).
+This specification defines how to create a canonical representation of JSON [RFC8259] data by building on the strict serialization methods for JSON primitives defined by ECMAScript [ECMA 262], constraining JSON data to the I JSON [RFC7493] subset, and by using deterministic property sorting.
+The output from JCS is a "hashable" representation of JSON data that can be used by cryptographic methods.
+The subsequent paragraphs outline the primary design considerations.
+Cryptographic operations like hashing and signing need the data to be expressed in an invariant format so that the operations are reliably repeatable.
+One way to accomplish this is to convert the data into a format that has a simple and fixed representation, like base64url
+This is how JSON Web Signature (JWS) [RFC7515] addressed this issue.
+Another solution is to create a canonical version of the data, similar to what was done for the XML signature [XMLDSIG] standard.
+The primary advantage with a canonicalizing scheme is that data can be kept in its original form.
+This is the core rationale behind JCS.
+Put another way, using canonicalization enables a JSON object to remain a JSON object even after being signed.
+This can simplify system design, documentation, and logging.
+To avoid "reinventing the wheel", JCS relies on the serialization of JSON primitives (strings, numbers, and literals), as defined by ECMAScript (aka JavaScript)
+[ECMA 262] beginning with version 6.
+Seasoned XML developers may recall difficulties getting XML signatures to validate.
+This was usually due to different interpretations of the quite intricate XML canonicalization rules as well as of the equally complex Web Services security standards.
+Data is constrained to the I JSON [RFC7493] subset.
+This eliminates the need for specific parsers for dealing with canonicalization.
+JCS compatible serialization of JSON primitives is currently supported by most web browsers as well as by Node.js [NODEJS].
+The full JCS specification is currently supported by multiple open source implementations (see Appendix G).
+See also Appendix F for implementation guidelines.
+JCS is compatible with some existing systems relying on JSON canonicalization such as JSON Web Key
+(JWK) Thumbprint [RFC7638] and Keybase [KEYBASE].
+For potential uses outside of cryptography, see [JSONCOMP].
+The intended audiences of this document are JSON tool vendors as well as designers of JSON based cryptographic solutions.
+The reader is assumed to be knowledgeable in ECMAScript, including the "JSON" object.
+Terminology Note that this document is not on the IETF standards track.
+However, a conformant implementation is supposed to adhere to the specified behavior for security and interoperability reasons.
+This text uses BCP 14 to describe that necessary behavior.
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in BCP 14
+when, and only when, they appear in all capitals, as shown here.
+This section describes the details related to creating a canonical JSON representation and how they are addressed by JCS.
+Appendix F describes the RECOMMENDED way of adding JCS support to existing JSON tools.
+Irrespective of the method used, the data to be serialized MUST be adapted for I JSON [RFC7493] formatting, which implies the following:
+JSON objects MUST NOT exhibit duplicate property names.
+JSON string data MUST be expressible as Unicode [UNICODE].
+JSON number data MUST be expressible as IEEE 754
+For applications needing higher precision or longer integers than offered by IEEE 754 double precision, it is RECOMMENDED to represent such numbers as JSON strings; see Appendix D for details on how this can be performed in an interoperable and extensible way.
+An additional constraint is that parsed JSON string data MUST NOT be altered during subsequent serializations.
+For more information, see Appendix E. Note:
+Although the Unicode standard offers the possibility of rearranging certain character sequences, referred to as "Unicode Normalization" [UCNORM], JCS compliant string processing does not take this into consideration.
+That is, all components involved in a scheme depending on JCS MUST preserve Unicode string data "as is".
+Generation of Canonical JSON Data
+The following subsections describe the steps required to create a canonical JSON representation of the data elaborated on in the previous section.
+Appendix A shows sample code for an ECMAScript based canonicalizer, matching the JCS specification.
+Whitespace Whitespace between JSON tokens MUST NOT be emitted.
+If the parsed data is subsequently serialized using a serializer compliant with ECMAScript's "
+As can be seen in the example, numbers are subject to rounding as well.
+The following subsections describe the serialization of primitive JSON data types according to JCS.
+This part is identical to that of ECMAScript.
+In the (unlikely) event that a future version of ECMAScript would invalidate any of the following serialization methods, it will be up to the developer community to either stick to this specification or create a new specification.
+In accordance with JSON [RFC8259], the literals "null", "true", and "false" MUST be serialized as null, true, and false, respectively.
+Serialization of Strings For JSON string data (which includes JSON object property names as well), each Unicode code point MUST be serialized as described below (see Section 24.3.2.2 of [ECMA 262]):
+If the Unicode value falls within the traditional ASCII control character range (U 0000 through U 001F), it MUST be serialized using lowercase hexadecimal Unicode notation (\uhhhh) unless it is in the set of predefined JSON control characters U 0008, U 0009, U 000A, U 000C, or U 000D, which MUST be serialized as \b, \t, \n, \f, and \r, respectively.
+Note: Since invalid Unicode data like "lone surrogates" (e.g., U DEAD) may lead to interoperability issues including broken signatures, occurrences of such data MUST cause a compliant JCS implementation to terminate with an appropriate error.
+Serialization of Numbers ECMAScript builds on the IEEE 754 [IEEE754] double precision standard for representing JSON number data.
+Such data MUST be serialized according to Section 7.1.12.1 of [ECMA 262], including the "Note 2" enhancement.
+Due to the relative complexity of this part, the algorithm itself is not included in this document.
+For implementers of JCS compliant number serialization, Google's implementation in V8 [V8] may serve as a reference.
+Another compatible number serialization reference implementation is Ryu [RYU], which is used by the JCS open source Java implementation mentioned in Appendix G.  Appendix B holds a set of IEEE 754 sample values and their corresponding JSON serialization.
+Note: Since Not a Number (NaN) and Infinity are not permitted in JSON, occurrences of NaN or Infinity MUST cause a compliant JCS implementation to terminate with an appropriate error.
+Although the previous step normalized the representation of primitive JSON data types, the result would not yet qualify as "canonical" since JSON object properties are not in lexicographic (alphabetical) order.
+Applied to the sample in Section 3.2.2, a properly canonicalized version
+JSON array data MUST also be scanned for the presence of JSON objects (if an object is found, then its properties MUST be sorted), but array element order MUST NOT be changed.
+When a JSON object is about to have its properties sorted, the following measures MUST be adhered to:
+The sorting process is applied to property name strings in their "raw" (unescaped) form.
+The sorting is based on pure value comparisons, where code units are treated as unsigned integers, independent of locale settings.
+Property name strings either have different values at some index that is a valid index for both strings, or their lengths are different, or both.
+If there is no index position at which they differ, then the shorter string lexicographically precedes the longer string.
+In addition, JSON only supports escape sequences expressed as UTF 16 code units, making knowledge and handling of such data a necessity anyway.
+Systems using another internal representation of string data will need to convert JSON property name strings into arrays of UTF 16 code units before sorting.
+The conversion from UTF 8 or UTF 32 to UTF 16 is defined by the Unicode [UNICODE] standard.
+" Note: For the purpose of obtaining a deterministic property order, sorting of data encoded in UTF 8 or UTF 32 would also work, but the outcome for JSON data like above would differ and thus be incompatible with this specification.
+However, in practice, property names are rarely defined outside of 7 bit ASCII, making it possible to sort string data in UTF 8 or UTF 32 format without conversion to UTF 16 and still be compatible with JCS.
+Whether or not this is a viable option depends on the environment JCS is used in.
+Finally, in order to create a platform independent representation, the result of the preceding step MUST be encoded in UTF 8.
+Applied to the sample in Section 3.2.3, this should yield the following bytes, here shown in hexadecimal notation: 7b 22 6c 69 74 65 72 61 6c 73 22 3a 5b 6e 75 6c 6c 2c 74
+72 75 65 2c 66 61 6c
+6e 75 6d 62 65
+73 22 3a 5b 33
+65 2b 33 30 2c 34 2e 35 2c 30 2e 30 30 32 2c 31 65 2d 32 37
+73 74 72 69 6e 67
+22 3a 22 e2 82
+5c 75 30 30 30 66 5c 6e 41
+This data is intended to be usable as input to cryptographic methods.
+This document has no IANA actions.
+It is crucial to perform sanity checks on input data to avoid overflowing buffers and similar things that could affect the integrity of the system.
+When JCS is applied to signature schemes like the one described in Appendix F, applications MUST perform the following operations before acting upon received data: 1.
+Parse the JSON data and verify that it adheres to I JSON.
+Verify the data for correctness according to the conventions defined by the ecosystem where it is to be used.
+This also includes locating the property holding the signature data.
+If any of these steps fail, the operation in progress MUST be aborted.
+Appendix A.  ECMAScript Sample Canonicalizer Below is an example of a JCS canonicalizer for usage with ECMAScript  based systems: //
+UTF 8 generation were not implemented.
+Array element Recursive expansion //
+The following table holds a set of ECMAScript compatible number serialization samples, including some edge cases.
+The column "IEEE 754" refers to the internal ECMAScript representation of the "Number" data type, which is based on the IEEE 754
+[IEEE754] standard using 64 bit (double precision) values, here expressed in hexadecimal.
+ECMAScript Compatible JSON Number Serialization Samples Notes:
+(1)  For maximum compliance with the ECMAScript "JSON" object, values that are to be interpreted as true integers SHOULD be in the range  9007199254740991 to 9007199254740991.
+However, how numbers are used in applications does not affect the JCS algorithm.
+Although a set of specific integers like 2  68 could be regarded as having extended precision, the JCS/ECMAScript number serialization algorithm does not take this into consideration.
+(3)  Values out of range are not permitted in JSON.
+This number is exactly 1424953923781206.25 but will, after the "Note 2" rule mentioned in Section 3.2.2.3, be truncated and rounded to the closest even value.
+For a more exhaustive validation of a JCS number serializer, you may test against a file (currently) available in the development portal (see Appendix I) containing a large set of sample values.
+Another option is running V8 [V8] as a live reference together with a program generating a substantial amount of random IEEE 754 values.
+Canonicalized JSON as "Wire Format"
+Since the result from the canonicalization process (see Section 3.2.4) is fully valid JSON, it can also be used as "Wire Format".
+However, this is just an option since cryptographic schemes based on JCS, in most cases, would not depend on that externally supplied JSON data already being canonicalized.
+In fact, the ECMAScript standard way of serializing objects using "
+JSON.stringify()" produces a more "logical" format, where properties are kept in the order they were created or received.
+Using canonicalization, the properties above would be output in the order "address", "city", "name", "state", and "zip", which adds fuzziness to the data from a human (developer or technical support) perspective.
+Canonicalization also converts JSON data into a single line of text, which may be less than ideal for debugging and logging.
+In addition, monetary data like "payMeThis" would presumably not rely on floating point data types due to rounding issues with respect to decimal arithmetic.
+The established way of handling this kind of "overloading" of the JSON number type (at least in an extensible manner) is through mapping mechanisms, instructing parsers what to do with different properties based on their name.
+However, this greatly limits the value of using the JSON number type outside of its original, somewhat constrained JavaScript context.
+The ECMAScript "JSON" object does not support mappings to the JSON number type either.
+Due to the above, numbers that do not have a natural place in the current JSON ecosystem MUST be wrapped using the JSON string type.
+This is close to a de facto standard for open systems.
+This is also applicable for other data types that do not have direct support in JSON, like "DateTime" objects as described in Appendix E. Aided by a system using the JSON string type, be it programmatic like var
+Due to the limited set of data types featured in JSON, the JSON string type is commonly used for holding subtypes.
+This can, depending on JSON parsing method, lead to interoperability problems, which MUST be dealt with by JCS compliant applications targeting a wider audience.
+Assume you want to parse a JSON object where the schema designer assigned the property "big" for holding a "BigInt" subtype and "time" for holding a "DateTime" subtype, while "val" is supposed to be a JSON number compliant with JCS.
+JSON/JS number Note that the "BigInt" data type is currently only natively supported by V8 [V8].
+Canonicalization of "object" using the sample code in Appendix A would return the following string: {"big":"055","time":"2019 01 28T07:45:10Z","val":3.5}
+Although this is (with respect to JCS) technically correct, there is another way of parsing JSON data, which also can be used with ECMAScript as shown below: //
+JSON parsing using a "stream" based method var object   JSON.parse(JSON object featured as a string, (k,v)
+new Date(v) : k   'big' ?
+: v ); If you now apply the canonicalizer in Appendix A to "object", the following string would be generated: {"big":"55","time":"2019 01 28T07:45:10.000Z","val":3.5}
+In this case, the string arguments for "big" and "time" have changed with respect to the original, presumably making an application depending on JCS fail.
+The reason for the deviation is that in stream  and schema based JSON parsers, the original string argument is typically replaced on the fly by the native subtype that, when serialized, may exhibit a different and platform dependent pattern.
+That is, stream  and schema based parsing MUST treat subtypes as "pure" (immutable) JSON string types and perform the actual conversion to the designated native type in a subsequent step.
+In modern programming platforms like Go, Java, and C#, this can be achieved with moderate efforts by combining annotations, getters, and setters.
+Below is an example in C#/Json.
+NET showing a part of a class that is serializable as a JSON object: //
+The "pure" string solution uses a local // string variable for JSON serialization while // exposing another type to the application [JsonProperty("amount")]
+private string  amount; [JsonIgnore] public decimal Amount { get { return decimal.
+The example above also addresses the constraints on numeric data implied by I JSON (the C# "decimal" data type has quite different characteristics compared to IEEE 754 double precision).
+Since the JSON array construct permits mixing arbitrary JSON data types, custom parsing and serialization code may be required to cope with subtypes anyway.
+The optimal solution is integrating support for JCS directly in JSON serializers (parsers need no changes).
+That is, canonicalization would just be an additional "mode" for a JSON serializer.
+However, this is currently not the case.
+Fortunately, JCS support can be introduced through externally supplied canonicalizer software acting as a post processor to existing JSON serializers.
+This arrangement also relieves the JCS implementer from having to deal with how underlying data is to be represented in JSON.
+The post processor concept enables signature creation schemes like the following: 1.
+Create the data to be signed.
+Serialize the data using existing JSON tools.
+Let the external canonicalizer process the serialized data and return canonicalized result data.
+Add the resulting signature value to the original JSON data through a designated signature property.
+Serialize the completed (now signed)
+JSON object using existing JSON tools.
+A compatible signature verification scheme would then be as follows:
+Parse the signed JSON data using existing JSON tools.
+Read and save the signature value from the designated signature property.
+Remove the signature property from the parsed JSON object.
+Serialize the remaining JSON data using existing JSON tools.
+Let the external canonicalizer process the serialized data and return canonicalized result data.
+Verify that the canonicalized data matches the saved signature value using the algorithm and key used for creating the signature.
+A canonicalizer like above is effectively only a "filter", potentially usable with a multitude of quite different cryptographic schemes.
+Using a JSON serializer with integrated JCS support, the serialization performed before the canonicalization step could be eliminated for both processes.
+Appendix G.  Open Source Implementations
+The following open source implementations have been verified to be compatible with JCS:
+Appendix H.  Other JSON Canonicalization Efforts
+There are (and have been)
+other efforts creating "Canonical JSON".
+The listed efforts all build on text level JSON to JSON transformations.
+The primary feature of text level canonicalization is that it can be made neutral to the flavor of JSON used.
+However, such schemes also imply major changes to the JSON parsing process, which is a likely hurdle for adoption.
+Albeit at the expense of certain JSON and application constraints, JCS was designed to be compatible with existing JSON tools.
+The JCS specification is currently developed at: <https://github.com/cyberphone/ietf json canon
+JCS source code and extensive test data is available at: <https://github.com/cyberphone/json canonicalization>.

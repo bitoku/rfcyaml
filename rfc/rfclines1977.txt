@@ -1,0 +1,209 @@
+Abstract The Point to Point Protocol (PPP) [1] provides a standard method for transporting multi protocol datagrams over point to point links.
+The PPP Compression Control Protocol [2] provides a method to negotiate and utilize compression protocols over PPP encapsulated links.
+This document describes the use of the Unix Compress compression protocol for compressing PPP encapsulated packets.
+Introduction UNIX compress as embodied in the freely and widely distributed BSD source has the following features: dynamic table clearing when compression becomes less effective.
+automatic turning off of compression when the overall result is not smaller than the input.
+dynamic choice of code width within predetermined limits.
+heavily used for many years in networks, on modem and other point to point links to transfer netnews.
+an effective code width requires less than 64KBytes of memory on both sender and receive.
+Licensing BSD Unix compress command source is widely and freely available, with no additional license for many computer vendors.
+The included source code is based on the BSD compress command source and carries only the copyright of The Regents of the University of California.
+Use the code entirely at your own risk.
+It has no warranties or indemnifications of any sort.
+Note that there are patents on LZW.
+Before any BSD Compress packets may be communicated, PPP must reach the Network Layer Protocol phase, and the CCP Control Protocol must reach the Opened state.
+Exactly one BSD Compress datagram is encapsulated in the PPP Information field, where the PPP Protocol field contains 0xFD or 0xFB.
+0xFD is used when the PPP multilink protocol is not used or "above" multilink.
+0xFB is used "below" multilink, to compress independently on individual links of a multilink bundle.
+The maximum length of the BSD Compress datagram transmitted over a PPP link is the same as the maximum length of the Information field of a PPP encapsulated packet.
+Only packets with PPP Protocol numbers in the range 0x0000 to 0x3FFF and neither 0xFD nor 0xFB are compressed.
+Other PPP packets are always sent uncompressed.
+Control packets are infrequent and should not be compressed for robustness.
+Padding BSD Compress packets require the previous negotiation of the Self Describing Padding Configuration Option [3] if padding is added to packets.
+If no padding is added, than Self Describing  Padding is not required.
+Reliability and Sequencing BSD Compress requires the packets to be delivered in sequence.
+It relies on Reset Request and Reset Ack CCP packets or on renegotiation of the Compression Control Protocol [2] to indicate loss of synchronization between the transmitter and receiver.
+The HDLC FCS detects corrupted packets and the normal mechanisms discard them.
+Missing or out of order packets are detected by the sequence number in each packet.
+The packet sequence number ought to be checked before decoding the packet.
+Instead of transmitting a Reset Request packet when detecting a decompression error, the receiver MAY momentary force CCP to drop out of the Opened state by transmitting a new CCP Configure  Request.
+This method is more expensive than using Reset Requests.
+When the receiver first encounters an unexpected sequence number it SHOULD send a Reset Request CCP packet as defined in the Compression Control Protocol.
+When the transmitter sends the Reset Ack or when the receiver receives a Reset ACK, they must reset the sequence number to zero, clear the compression dictionary, and resume sending and receiving compressed packets.
+The receiver MUST discard all compressed packets after detecting an error and until it receives a Reset Ack.
+This strategy can be thought of as abandoning the transmission of one "file" and starting the transmission of a new "file.
+" The transmitter must clear its compression dictionary and respond with a Reset Ack each time it receives a Reset Request, because it cannot know if previous Reset Acks reached the receiver.
+The receiver MUST clear its compression dictionary each time it receives a Reset Ack, because the transmitter will have cleared its compression dictionary.
+When the link is busy, one decompression error is usually followed by several more before the Reset Ack can be received.
+It is undesirable to transmit Reset Requests more frequently than the round trip time of the link, because redundant Reset Requests cause unnecessary compression dictionary clearing.
+The receiver MAY transmit an additional Reset Request each time it receives a compressed or uncompressed packet until it finally receives a Reset Ack, but the receiver ought not transmit another Reset  Request until the Reset Ack for the previous one is late.
+The receiver MUST transmit enough Reset Request packets to ensure that the transmitter receives at least one.
+For example, the receiver might choose to not transmit another Reset Request until after one second (or, of course, a Reset Ack has been received and decompression resumed).
+When significant data expansion is detected, the PPP packet MUST be sent without compression.
+Packets that would expand by fewer than 3 bytes SHOULD be sent without compression, but MAY be sent compressed provided the result does not exceed the MTU of the link.
+This makes moot standards document exegesises about exactly which bytes, such as the Protocol fields, count toward expansion.
+When a packet is received with PPP Protocol numbers in the range 0x0000 to 0x3FFF, (except, of course, 0xFD and 0xFB) it is assumed that the packet would have caused expansion.
+The packet is locally compressed to update the compression history.
+Sending incompressible packets in their native encapsulation avoids maximum transmission unit complications.
+If uncompressed packets could be larger than their native form, then it would be necessary for the upper layers of an implementation to treat the PPP link as if it had a smaller MTU, to ensure that compressed incompressible packets are never larger than the negotiated PPP MTU.
+Using native encapsulation for incompressible packets complicates the implementation.
+The transmitter and the receiver must start putting information into the compression dictionary starting with the same packets, without relying upon seeing a compressed packet for synchronization.
+The first few packets after clearing the dictionary are usually incompressible, and so are likely to sent in their native encapsulation, just like packets before compression is turned on.
+If CCP or LCP packets are handled separately from Network Layer packets (e.g. a "daemon" for control packets and "kernel code" for data packets), care must be taken to ensure that the transmitter synchronizes clearing the dictionary with the transmission of the configure ACK or Reset Ack that starts compression, and the receiver must similarly ensure that its dictionary is cleared before it processes the next packet.
+A difficulty caused by sending data that would expand uncompressed is that the receiver must adaptively clear its dictionary at precisely the same times as the sender.
+In the classic BSD compression code, the dictionary clearing is signaled by the reserved code 256.
+Because data that would expend is sent without compression, there is no reliable way for the sender to signal explicitly when it has cleared its dictionary.
+This difficulty is resolved by specifying the parameters that control the dictionary clearing, and having both sender and receiver clear their dictionaries at the same times.
+Packet Format A summary of the BSD Compress packet format is shown below.
+The fields are transmitted from left to right. 0
+3 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+The PPP Protocol field is described in the Point to Point Protocol Encapsulation [1].
+When the BSD Compress compression protocol is successfully negotiated by the PPP Compression Control Protocol [2], the value of the protocol field is 0xFD or 0xFB.
+This value MAY be compressed when Protocol Field Compression is negotiated.
+The sequence number is sent most significant octet first.
+It starts at 0 when the dictionary is cleared, and is incremented by 1 after each packet, including uncompressed packets.
+The sequence number after 65535 is zero.
+In other words, the sequence number "wraps" in the usual way.
+The sequence number ensures that lost or out of order packets
+do not cause the compression databases of the peers to become unsynchronized.
+When an unexpected sequence number is encountered, the dictionaries must be resynchronized with a CCP Reset Request or Configure Request.
+The packet sequence number can be checked before a compressed packet is decoded.
+The compressed PPP encapsulated packet, consisting of the Protocol and Data fields of the original, uncompressed packet follows.
+The Protocol field compression MUST be applied to the protocol field in the original packet before the sequence number is computed or the entire packet is compressed, regardless of whether the PPP protocol field compression has been negotiated.
+Thus, if the original protocol number was less than 0x100, it must be compressed to a single byte.
+The format of the compressed data is more precisely described by the example code in the "BSD Compress Algorithm" appendix.
+The CCP BSD Compress Configuration Option negotiates the use of BSD Compress on the link.
+By default or ultimate disagreement, no compression is used.
+A summary of the BSD Compress Configuration Option format is shown below.
+The fields are transmitted from left to right. 0
+Length 3 Vers Must be the binary number 001.
+Dict The size in bits of the largest code used.
+It can range from 9 to 16.
+A common choice is 12.
+The code included below can support code sizes from 9 to 15.
+It is convenient to treat the byte containing the Vers and Dict fields as a single field with legal values ranging from 0x29 to 0x30.
+Note that the peer receiving compressed data must use the same code size as the peer sending data.
+It is not practical for the receiver to use a larger dictionary or code size, because both dictionaries must be cleared at the same time, even when the data is not compressible, so that uncompressed packets are being sent, and so the receiver cannot receive LZW "CLEAR" codes.
+When a received Configure Request specifies a smaller dictionary than the local preference, it is often best to accept it instead of using a Configure Nak to ask the peer to specify a larger dictionary.
+This code is the core of a commercial workstation implementation.
+It was derived by transliterating the 4.
+It is unlikely to be of direct use in any system that does not have the same mixture of mbufs and STREAMS buffers.
+It may need to be retuned for CPU's other than RISC's with many registers and certain addressing modes.
+However, the code is the most accurate and unambiguous way of defining the changes to the BSD compress source required to apply it to a stream instead of a file.
+Note that it assumes a "short" contains 16 bits and an "int" contains at least 32 bits.
+Where it would matter if more than 32 bits were in an "int" or "long,"  uint32 t is used instead.
+Because this code is derived from the 4.3BSD compress source:
+The Regents of the University of California.
+This code is derived from software contributed to Berkeley by   James A. Woods, derived from original work by Spencer Thomas   and Joseph Orost.
+Redistribution and use in source and binary forms, with or without   modification, are permitted provided that the following conditions   are met:   1.
+THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS
+OR IMPLIED WARRANTIES, INCLUDING, BUT
+THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A   PARTICULAR PURPOSE ARE DISCLAIMED.
+BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,   SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+BUT NOT   LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES
+; LOSS OF USE,   DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ON ANY   THEORY OF LIABILITY,
+WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+/ u int   in count;
+; struct { #ifdef BSD
+9 #define MAX BSD BITS
+bsd db , int, int, int); extern int pf bsd comp(struct bsd db ,u char ,int,struct mbuf ,int); extern mblk t
+bsd db , mblk t ); extern void pf bsd incomp(struct bsd db , mblk t , u int)
+The differences between this compression and the classic BSD LZW    source are obvious from the requirement that the classic code worked    with files while this handles arbitrarily long streams that    are broken into packets.
+/  table clear output code  /
+#define BADCODEM1 MAXCODE(MAX BSD BITS)
+/  Ratio check interval  /
+#define RATIO SCALE LOG 8 #
+the dictionary  / static void pf bsd
+db  db) { db clear count ; db max ent   FIRST 1; db n bits
+the compression ratio using fixed point arithmetic   with 8 fractional bits.
+Since we have an infinite stream instead of a single file,   watch only the local compression ratio.
+Since both peers must reset the dictionary at the same time even in   the absence of CLEAR codes (while packets are incompressible), they   must compute the same ratio.
+MAX    db bytes out >  RATIO MAX)
+{ db in count    db in count/4; db bytes out    db bytes
+db in count<<RATIO SCALE LOG; if (db bytes out !
+; register u short  lens; register u int newlen, hsize, hshift, maxmaxcode; switch (bits)
+needs 353744  / hsize   18013; hshift   6
+free(lens); kern free(db); db   0
+if (mru   0) { lens   0; } else { lens
+(u short )kern malloc((maxmaxcode 1)
+sizeof( lens)); if (!lens) { kern free(db); return 0; }
+i   LAST 1; while (i !
+) lens[ i]   1; } i   hsize;
+0) { db dict[ i].codem1   BADCODEM1;
+Assume the protocol is known to be >  0x21 and < 0xff.
+this original PPP protocol  / struct mbuf  m,
+/  from here  / int slen) { register int hshift
+db hshift; register u int max ent
+db max ent; register u int n bits   db n bits; register u int bitno   32; register  uint32 t accum   0; register struct bsd dict  dictp; register  uint32 t fcode; register u char c; register int hval, disp, ent; register u char  rptr,  wptr; struct mbuf  n; #define
+/  start with the protocol byte
+db seqno; db seqno ; wptr   &cp buf[2]; slen   m m len; db in count    slen; rptr   mtod(m, u char ); n
+0 length buffers / db in count    slen
+; } slen ; c    rptr ; fcode   BSD KEY(ent,c)
+/ disp   (hval   0) ?
+; do { hval    disp; if (hval >  db hsize)
+hval    db hsize; dictp   &db dict[hval];
+if (dictp codem1 >  max ent) goto nomatch; } while (dictp
+/ dictp2   &db dict[max ent 1]; if (db dict[dictp2 cptr].codem1   max ent) db dict[dictp2 cptr].codem1 BADCODEM1; dictp2 cptr   hval; dictp codem1   max ent; dictp
+f.fcode   fcode; db max ent    max ent
+Pad dribble bits of last code with ones.
+Do not emit a completely useless byte of ones.
+/ void pf bsd incomp(struct
+bsd db  db, mblk t  dmsg, u int ent)
+/  start with protocol byte  /
+{ register u int hshift
+db hshift; register u int max ent
+/ } db in count    slen
+; do { c    rptr ; fcode   BSD KEY(ent,c); hval
+if (dictp codem1 >  max ent) goto nomatch; if (dictp f.fcode   fcode)
+/ disp   (hval   0) ?
+; do { hval    disp; if (hval >  db hsize)
+hval    db hsize; dictp   &db dict[hval];
+if (dictp codem1 >  max ent) goto nomatch; } while (dictp
+the prefix  / bitno    n bits
+f.fcode   fcode; db max ent    max ent
+/ db bytes out    bitno/8;
+bsd db  db, mblk t  cmsg) { register u int max ent
+/ register u int n bits
+i   0; explen   2; do { while (rptr >  cmsg b wptr) { bp
+cmsg; cmsg   cmsg b cont; freeb(bp); if (!
+cmsg) { if (db debug)
+cmsg b rptr; } i
+printf("bsd decomp%d: bad sequence number 0x%x
+Guess how much memory we will need.
+this packet was   compressed by at least 1.5X regardless of the recent ratio.
+/ if (db ratio > (RATIO SCALE 3)/2)
+3)/2; if (explen > db mru)
+PPP BUF HEAD INFO, BPRI HI);
+if (!dmsg1) { freemsg(cmsg); return 0; } wptr
+dmsg1 b wptr; ((struct ppp buf )
+proto   0; wptr    PPP BUF HEAD PROTO 1; rptr9
+cmsg b wptr; db bytes out    rptr9 rptr;
+Then get the next code, relying on the 32 bit,   unsigned accum to mask the result.
+<< bitno; if (tgtbitno < bitno) continue; incode   accum >
+The dictionary must only be cleared at   the end of a packet.
+But there could be an   empty message block at the end.
+{ cmsg b rptr   rptr;
+0) { freemsg(dmsg); freemsg(cmsg); if (db debug)
+/ if (incode > max ent) { if (incode > max ent 2    incode
+freemsg(dmsg); freemsg(cmsg); if (db debug)
+printf("bsd decomp%d: bad code %x\n", db unit, incode);
+return 0; } i   db lens[oldcode]; /
+do not write past end of buf
+if (explen < 0) { db undershoot    explen; db in count    wptr wptr0; dmsg1 b wptr   wptr; CK WPTR(dmsg1)
+; explen   MAX(64,i 1); bp
+allocb(explen, BPRI HI); if (!bp)
+; freemsg(dmsg); return 0; } dmsg1 b cont   bp; dmsg1   bp; wptr0
+(wptr    i);  wptr    finchar; finchar   oldcode; } else
+incode]; explen    i; if (explen < 0) { db undershoot    explen; db in count    wptr wptr0; dmsg1 b wptr   wptr; CK WPTR(dmsg1); explen   MAX(64,i); bp
+allocb(explen, BPRI HI); if (!bp)
+; return 0; } dmsg1 b cont   bp; dmsg1   bp; wptr0
+Keep the hash table correct so it can be used   with uncompressed packets.
+CLEAR && max ent < db maxmaxcode)
+{ struct bsd dict  dictp2;  uint32 t fcode; int hval, disp; fcode   BSD KEY(oldcode,finchar); hval
+; do { hval    disp; if (hval >  db hsize)
+Invalidate previous hash table entry   assigned this code, and then take it over  / dictp2   &db dict[max ent 1]; if (db dict[dictp2 cptr].codem1   max ent) { db dict[dictp2 cptr].codem1 BADCODEM1; } dictp2 cptr   hval; dictp codem1   max ent; dictp
+f.fcode   fcode; db max ent    max ent
+/  Keep the checkpoint right so that incompressible packets   clear the dictionary at the right times.
+Chair's Address The working group can be contacted via the current chair:
+Karl Fox Ascend Communications 3518 Riverside Drive, Suite 101 Columbus, Ohio 43221 EMail:

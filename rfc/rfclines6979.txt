@@ -1,0 +1,572 @@
+This document defines a deterministic digital signature generation procedure.
+Such signatures are compatible with standard Digital Signature Algorithm (DSA) and Elliptic Curve Digital Signature Algorithm (ECDSA)
+digital signatures and can be processed with unmodified verifiers, which need not be aware of the procedure described therein.
+Deterministic signatures retain the cryptographic security features associated with digital signatures but can be more easily implemented in various environments, since they do not need access to a source of high quality randomness.
+Introduction DSA [FIPS 186 4] and ECDSA [X9.62] are two standard digital signature schemes.
+They provide data integrity and verifiable authenticity in various protocols.
+One characteristic of DSA and ECDSA is that they need to produce, for each signature generation, a fresh random value (hereafter designated as k).
+For effective security, k must be chosen randomly and uniformly from a set of modular integers, using a cryptographically secure process.
+Even slight biases in that process may be turned into attacks on the signature schemes.
+The need for a cryptographically secure source of randomness proves to be a hindrance to deployment of DSA and ECDSA signature schemes in some architectures in which secure random number generation is challenging, in particular, embedded systems such as smartcards.
+In those systems, the RSA signature algorithm, used as specified in Public Key Cryptography Standards (PKCS)
+[RFC3447] (with "type 1" padding, not the Probabilistic Signature Scheme (PSS)) and ISO 9796 2
+[ISO 9796 2], is often preferred, even though it is computationally more expensive, because RSA (with such padding schemes) is deterministic and thus does not require a source of randomness.
+The randomized nature of DSA and ECDSA also makes implementations harder to test.
+Automatic tests cannot reliably detect whether the implementation uses a source of randomness of high enough quality.
+This makes the implementation process more vulnerable to catastrophic failures, often discovered after the system has been deployed and successfully attacked.
+It is possible to turn DSA and ECDSA into deterministic schemes by using a deterministic process for generating the "random" value k.
+That process must fulfill some cryptographic characteristics in order to maintain the properties of verifiability and unforgeability expected from signature schemes; namely, for whoever does not know the signature private key, the mapping from input messages to the corresponding k values must be computationally indistinguishable from what a randomly and uniformly chosen function (from the set of messages to the set of possible k values) would return.
+This document describes such a procedure.
+It has the following features:
+Produced signatures remain fully compatible with plain DSA and ECDSA.
+Entities that verify the signatures need not be changed or even be aware of the process used to generate k.
+Key pair generation is not altered.
+Existing private keys can be used with deterministic DSA and ECDSA.
+Using deterministic DSA and ECDSA implies no extra storage requirement of any secret or public value.
+Deterministic DSA and ECDSA can be applied over the same inputs as plain DSA and ECDSA, namely a hash value computed over the message that is to be signed, with a cryptographically secure hash function.
+Some relatively arbitrary choices were taken in the definition of deterministic (EC)DSA as specified in this document; this was done in order to make it as universally applicable as possible, so as to maximize usefulness of included test vectors.
+See Section 3.6 for a discussion of some possible variants.
+It shall be noted that key pair generation still requires a source of randomness.
+In embedded systems where quality of randomness is an issue, it can often be arranged that key pair generation occurs within more controlled conditions (e.g., during a special smartcard initialization procedure or under physical control of sworn agents) or the key might even be generated elsewhere and imported in the device.
+Deterministic DSA and ECDSA only deal with the need for randomness at the time of signature generation.
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119
+2.  DSA and ECDSA Notations
+In this section, we succinctly describe DSA and ECDSA and define our notations.
+The complete specifications for DSA and ECDSA can be found in [FIPS 186 4] and [X9.62], respectively.
+Key Parameters DSA and ECDSA work over a large group of prime size, in which the group operation is easy to compute, but the discrete logarithm is computationally infeasible with existing and foreseeable technology.
+The definition of the group is called the "key parameters".
+Key parameters may be shared between different key pairs with no ill effect on security; this is the usual case with ECDSA in particular.
+DSA uses the following key parameters:
+p    a large prime number (at least 1024 bits)
+q    a sufficiently large prime number (at least 160 bits)
+that is also a divisor of p 1 g    a generator for the multiplicative subgroup of order q of integers modulo p
+The size of the group is q. ECDSA uses the following key parameters: E    an elliptic curve, defined over a given finite field q    a sufficiently large prime number (at least 160 bits) that is a divisor of the curve order G    a point of E, of order q
+The group on which ECDSA will be computed consists of the curve points
+jG (multiplication of point G by integer j) where j ranges from 0 to q 1.
+qG   0 (the "point at infinity" on the curve E).
+The size of the group is q.  Note that these notations slightly differ from those described in [X9.62]; we use them in order to match those used for DSA.
+Key Pairs A DSA or ECDSA private key is an integer x taken modulo q.
+The relevant standards prescribe that x shall not be 0; hence, x is an integer in the range [1, q 1].
+A DSA or ECDSA public key is computed from the private key x
+and the key parameters:  For DSA
+, the public key is the integer: y
+g^x mod p  For ECDSA
+, the public key is the curve point: U   xG 2.3.
+Integer Conversions Let qlen be the binary length of q.
+qlen is the smallest integer such that q is less than 2^qlen.
+This is the size of the binary representation of q without a sign bit (note that q, being a big prime, is odd, thus avoiding any ambiguity about the length of any integer equal to a power of 2).
+We define five conversion functions, which work on strings of bits, octets, and integers
+qlen is the main parameter for these conversions.
+In the following subsections, we use two other lengths, called blen and rlen.
+rlen is equal to qlen, rounded up to the next multiple of 8 (if qlen is already a multiple of 8, then rlen equals qlen; otherwise, rlen is slightly larger, up to qlen 7).
+Note that rlen is unrelated to the value r, the first half of a generated signature.
+blen is the length (in bits) of an input sequence of bits and may vary between calls.
+blen may be smaller than, equal to, or larger than qlen.
+Bits and Octets Formally, all operations are defined on sequences of bits.
+A sequence is ordered; the first bit is said to be leftmost, while the last bit is rightmost.
+On most software systems, bits are grouped into octets (sequences of eight bits).
+Binary data, e.g., the output of a hash function, is available as a sequence of octets.
+Whenever applicable, we consider that bits within an octet are ordered from most significant to least significant:
+the first (leftmost) bit within an octet has numerical value 128, while the last (rightmost) has numerical value 1.
+The bits2int transform takes as input a sequence of blen bits and outputs a non negative integer that is less than 2^qlen.
+It consists of the following steps: 1.
+The resulting sequence is then converted to an integer value using the big endian convention: if input bits are called b 0 (leftmost) to b (qlen 1) (rightmost), then the resulting value is: b 0 2^(qlen 1)
+The bits2int transform can also be described in the following way: the input bit sequence (of length blen) is transformed into an integer using the big endian convention.
+Then, if blen is greater than qlen, the resulting integer is divided by two to the power blen qlen (Euclidian division: the remainder is discarded); in many software implementations of arithmetics on big integers, that division is equivalent to a "right shift" by blen qlen bits.
+An integer value x less than q
+(and, in particular, a value that has been taken modulo q) can be converted into a sequence of rlen bits, where rlen   8 ceil(qlen/8).
+This is the sequence of bits obtained by big endian encoding.
+In other words, the sequence bits
+i (for i ranging from 0 to rlen 1) are such that:
+We call this transform int2octets.
+Since rlen is a multiple of 8 (the smallest multiple of 8 that is not smaller than qlen), then the resulting sequence of bits is also a sequence of octets, hence the name.
+Bit String to Octet String
+The bits2octets transform takes as input a sequence of blen bits and outputs a sequence of rlen bits.
+It consists of the following steps: 1.
+The input sequence b is converted into an integer value z1 through the bits2int transform: z1   bits2int(b) 2.
+z1 is reduced modulo q, yielding z2 (an integer between 0 and q 1, inclusive): z2
+z1 mod q Note that since z1 is less than 2^qlen, that modular reduction can be implemented with a simple conditional subtraction: z2   z1 q if that value is non negative; otherwise, z2   z1.
+z2 is transformed into a sequence of octets (a sequence of rlen bits) by applying int2octets.
+It is worth noting that int2octets is not the reverse of bits2int, even for input sequences of length qlen: int2octets will add some bits on the left, while bits2int will discard some bits on the right.
+int2octets is the reverse of bits2int only when qlen is a multiple of 8 and bit sequences already have length qlen.
+bits2int is used during signature generation and verification in standard DSA and ECDSA to transform a hash value (computed over the input message) into an integer modulo q.
+That is, the integer obtained through bits2int is further reduced modulo q; since that integer is less than 2^qlen, that reduction can be performed with at most one subtraction.
+int2octets is defined under the name "Integer to OctetString" in Section 2.3.7 of SEC 1 [SEC1].
+It is used in the specification of the encoding of an ECDSA private key (x) within an ASN.1 based structure.
+bits2octets is not used in standard DSA or ECDSA.
+We will use it in the specification of deterministic (EC)DSA. 2.4.
+Signature Generation Signature generation uses a cryptographic hash function H and an input message m.
+The message is first processed by H, yielding the value H(m), which is a sequence of bits of length hlen.
+Normally, H is chosen such that its output length hlen is roughly equal to qlen, since the overall security of the signature scheme will depend on the smallest of hlen and qlen; however, the relevant standards support all combinations of hlen and qlen.
+The following steps are then applied: 1.
+H(m) is transformed into an integer modulo q using the bits2int transform and an extra modular reduction:
+As was noted in the description of bits2octets, the extra modular reduction is no more than a conditional subtraction.
+A random value modulo q, dubbed k, is generated.
+That value shall not be 0; hence, it lies in the [1, q 1] range.
+Most of the remainder of this document will revolve around the process used to generate k.
+In plain DSA or ECDSA, k should be selected through a random selection that chooses a value among the q 1 possible values with uniform probability.
+g^k mod p mod q
+(The exponentiation is performed modulo p, yielding a number between 0 and p 1, which is then further reduced modulo q.)
+For ECDSA: the point kG is computed; its X coordinate (a member of the field over which E is defined) is converted to an integer, which is reduced modulo q, yielding r.
+If r turns out to be zero, a new k should be selected and r computed again (this is an utterly improbable occurrence).
+The value s (modulo q) is computed:
+(h x r)/k mod q
+The pair (r, s) is the signature.
+How a signature is to be encoded is not covered by the DSA and ECDSA standards themselves; a common way is to use a DER encoded ASN.1 structure (a SEQUENCE of two INTEGERs, for r and s, in that order).
+Deterministic DSA and ECDSA Deterministic
+(EC)DSA is the process of generating an (EC)DSA signature over an input message m by using the standard (EC)DSA signature generation process (discussed in the previous section), except that the value k, instead of being randomly generated, is obtained through the process described in this section.
+We use the notations described in Section 2. 3.1.
+HMAC HMAC [RFC2104] is a construction of a Message Authentication Code using a hash function and a secret key.
+Here, we use HMAC with the same hash function H as the one used to process the input message prior to signature generation or verification.
+We denote the process of applying HMAC with key K over data V by: HMAC K(V) which returns a sequence of bits of length hlen (the output length of the underlying hash function H).
+Given the input message m, the following process is applied: a.  Process m through the hash function H, yielding:
+(h1 is a sequence of hlen bits).
+such that the length of V, in bits, is equal to 8 ceil(hlen/8).
+For instance, on an octet based system, if H is SHA 256, then V is set to a sequence of 32 octets of value 1.
+Note that in this step and all subsequent steps, we use the same H function as the one used in step 'a' to process the input message; this choice will be discussed in more detail in Section 3.6.
+K   0x00 0x00 0x00 ...
+such that the length of K, in bits, is equal to 8 ceil(hlen/8).
+In other words, we compute HMAC with key K, over the concatenation of the following, in order: the current value of V, a sequence of eight bits of value 0, the encoding of the (EC)DSA private key x, and the hashed message (possibly truncated and extended as specified by the bits2octets transform).
+The HMAC result is the new value of K. Note that the private key
+x is in the [1, q 1] range, hence a proper input for int2octets, yielding rlen bits of output, i.e., an integral number of octets (rlen is a multiple of 8).
+: K   HMAC K(V    0x01
+Note that the "internal octet" is 0x01 this time.
+Apply the following algorithm until a proper value is found for k: 1.
+Set T to the empty sequence.
+The length of T (in bits) is denoted tlen; thus, at that point, tlen   0. 2.
+While tlen < qlen, do the following:
+If that value of k is within the [1,q 1] range, and is suitable for DSA or ECDSA
+(i.e., it results in an r value that is not 0; see Section 3.4), then the generation of k is finished.
+The obtained value of k is used in DSA or ECDSA.
+V   HMAC K(V) and loop
+(try to generate a new T, and so on).
+Please note that when k is generated from T, the result of bits2int is compared to q, not reduced modulo q.
+If the value is not between 1 and q 1, the process loops.
+Performing a simple modular reduction would induce biases that would be detrimental to signature security.
+Alternate Description of the Generation of k
+The process described in the previous section is actually derived from the "HMAC DRBG" pseudorandom number generator, described in [SP800 90A] and Annex D of [X9.62].
+Using the terminology from [SP800 90A], the generation of k can be described as such: a.  Instantiate HMAC DRBG using HMAC parameterized with the same hash function H as the one used for processing the message that is to be signed.
+Instantiation parameters are: requested instantiation security strength Set this parameter to any value that the HMAC DRBG implementation will accept, when using H as base hash function.
+prediction resistance flag Set this parameter to "false".
+personalization string Set this parameter to "Null" (the empty bit sequence).
+entropy input Use int2octets(x) as entropy string.
+Note that the last two parameters are not parameters to the HMAC DRBG instantiation function per se; instead, those values are requested from the internal Get entropy input function during instantiation.
+For deterministic (EC)DSA, we want HMAC DRBG to run with the entropy string and nonce that we specify, without accessing an actual entropy source.
+Generate a candidate value for k by requesting qlen bits from HMAC DRBG and converting the resulting bits into an integer with the bits2int transform.
+Repeat this step until a value is obtained, which is non zero, less than q, and suitable for (EC)DSA (see Section 3.4).
+Note that we instantiate a new HMAC DRBG instance for each signature generation process.
+There is no "personalization string" and no "additional input" when generating bits.
+The reseed function of HMAC DRBG is never invoked, neither externally nor as a consequence of the internal HMAC DRBG processing.
+As shown above, we use the encoding of the private key as "entropy string" and the hashed message (truncated and expanded by bits2octets) as "nonce".
+In HMAC DRBG, the entropy string and nonce are simply concatenated into the initial seed; hence, the split between "entropy" and "nonce" is quite arbitrary.
+Using qlen bits for each ought to be compatible with most HMAC DRBG implementation input requirements.
+Usage Notes With DSA or ECDSA, the value k is used to compute the first half of the signature, dubbed r (see Section 2.4).
+The DSA and ECDSA standards mandate that, if r is zero, then a new k should be selected.
+In that situation, this document specifies that the value k is "unsuitable", and the generation process shall keep on looping.
+This occurrence is utterly improbable.
+Actually, it would require considerable computational effort (similar to breaking preimage resistance of the hash function) to find a private key and a message that lead to a zero value for r; hitting such a case by pure chance is thus deemed implausible, and an attacker cannot force it with carefully crafted messages.
+In practice, such a code path will not be triggered and thus can be implemented with little optimization.
+The process described in the previous sections mimics the "Approved" generation process of k described in Annex D of [X9.62], with the "HMAC DRBG" pseudorandom number generator.
+The main difference is that we use the concatenation of the private key x and the hashed message H(m) as the pseudorandom number generator (PRNG) seed.
+If using a "security level" of n bits, then HMAC DRBG should be used with seed entropy at least n 64 bits; however, the key x should also have been generated with that much entropy, and the length of x is qlen, which is at least equal to 2 n and thus larger than n 64 (DSA and ECDSA, as specified by the standards, require qlen >  160).
+It can then be argued that deterministic ECDSA fulfills the entropy requirements of Annex D of [X9.62].
+We use bits2octets(H(m)) instead of H(m) in order to ease integration.
+Indeed, many existing signature systems offload the message hashing; the signature engine (which has access to the private key) receives only H(m).
+In some applications, where data bandwidth is constrained, only the first qlen bits of H(m) are transferred to the signature engine, on the basis that the bits2int transform will ignore subsequent bits anyway.
+Possibly, in some systems, the truncated H(m) could be externally reduced modulo q, since that is the first thing that (EC)DSA performs on the hashed message.
+With the definition of bits2octets, deterministic (EC)DSA can be applied with the same input.
+Variants Many parts of the specification of deterministic
+It is possible to define variants that are NOT "deterministic (EC)DSA" but that may nonetheless be useful in some contexts:
+It is possible to use H(m) directly, instead of bits2octets(H(m)), as part of the HMAC input.
+As explained in Section 3.5, we use bits2octets(H(m)) in order to ease integration into systems that already use an (EC)DSA signature engine by sending it an already  truncated hash value.
+Using the whole H(m) does not introduce any vulnerability.
+A use case may be a protocol that requires a non deterministic signature algorithm on a system that does not have access to a high quality random source.
+It suffices that the additional data k' is non repeating (e.g., a signature counter or a monotonic clock) to ensure "random looking" signatures are indistinguishable, in a cryptographic way, from plain (EC)DSA signatures.
+In [SP800 90A] terminology, k' is the "additional input" that can be set as a parameter when generating pseudorandom bits.
+This variant can be thought of as a "strengthening" of the randomness of the source of the additional data k'.
+Instead of using x (the private key) as input to HMAC, it is possible to use additional secret data, stored along with the private key with the same security measures.
+The entropy of that additional data SHALL be at least n bits, preferably n 64 bits or more, where n is the target security level.
+Having additional secret data may help in formally proving the security of derandomization, but it implies an extra storage cost and incompatibility with already generated (EC)DSA private keys.
+Similarly, the private key could be a value z, from which both x (the "private key" in the plain (EC)DSA sense) and another value x', to be used as input to HMAC in the generation of k, would be derived through a suitable Pseudorandom Function (PRF) (such as HMAC DRBG).
+This would keep private key storage requirements to a minimum while providing a more easily proven security, but it would impact private key generation and would not be compatible with already generated key pairs.
+In this document, we use the same hash function H for processing the input message and as a parameter to HMAC.
+Two distinct hash functions could be used, provided that both are adequately secure.
+The overall security will be limited by the weaker of the two hash functions, i.e., the one with the smaller output.
+Using a specific, constant hash function for HMAC may be useful for constrained implementations that accept externally hashed messages, regardless of what hash function was used for that, but have resources for implementing only one hash function for HMAC.
+The main disadvantage of any variant is that it ceases to be verifiable against the test vectors published in this document.
+Security Considerations Proper implementation and usage of a cryptographic signature algorithm require taking into account many parameters.
+In particular, private key generation, storage, access control, and disposal are sensitive operations, which this document does not address in any way.
+Deterministic (EC)DSA shows how to achieve the security characteristics of a standard DSA or ECDSA signature scheme while removing the need for a source of strong randomness, or even any source of randomness, during signature generation.
+Private key generation, however, absolutely requires such a strongly random source.
+In situations where deterministic (EC)DSA is to be used due to the lack of an appropriate source of randomness, one must assume that the private key has been generated externally and imported into the signature generation system or was generated in a context where randomness was available.
+For instance, one can imagine a smartcard that generates its private key while still in the factory under controlled environmental conditions, but for which random data generation cannot be guaranteed once deployed in the field, when physically in the hands of potential attackers.
+Both removal of the random source requirement and the ability to test an implementation against test vectors enhance security of DSA and ECDSA signer implementations, in that they help avoid hard to test failure conditions.
+Deterministic signature schemes may also help in other situations, e.g., to avoid spurious duplicates, when the same data element is signed several times with the same key: with a deterministic signature scheme, the same signature is generated every time, making duplicate detection much easier.
+Conversely, lack of randomization may have adverse effects in some advanced protocols, e.g., related to anonymity in some voting schemes.
+As a rule of thumb, deterministic DSA or ECDSA can be used in lieu of the genuine DSA or ECDSA, with no additional security issues, if the overall protocol would tolerate another deterministic signature scheme, in particular RSA as specified in PKCS #1
+[RFC3447] (with "type 1" padding, not PSS) or ISO 9796 2
+The list of protocols in which deterministic DSA or ECDSA is appropriate includes Transport Layer Security (TLS) [RFC5246], the Secure SHell (SSH) Protocol [RFC4251], Cryptographic Message Syntax (CMS)
+[RFC5652] and derivatives, X.509 public key infrastructures [RFC5280], and many others.
+The construction described in this document is known as a "derandomization".
+This has been proposed for various signature schemes.
+Security relies on whether the generation of k is indistinguishable from the output of a random oracle.
+Roughly speaking, HMAC DRBG is secure in that role as long as HMAC behaves as a PRF (Pseudorandom Function).
+For details on the security of HMAC and HMAC DRBG, please refer to [H2008] and [B2006].
+For a more formal treatment of derandomization, see [LN2009].
+One remaining issue with deterministic (EC)DSA, as presented in this document, is the "double use" of the private key
+x, both as the private key in the signature generation algorithm itself and
+as input to the HMAC DRBG based pseudorandom oracle for producing the k value.
+This requires HMAC DRBG to keep on being a random oracle, even when the public key (which is computed from x) is also known.
+Given the lack of common structure between HMAC and discrete logarithms, this seems a reasonable assumption.
+Side channel attacks are an important consideration whenever an attacker can accurately measure aspects of an implementation such as the length of time that it takes to perform a signing operation or the power consumed at each point of a signing operation.
+The determinism of the algorithms described in this note may be useful to an attacker in some forms of side channel attacks, so implementations SHOULD use defensive measures to avoid leaking the private key through a side channel.
+We detail here the intermediate values obtained during the generation of k on an example message and key.
+We use a binary curve because that specific curve is standard and has a group order length (qlen) that is not a multiple of 8; this illustrates the fine details of how conversions are performed between integers and bit sequences.
+Key Pair We consider ECDSA on the curve
+K 163 described in [FIPS 186 4] (also known as "ansix9t163k1" in [X9.62]).
+The curve is defined over a field GF(2^163): field elements are encoded into 163 bit strings.
+The order of the conventional base point is the prime value:
+q   0x4000000000000000000020108A2E0CC0D99F8A5EF which has length qlen   163 bits.
+Our private key is: x   0x09A4D6792295A7F730FC3F2B49CBC0F62E862272F
+The corresponding public key is the curve point U
+This point has two coordinates, which are elements of the field GF(2^163).
+These elements can be converted to integers using the procedure described in Section A.5.6 of [X9.62], yielding the two public point coordinates:
+In this example, we use the hash function SHA 256
+The input message is the UTF 8 encoding of the string "sample" (6 octets, i.e., 48 bits).
+The hashed input message h1   SHA 256(m) is:
+E1 AA 9B 6E C1 E2 AD E1 D6 94 F4 1F C7 1A 83 1D 02
+68 E9 89 15 62 11 3D 8A 62 AD D1 BF (32 octets; each octet value is listed in hexadecimal notation).
+We convert the private key x to a sequence of octets using the int2octets transform: int2octets(x)
+9A 4D 67 92 29 5A 7F
+73 0F C3 F2 B4 9C BC 0F
+62 E8 62 27 2F Note: Although the specific value of x would numerically fit in 160 bits, i.e., 20 octets, we still encode x into 21 octets, because the encoding length is driven by the length of q, which is 163 bits.
+We also truncate and/or expand the hashed message using bits2octets: bits2octets(h1) 01 79 5E DF 0D
+54 DB 76 0F 15 6D 0D AC 04 C0 32 2B 3A 20 42 24
+The steps b to g
+(see Section 3.2) then compute the values for the K and V variables.
+These variables are sequences of 256 bits (the hash function output length, rounded up to a multiple of 8).
+We reproduce here the successive values:
+V after step b: 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 K after step c: 00 00
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+K after step d: 09 99 9A 9B FE F9 72 D3 34 69
+11 88 3F AD 79 51 D2 3F 2C 8B 47 F4 20
+22 2D 11 71 EE EE AC 5A B8 V after step e:
+D5 F4 03 0F 75 5E E8 6A A1 0B BA 8C 09 DF 11 4F F6 B6 11 1C 23 85 00 D1 3C 73 43 A8 C0 1B EC F7 K after step f: 0C F2 FE 96 D5 61 9C 9E F5 3C B7 41 7D 49 D3 7E A6 8A 4F FE D0 D7 E6 23 E3 86 89 28 99 11 BD 57 V after step g: 78 34 57 C1 CF 31 48 A8 F2 A9 AE
+73 ED 47 2F A9 8E D9 CD 92 5D 8E 96 4C E0 76 4D EF 3F 84 2B 9A
+In step h, we perform the final loop.
+Since we use HMAC with SHA  256, which produces 256 bits worth of output, and we need only 163 bits for T, a single HMAC invocation yields the following T: T (first try)
+93 05 A4 6D E7 FF 8E B1 07 19 4D EB D3 FD 48 AA 20 D5 E7 65 6C BE 0E A6 9D 2A 8D 4E 7C 67 31 4A which, when converted to an integer with bits2int, yields a first candidate for k: k1
+Since that value is greater than q 1, we have to loop.
+This first entails computing new values for K and V:
+new K 75 CB 5C 05 B2 A7 8C 3D 81 DF 12 D7 4D 7B E0 A0 E9 4A B1 98
+15 78 1D 4D 8E
+29 02 A7 9D 0A 66
+99 new V DC B9 CA 12 61 07 A9 C2 7C E7 7B
+A5 8E A8 71 C8 C9 12 D8 35 EA DD C3 05 F2 44 5D 88
+then a new T: T (second try)
+78 60 8A 3B 5B E9 28 9B E9 0E F6 E8 1A 9E 2C 15 16 D5 75 1D 2F 75 F5 00
+33 E4 5F 73 BD EB and a new candidate for k:
+Since k2 is also greater than q 1, we loop again: new K (2)
+0A 5A 64 B9 9C 05 95 20 10 36 86 CB 6F 36 BC FC A7 88 EB 3B CF 69 BA 66 A5 BB 08
+93 BA 53 new V (2) 0B 3B 19
+68 11 B1 9F 6C 6F 72 9C 43 F3
+5B CF 0D FD 72 5F 17 CA 34 30 E8 72
+A1 8F T (third try) 47 5E 80
+E9 92 14 05 67
+FC C3 A5 0D AB 90 FE 84
+BC D7 BB 03 63 8E 9C 46 56 A0 6F 37 F6 50 8A 7C
+and we finally get an acceptable value for k:
+With our private key and the value of k that we just generated, we can now compute the signature using the standard ECDSA mechanisms.
+First, the point kG is computed, and the X coordinate of that point is converted to an integer and then reduced modulo q, yielding the first signature half:
+r   0x113A63990598A3828C407C0F4D2438D990DF99A7F which we use, together with x (the private key), k (which we computed above), and h   bits2int(h1), to compute the second signature half
+An ECDSA signature is a pair of integers.
+In many protocols that require a signature to be a sequence of bits (or octets), it is customary to encode the signature as an ASN.1 SEQUENCE of two INTEGER values, with DER rules.
+This results in the following 48 octet signature:
+30 2E 02 15 01 13 A6 39 90 59 8A 38 28 C4 07 C0 F4 D2 43 8D 99 0D F9 9A 7F 02 15 01
+31 3A 2E 03 F5 41 2D DB 29 6A 22 E2 C4 55 33 55 45 67 2D 9F A.2.
+In the following sections, we give test vectors for various key sizes and hash functions, both for DSA and ECDSA.
+All numbers are given in hexadecimal notation.
+Each signature consists of two integers, named r and s; many implementations will encode those integers into a single ASN.1 structure or with some other encoding convention, which is outside of the scope of this document.
+We also show the k value used internally.
+For every key, we list ten signatures, corresponding to two distinct input messages, and five of the SHA [FIPS 180 4] functions: SHA 1, SHA 224, SHA 256, SHA 384, and SHA 512.
+The two input messages are the UTF 8 encoding of the strings "sample" and "test" (without the quotes), of length 48 and 32 bits, respectively.
+The ECDSA examples use the standard curves described in [FIPS 186 4].
+DSA, 1024 Bits Key pair: key parameters:
+With SHA 1, message   "sample": k
+With SHA 224, message   "sample":
+With SHA 256, message   "sample": k
+With SHA 384, message   "sample":
+With SHA 512, message   "sample":
+k   09ECE7CA27D0F5A4DD4E556C9DF1D21D28104F8B r   16C3491F9B8C3FBBDD5E7A7B667057F0D8EE8E1B s
+With SHA 1, message   "test": k   5C842DF4F9E344EE09F056838B42C7A17F4A6433 r   42AB2052FD43E123F0607F115052A67DCD9C5C77 s
+With SHA 224, message   "test": k
+With SHA 256, message   "test":
+22518C127299B0F6FDC9872B282B9E70D0790812 s   6837EC18F150D55DE95B5E29BE7AF5D01E4FE160 With SHA 384, message   "test":
+With SHA 512, message   "test": k
+DSA, 2048 Bits Key pair:
+With SHA 1, message   "sample": k
+With SHA 224, message   "sample": k
+With SHA 256, message   "sample":
+With SHA 384, message   "sample":
+k   C345D5AB3DA0A5BCB7EC8F8FB7A7E96069E03B206371EF7D83E39068EC564920 r   B2DA945E91858834FD9BF616EBAC151EDBC4B45D27D0DD4A7F6A22739F45C00B s
+With SHA 512, message   "sample": k
+With SHA 1, message   "test": k
+With SHA 224, message   "test":
+k   06BD4C05ED74719106223BE33F2D95DA6B3B541DAD7BFBD7AC508213B6DA6670 r   272ABA31572F6CC55E30BF616B7A265312018DD325BE031BE0CC82AA17870EA3 s
+E9CC286A52CCE201586722D36D1E917EB96A4EBDB47932F9576AC645B3A60806 With SHA 256, message   "test": k
+With SHA 384, message   "test":
+k   206E61F73DBE1B2DC8BE736B22B079E9DACD974DB00EEBBC5B64CAD39CF9F91C r   239E66DDBE8F8C230A3D071D601B6FFBDFB5901F94D444C6AF56F732BEB954BE s
+With SHA 512, message   "test": k   AFF1651E4CD6036D57AA8B2A05CCF1A9D5A40166340ECBBDC55BE10B568AA0AA r   89EC4BB1400ECCFF8E7D9AA515CD1DE7803F2DAFF09693EE7FD1353E90A68307 s   C9F0BDABCC0D880BB137A994CC7F3980CE91CC10FAF529FC46565B15CEA854E1 A.2.3.
+ECDSA, 192 Bits (Prime Field)
+Key pair: curve: NIST P 192 q
+x   6FAB034934E4C0FC9AE67F5B5659A9D7D1FEFD187EE09FD4 public key: U   xG
+With SHA 1, message   "sample": k
+With SHA 224, message   "sample":
+With SHA 256, message   "sample": k
+With SHA 384, message   "sample":
+With SHA 512, message   "sample":
+With SHA 1, message   "test":
+EB18BC9E1F3D7387500CB99CF5F7C157070A8961E38700B7 With SHA 224, message   "test": k
+B7FB7FDFC339C0B9BD61A9F5A8EAF9BE58FC5CBA2CB15293 With SHA 256, message   "test":
+With SHA 384, message   "test":
+With SHA 512, message   "test": k   0758753A5254759C7CFBAD2E2D9B0792EEE44136C9480527 r   FE4F4AE86A58B6507946715934FE2D8FF9D95B6B098FE739 s   74CF5605C98FBA0E1EF34D4B5A1577A7DCF59457CAE52290 A.2.4.
+ECDSA, 224 Bits (Prime Field)
+Key pair: curve: NIST P 224 q
+x   F220266E1105BFE3083E03EC7A3A654651F45E37167E88600BF257C1 public key: U   xG
+With SHA 1, message   "sample": k
+With SHA 224, message   "sample": k
+With SHA 256, message   "sample":
+With SHA 384, message   "sample": k
+With SHA 512, message   "sample": k
+With SHA 1, message   "test": k
+With SHA 224, message   "test": k
+With SHA 256, message   "test": k   FF86F57924DA248D6E44E8154EB69F0AE2AEBAEE9931D0B5A969F904 r
+With SHA 384, message   "test": k   7046742B839478C1B5BD31DB2E862AD868E1A45C863585B5F22BDC2D r
+With SHA 512, message   "test": k
+ECDSA, 256 Bits (Prime Field)
+Key pair: curve: NIST P 256 q
+With SHA 1, message   "sample": k
+With SHA 224, message   "sample":
+With SHA 256, message   "sample": k   A6E3C57DD01ABE90086538398355DD4C3B17AA873382B0F24D6129493D8AAD60 r   EFD48B2AACB6A8FD1140DD9CD45E81D69D2C877B56AAF991C34D0EA84EAF3716 s   F7CB1C942D657C41D436C7A1B6E29F65F3E900DBB9AFF4064DC4AB2F843ACDA8 With SHA 384, message   "sample":
+With SHA 512, message   "sample":
+k   5FA81C63109BADB88C1F367B47DA606DA28CAD69AA22C4FE6AD7DF73A7173AA5 r   8496A60B5E9B47C825488827E0495B0E3FA109EC4568FD3F8D1097678EB97F00 s
+With SHA 1, message   "test":
+With SHA 224, message   "test": k
+With SHA 256, message   "test": k
+With SHA 384, message   "test":
+With SHA 512, message   "test":
+ECDSA, 384 Bits (Prime Field)
+Key pair: curve: NIST P 384 q   FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC7634D81F4372DDF 581A0DB248B0A77AECEC196ACCC52973
+With SHA 1, message   "sample":
+With SHA 224, message   "sample": k   A4E4D2F0E729EB786B31FC20AD5D849E304450E0AE8E3E341134A5C1AFA03CAB
+With SHA 256, message   "sample":
+k   180AE9F9AEC5438A44BC159A1FCB277C7BE54FA20E7CF404B490650A8ACC414E 375572342863C899F9F2EDF9747A9B60 r   21B13D1E013C7FA1392D03C5F99AF8B30C570C6F98D4EA8E354B63A21D3DAA33
+With SHA 384, message   "sample": k   94ED910D1A099DAD3254E9242AE85ABDE4BA15168EAF0CA87A555FD56D10FBCA
+With SHA 512, message   "sample":
+With SHA 1, message   "test": k   66CC2C8F4D303FC962E5FF6A27BD79F84EC812DDAE58CF5243B64A4AD8094D47
+95BA1C84541327E966FA7B50F7382282 With SHA 224, message   "test": k   18FA39DB95AA5F561F30FA3591DC59C0FA3653A80DAFFA0B48D1A4C6DFCBFF6E
+With SHA 256, message   "test":
+With SHA 384, message   "test":
+With SHA 512, message   "test": k
+ECDSA, 521 Bits (Prime Field)
+538 public key: U   xG
+With SHA 1, message   "sample":
+5694625FB9E8104D3B842C1B0E2D0B98BEA19341E8676AEF66AE4EBA3D5475D5 D16 With SHA 224, message   "sample":
+41F With SHA 256, message   "sample": k
+With SHA 384, message   "sample": k
+1EA842A0E17D2DE4F92C15315C63DDF72685C18195C2BB95E572B9C5136CA4B4 B576AD712A52BE9730627D16054BA40CC0B8D3FF035B12AE75168397F5D50C67 451 s   1F21A3CEE066E1961025FB048BD5FE2B7924D0CD797BABE0A83B66F1E35EEAF5
+With SHA 512, message   "sample": k
+With SHA 1, message   "test": k
+0BB9F2BF4FE1038CCF4DABD7139A56F6FD8BB1386561BD3C6A4FC818B20DF5DD BA80795A947107A1AB9D12DAA615B1ADE4F7A9DC05E8E6311150F47F5C57CE8B 222 r   13BAD9F29ABE20DE37EBEB823C252CA0F63361284015A3BF430A46AAA80B87B0 693F0694BD88AFE4E661FC33B094CD3B7963BED5A727ED8BD6A3A202ABE009D0
+With SHA 224, message   "test":
+BEC0F3BA04F35DB3E4263569EC6AADE8C92746E4C82F8299AE1B8F1739F8FD51 9A4 With SHA 256, message   "test":
+01DE74955EFAABC4C4F17F8E84D881D1310B5392D7700275F82F145C61E84384 1AF09035BF7A6210F5A431A6A9E81C9323354A9E69135D44EBD2FCAA7731B909 258 r   00E871C4A14F993C6C7369501900C4BC1E9C7B0B4BA44E04868B30B41D807104
+FDE00E88C1AD60CCBA759025299079D7A427EC3CC5B619BFBC828E7769BCD694 E86 With SHA 384, message   "test": k
+With SHA 512, message   "test":
+ECDSA, 163 Bits (Binary Field, Koblitz Curve)
+NIST K 163 q   4000000000000000000020108A2E0CC0D99F8A5EF
+With SHA 1, message   "sample": k
+With SHA 224, message   "sample": k
+With SHA 256, message   "sample": k
+With SHA 384, message   "sample": k
+With SHA 512, message   "sample": k   00BBCC2F39939388FDFE841892537EC7B1FF33AA3 r   38E487F218D696A7323B891F0CCF055D895B77ADC s
+With SHA 1, message   "test":
+With SHA 224, message   "test": k   091DD986F38EB936BE053DD6ACE3419D2642ADE8D r
+With SHA 256, message   "test": k
+With SHA 384, message   "test": k
+With SHA 512, message   "test":
+r   148934745B351F6367FF5BB56B1848A2F508902A9 s   36214B19444FAB504DBA61D4D6FF2D2F9640F4837 A.2.9.
+ECDSA, 233 Bits (Binary Field, Koblitz Curve)
+NIST K 233 q   8000000000000000000000000000069D5BB915BCD46EFB1AD5F173ABDF
+x   103B2142BDC2A3C3B55080D09DF1808F79336DA2399F5CA7171D1BE9B0 public key: U   xG
+With SHA 1, message   "sample": k
+With SHA 224, message   "sample":
+With SHA 256, message   "sample":
+With SHA 384, message   "sample":
+With SHA 512, message   "sample":
+With SHA 1, message   "test": k
+With SHA 224, message   "test": k   67634D0ABA2C9BF7AE54846F26DCD166E7100654BCE6FDC96667631AA2 r
+66432278891CB594BA8D08A0C556053D15917E53449E03C2EF88474CF6 With SHA 256, message   "test"
+With SHA 384, message   "test": k
+50F1EFEDFFEC1088024620280EE0D7641542E4D4B5D61DB32358FC571B s   4614EAE449927A9EB2FCC42EA3E955B43D194087719511A007EC9217A5 With SHA 512, message   "test":
+ECDSA, 283 Bits (Binary Field, Koblitz Curve)
+1FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE9AE2ED07577265DFF7F94451E061 E163C61 (qlen   281 bits)
+x   06A0777356E87B89BA1ED3A3D845357BE332173C8F7A65BDC7DB4FAB3C4CC79A CC8194E public key: U   xG
+With SHA 1, message   "sample":
+With SHA 224, message   "sample":
+With SHA 256, message   "sample":
+With SHA 384, message   "sample": k
+With SHA 512, message   "sample":
+With SHA 1, message   "test": k
+With SHA 224, message   "test": k   045E13EA645CE01D9B25EA38C8A8A170E04C83BB7F231EE3152209FE10EC8B2E
+With SHA 256, message   "test":
+With SHA 384, message   "test": k
+With SHA 512, message   "test":
+ECDSA, 409 Bits (Binary Field, Koblitz Curve)
+NIST K 409 q   7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE5F83B2D4EA20
+With SHA 1, message   "sample":
+With SHA 224, message   "sample": k
+659652EEAC9747BCAD58034B25362B6AA61836E1BA50E2F37630813050D43457 E62EAB0F13AE197E6CFE0244F983107555E269 With SHA 256
+1A4AB1DD9BAAA21F77C503E1B39E770FFD44718349D54BA4CF08F688CE89D7D7 C5F7213F225944BE5F7C9BA42B8BEE382F8AF9 With SHA 384, message   "sample":
+With SHA 512, message   "sample":
+With SHA 1, message   "test": k
+With SHA 224, message   "test": k
+With SHA 256, message   "test": k
+With SHA 384, message   "test":
+With SHA 512, message   "test": k
+ECDSA, 571 Bits (Binary Field, Koblitz Curve)
+NIST K 571 q   2000000000000000000000000000000000000000000000000000000000000000 0000000131850E1F19A63E4B391A8DB917F4138B630D84BE5D639381E91DEB45
+With SHA 1, message   "sample": k
+With SHA 224, message   "sample": k
+With SHA 256, message   "sample":
+1E6D7FB237040EA1904CCBF0984B81B866DE10D8AA93B06364C4A46F6C9573FA 288C8BDDCC0C6B984E6AA75B42E7BF82FF34D51DFFBD7C87FDBFAD971656185B D12E4B8372F4BF1 s   04F94550072ADA7E8C82B7E83577DD39959577799CDABCEA60E267F36F1BEB98
+With SHA 512, message   "sample": k   0C5EE7070AF55F84EBC43A0D481458CEDE1DCEBB57720A3C92F59B4941A044FE
+With SHA 1, message   "test":
+With SHA 224, message   "test": k   1DA875065B9D94DBE75C61848D69578BCC267935792624F9887B53C9AF9E43CA BFC42E4C3F9A456BA89E717D24F1412F33CFD297A7A4D403B18B5438654C74D5
+With SHA 256, message   "test": k
+With SHA 384, message   "test":
+k   0141B53DC6E569D8C0C0718A58A5714204502FDA146E7E2133E56D19E905B794 13457437095DE13CF68B5CF5C54A1F2E198A55D974FC3E507AFC0ACF95ED391C 93CC79E3B3FE37C r
+With SHA 512, message   "test":
+5EAD24FD530B9103D522609A395AF3EF174C85206F67EF84835ED1632E0F6BAB 718EA90DF9E2DA0 s   0B385004D7596625028E3FDE72282DE4EDC5B4CE33C1127F21CC37527C90B730 7AE7D09281B840AEBCECAA711B00718103DDB32B3E9F6A9FBC6AF23E224A73B9
+ECDSA, 163 Bits (Binary Field, Pseudorandom Curve)
+Key pair: curve: NIST B 163 q   40000000000000000000292FE77E70C12A4234C33
+With SHA 1, message   "sample":
+With SHA 224, message   "sample": k
+With SHA 256, message   "sample": k
+With SHA 384, message   "sample": k
+With SHA 512, message   "sample":
+With SHA 1, message   "test": k   10024F5B324CBC8954BA6ADB320CD3AB9296983B4 r
+With SHA 224, message   "test": k   34F46DE59606D56C75406BFB459537A7CC280AA62 r
+With SHA 256, message   "test": k   38145E3FFCA94E4DDACC20AD6E0997BD0E3B669D2 r
+With SHA 384, message   "test": k
+11811DAFEEA441845B6118A0DFEE8A0061231337D s   36258301865EE48C5C6F91D63F62695002AB55B57 With SHA 512, message   "test": k   25AD8B393BC1E9363600FDA1A2AB6DF40079179A3 r   3B6BB95CA823BE2ED8E3972FF516EB8972D765571 s   13DC6F420628969DF900C3FCC48220B38BE24A541
+ECDSA, 233 Bits (Binary Field, Pseudorandom Curve)
+Key pair: curve: NIST B 233 q   1000000000000000000000000000013E974E72F8A6922031D2603CFE0D7
+With SHA 1, message   "sample":
+With SHA 224, message   "sample":
+With SHA 256, message   "sample":
+With SHA 384, message   "sample": k
+With SHA 512, message   "sample":
+With SHA 1, message   "test":
+With SHA 224, message   "test":
+With SHA 256, message   "test": k   00376886E89013F7FF4B5214D56A30D49C99F53F211A3AFE01AA2BDE12D
+With SHA 384, message   "test": k   03726870DE75613C5E529E453F4D92631C03D08A7F63813E497D4CB3877 r
+With SHA 512, message   "test":
+k   09CE5810F1AC68810B0DFFBB6BEEF2E0053BB937969AE7886F9D064A8C4 r   07E12CB60FDD614958E8E34B3C12DDFF35D85A9C5800E31EA2CC2EF63B1 s   0E8970FD99D836F3CC1C807A2C58760DE6EDAA23705A82B9CB1CE93FECC
+ECDSA, 283 Bits (Binary Field, Pseudorandom Curve)
+Key pair: curve: NIST B 283 q
+3FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEF90399660FC938A90165B042A7CE FADB307 (qlen   282 bits)
+With SHA 1, message   "sample": k
+With SHA 224, message   "sample": k
+With SHA 256, message   "sample":
+With SHA 384, message   "sample": k
+With SHA 512, message   "sample":
+With SHA 1, message   "test": k   0185C57A743D5BA06193CE2AA47B07EF3D6067E5AE1A6469BCD3FC510128BA56
+With SHA 224, message   "test": k
+With SHA 256, message   "test": k   018A7D44F2B4341FEFE68F6BD8894960F97E08124AAB92C1FFBBE90450FCC935
+With SHA 384, message   "test": k
+With SHA 512, message   "test":
+ECDSA, 409 Bits (Binary Field, Pseudorandom Curve)
+Key pair: curve: NIST B 409 q
+x   0494994CC325B08E7B4CE038BD9436F90B5E59A2C13C3140CD3AE07C04A01FC4 89F572CE0569A6DB7B8060393DE76330C624177 public key: U   xG
+With SHA 1, message   "sample":
+With SHA 224, message   "sample": k
+With SHA 256, message   "sample":
+With SHA 384, message   "sample":
+With SHA 512, message   "sample": k   0750926FFAD7FF5DE85DF7960B3A4F9E3D38CF5A049BFC89739C48D42B34FBEE 03D2C047025134CC3145B60AFD22A68DF0A7FB2
+With SHA 1, message   "test":
+With SHA 224, message   "test":
+With SHA 256, message   "test":
+With SHA 384, message   "test":
+With SHA 512, message   "test":
+ECDSA, 571 Bits (Binary Field, Pseudorandom Curve)
+Key pair: curve: NIST B 571 q
+FFFFFFFE661CE18FF55987308059B186823851EC7DD9CA1161DE93D5174D66E8 382E9BB2FE84E47 (qlen   570 bits)
+x   028A04857F24C1C082DF0D909C0E72F453F2E2340CCB071F0E389BCA2575DA19 124198C57174929AD26E348CF63F78D28021EF5A9BF2D5CBEAF6B7CCB6C4DA82 4DD5C82CFB24E11 public key: U   xG
+With SHA 1, message   "sample": k
+7920B4C64A4EAB6282AFE9A459677CDA37FD6DD50BEF18709590FE18B923BDF7 4A66B189A850819 With SHA 224, message   "sample":
+With SHA 256, message   "sample": k   15C2C6B7D1A070274484774E558B69FDFA193BDB7A23F27C2CD24298CE1B22A6
+14D832E03C6D054 s   3D32322559B094E20D8935E250B6EC139AC4AAB77920812C119AF419FB62B332 C8D226C6C9362AE3C1E4AABE19359B8428EA74EC8FBE83C8618C2BCCB6B43FBA A0F2CCB7D303945 With SHA 384, message   "sample": k
+With SHA 512, message   "sample":
+With SHA 1, message   "test": k   019B506FD472675A7140E429AA5510DCDDC21004206EEC1B39B28A688A8FD324 138F12503A4EFB64F934840DFBA2B4797CFC18B8BD0B31BBFF3CA66A4339E4EF 9D771B15279D1DC r   133F5414F2A9BC41466D339B79376038A64D045E5B0F792A98E5A7AA87E0AD01
+With SHA 224, message   "test": k
+2220F282F4206D223226705608688B20B8BA86D8DFE54F07A37EC48F253283AC 33C3F5102C8CC3E r   3048E76506C5C43D92B2E33F62B33E3111CEEB87F6C7DF7C7C01E3CDA28FA5E8 BE04B5B23AA03C0C70FEF8F723CBCEBFF0B7A52A3F5C8B84B741B4F6157E69A5 FB0524B48F31828 s
+With SHA 256, message   "test":
+D70EE400F26ACA5E7D73F534A14568478E59D00594981ABE6A1BA18554C13EB5 E03921E4DC98333 With SHA 384, message   "test":
+k   2A77E29EAD9E811A9FDA0284C14CDFA1D9F8FA712DA59D530A06CDE54187E250 AD1D4FB5788161938B8DE049616399C5A56B0737C9564C9D4D845A4C6A7CDFCB FF0F01A82BE672E r
+4BE682B08BFE405DAD5F37D0A2C59015BA41027E24B99F8F75A70B6B7385BF39 BBEA02513EB880C With SHA 512, message   "test":
+We include here a sample implementation of deterministic DSA.
+It is meant for illustration purposes; for instance, this code makes no attempt at avoiding side channel leakage of the private key.
+It is written in the Java programming language.
+The actual generation of the "random" value k is done in the computek() method.
+The Java virtual machine (JVM) is assumed to provide the implementation of the hash function and of HMAC.
+; import java.security.InvalidKeyException; import java.security.
+This is a sample   implementation designed to illustrate how deterministic DSA   chooses the pseudorandom value k when signing a given message.
+This implementation was NOT optimized or hardened against   side channel leaks.
+An instance is created with a hash function name, which must be   supported by the underlying Java virtual machine ("SHA 1" and   "SHA 256" should work everywhere).
+The data to sign is input   through the {@code update()} methods.
+The private key   MUST be set before generating the signature itself, but message   data can be input before setting the key.
+Instances are NOT thread safe.
+However, once a signature has   been generated, the same instance can be used again for another   signature; {@link #setPrivateKey} need not be called again if the   private key has not changed.
+{@link #reset} can also be called to   cancel previously input data.
+Generating a signature with {@link
+#sign} (not {@link #signHash}) also implicitly causes a   reset.
+Copyright (c) 2013 IETF Trust and the persons identified as   authors of the code.
+Redistribution and use in source and binary forms, with or without   modification, is permitted pursuant to, and subject to the license
+terms contained in, the Simplified BSD License set forth in Section   4.c of the IETF Trust's Legal Provisions Relating to IETF Documents
+Technical remarks and questions can be addressed to:   pornin@bolet.org
+/ public class DeterministicDSA { private String macName; private MessageDigest dig; private Mac hmac; private BigInteger p, q, g,
+x; private int qlen, rlen, rolen, holen; private byte[]
+The name is used to obtain from the JVM an implementation   of the hash function and an implementation of HMAC.
+IllegalArgumentException  on unsupported name  / public DeterministicDSA(String hashName)
+macName   "Hmac"   hashName; } else
+{ StringBuilder sb   new StringBuilder(); sb.append("Hmac"); int n   hashName.length
+i   0; i < n;
+key parameter: subgroup order   @param g
+/ public void setPrivateKey(BigInteger p, BigInteger q, BigInteger g, BigInteger x)
+We do not   check primality of p or q because that would   be too expensive.
+We reject keys where q is longer than 999 bits,   because it would complicate signature encoding.
+Normal DSA keys do not have a q longer than 256   bits anyway.
+/ if (p   null    q
+] in) { BigInteger v   new BigInteger(1, in); int vlen
+the secret key used for HMAC.
+the new secret key  / private void setHmacKey(byte
+the pseudorandom k to use  / private BigInteger
+The private   key was already processed (into field bx[]).
+Whenever K is updated, we reset the   current HMAC key.
+, we will gather   rlen bits, i.e., rolen octets.
+@param in   the extra input byte
+the extra input length (in bytes)
+{@link #setPrivateKey} MUST have   been called.
+This engine is then reset (made ready for a new   signature generation).
+{@link #setPrivateKey} MUST   have been called.
+The signature is computed over the   provided hash value (data is assumed to have been hashed   externally).
+If the hash output is longer than the subgroup order   (the length of q, in bits, denoted 'qlen')
+, then the   provided value {@code h1} can be truncated, provided that
+at least qlen leading bits are preserved.
+In other words,   bit values in {@code h1} beyond the first qlen bits are   ignored.
+ASN.1 SEQUENCE of   two INTEGERs.
+The conditions on q   imply that the encoded version of r and   s is no longer than 127 bytes for each,   including DER tag and length.
+3 : 2); byte[] sig   new byte[slen];
+; } catch (ArithmeticException ae) { throw new IllegalArgumentException( "DSA error (bad key ?)
+The current private key,   if one was set, is kept unchanged.

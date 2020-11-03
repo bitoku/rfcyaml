@@ -1,0 +1,229 @@
+Abstract This document specifies a negotiation mechanism for the Generic Security Service Application Program Interface (GSS API), which is described in RFC 2743.
+GSS API peers can use this negotiation mechanism to choose from a common set of security mechanisms.
+If per message integrity services are available on the established mechanism context, then the negotiation is protected against an attacker that forces the selection of a mechanism not desired by the peers.
+This mechanism replaces RFC 2478 in order to fix defects in that specification and to describe how to inter operate with implementations of that specification that are commonly deployed on the Internet.
+The GSS API [RFC2743] provides a generic interface that can be layered atop different security mechanisms
+such that, if communicating peers acquire GSS API credentials for the same security mechanism, then a security context may be established between them (subject to policy).
+However, GSS API does not prescribe the method by which GSS API peers can establish whether they have a common security mechanism.
+The Simple and Protected GSS API Negotiation (SPNEGO) mechanism defined here is a pseudo security mechanism that enables GSS API peers to determine in band whether their credentials support a common set of one or more GSS API security mechanisms; if so, it invokes the normal security context establishment for a selected common security mechanism.
+This is most useful for applications that depend on GSS  API implementations and share multiple mechanisms between the peers.
+The SPNEGO mechanism negotiation is based on the following model: the initiator proposes a list of security mechanism(s), in decreasing preference order (favorite choice first), the acceptor (also known as the target) either accepts the initiator's preferred security mechanism (the first in the list) or chooses one of the available mechanisms from the offered list; if neither is acceptable, the acceptor rejects the proposed value(s).
+The target then informs the initiator of its choice.
+Once a common security mechanism is chosen, mechanism specific options MAY be negotiated as part of the selected mechanism's context establishment.
+These negotiations (if any) are internal to the mechanism and opaque to the SPNEGO protocol.
+As such, they are outside the scope of this document.
+If per message integrity services [RFC2743] are available on the established mechanism security context, then the negotiation is protected to ensure that the mechanism list has not been modified.
+In cases where an attacker could have materially influenced the negotiation, peers exchange message integrity code
+(MIC) tokens to confirm that the mechanism list has not been modified.
+If no action of an attacker could have materially modified the outcome of the negotiation, the exchange of MIC tokens is optional (see Section 5).
+Allowing MIC tokens to be optional in this case provides interoperability with existing implementations while still protecting the negotiation.
+This interoperability comes at the cost of increased complexity.
+SPNEGO relies on the concepts developed in the GSS API specification [RFC2743].
+The negotiation data is encapsulated in context level tokens.
+Therefore, callers of the GSS API do not need to be aware of the existence of the negotiation tokens, but only of the new pseudo  security mechanism.
+A failure in the negotiation phase causes a major status code to be returned: GSS S BAD MECH.
+Conventions Used in This Document
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "
+SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC2119].
+When the established mechanism context provides integrity protection, the mechanism negotiation can be protected.
+When acquiring negotiated security mechanism tokens, per message integrity services are always requested by the SPNEGO mechanism.
+When the established mechanism context supports per message integrity services, SPNEGO guarantees that the selected mechanism is mutually preferred.
+This section describes the negotiation process of this protocol.
+The first negotiation token sent by the initiator contains an ordered list of mechanisms in decreasing preference order (favorite mechanism first), and optionally the initial mechanism token for the preferred mechanism of the initiator (i.e., the first in the list).
+(Note that the list MUST NOT contain this SPNEGO mechanism itself or any mechanism for which the client does not have appropriate credentials.)
+The target then processes the token from the initiator.
+one of four possible states (as defined in Section 4.2.2) being returned in the reply message: accept completed, accept  incomplete, reject, or request mic.
+A reject state will terminate the negotiation; an accept completed state indicates that the initiator selected mechanism was acceptable to the target, and that the security mechanism token embedded in the first negotiation message was sufficient to complete the authentication; an accept  incomplete state indicates that further message exchange is needed but the MIC token exchange (as described in Section 5) is OPTIONAL; a request mic state (this state can only be present in the first reply message from the target) indicates that the MIC token exchange is REQUIRED if per message integrity services are available.
+Unless the preference order is specified by the application, the policy by which the target chooses a mechanism is an implementation  specific, local matter.
+In the absence of an application specified preference order or other policy, the target SHALL choose the first mechanism in the initiator proposed list for which it has valid credentials.
+In case of a successful negotiation, the security mechanism in the first reply message represents the value suitable for the target that was chosen from the list offered by the initiator.
+In case of an unsuccessful negotiation, the reject state is returned, and the generation of a context level negotiation token is OPTIONAL.
+Once a mechanism has been selected, context establishment tokens specific to the selected mechanism are carried within the negotiation tokens.
+Lastly, MIC tokens may be exchanged to ensure the authenticity of the mechanism list received by the target.
+To avoid conflicts with the use of MIC tokens by SPNEGO, partially  established contexts MUST NOT be used for per message calls.
+To guarantee this, the prot ready state [RFC2743] MUST be set to false on return from GSS Init sec context() and GSS Accept sec context(), even if the underlying mechanism returned true.
+Note that in order to avoid an extra round trip, the first context establishment token of the initiator's preferred mechanism SHOULD be embedded in the initial negotiation message (as defined in Section 4.2).
+(This mechanism token is referred to as the optimistic mechanism token in this document.)
+In addition, using the optimistic mechanism token allows the initiator to recover from non fatal errors encountered when trying to produce the first mechanism token before a mechanism can be selected.
+In cases where the initiator's preferred mechanism is not likely to be selected by the acceptor because of the significant cost of its generation, implementations MAY omit the optimistic mechanism token.
+The basic form of the procedure assumes that per message integrity services are available on the established mechanism context, and it is summarized as follows:
+The GSS API initiator invokes
+GSS Init sec context() as normal, but requests that SPNEGO be used.
+SPNEGO can either be explicitly requested or accepted as the default mechanism.
+The initiator GSS API implementation generates a negotiation token containing a list of one or more security mechanisms that are available based on the credentials used for this context establishment, and optionally on the initial mechanism token for the first mechanism in the list.
+The GSS API initiator application sends the token to the target application.
+The GSS API target application passes the token by invoking GSS Accept sec context().
+The acceptor will do one of the following: I)
+If none of the proposed mechanisms are acceptable, the negotiation SHALL be terminated.
+GSS Accept sec context indicates GSS S BAD MECH.
+The acceptor MAY output a negotiation token containing a reject state.
+If either the initiator's preferred mechanism is not accepted by the target or this mechanism is accepted but is not the acceptor's most preferred mechanism (i.e., the MIC token exchange as described in Section 5 is required), GSS Accept sec context() indicates GSS S CONTINUE NEEDED.
+The acceptor MUST output a negotiation token containing a request mic state.
+Otherwise, if at least one additional negotiation token from the initiator is needed to establish this context, GSS Accept sec context() indicates GSS S CONTINUE NEEDED and outputs a negotiation token containing an accept incomplete state.
+Otherwise, no additional negotiation token from the initiator is needed to establish this context, GSS Accept sec context() indicates GSS S COMPLETE and outputs a negotiation token containing an accept complete state.
+If the initiator's preferred mechanism is accepted, and an optimistic mechanism token was included, this mechanism token MUST be passed to the selected mechanism by invoking GSS Accept sec context().
+If a response mechanism token is returned, it MUST be included in the response negotiation token.
+Otherwise, the target will not generate a response mechanism token in the first reply.
+The GSS API target application returns the negotiation token to the initiator application.
+The GSS API initiator application passes the token by invoking GSS Init sec context().
+The security context initialization is then continued according to the standard GSS API conventions for the selected mechanism, where the tokens of the selected mechanism are encapsulated in negotiation messages (see Section 4) until GSS S COMPLETE is returned for both the initiator and the target by the selected security mechanism.
+MIC tokens are then either skipped or exchanged according to Section 5.
+Note that the   req flag input parameters for context establishment are relative to the selected mechanism, as are the   state output parameters.
+That is, these parameters are not applicable to the negotiation process per se.
+On receipt of a negotiation token on the target side, a GSS API implementation that does not support negotiation would indicate the GSS S BAD MECH status as though a particular basic security mechanism had been requested and was not supported.
+When a GSS API credential is acquired for the SPNEGO mechanism, the implementation SHOULD produce a credential element for the SPNEGO mechanism that internally contains GSS API credential elements for all mechanisms for which the principal has credentials available, except for any mechanisms that are not to be negotiated, per implementation , site , or application specific policy.
+See Appendix B for interfaces for expressing application policy.
+The type definitions in this section assume an ASN.1 module definition of the following form: SPNEGOASNOneSpec { iso(1) identified organization(3)
+) spec2(2) } DEFINITIONS EXPLICIT TAGS ::
+rest of definitions here END
+This specifies that the tagging context for the module will be explicit and non automatic.
+The encoding of the SPNEGO protocol messages shall obey the Distinguished Encoding Rules (DER) of ASN.1, as described in [X690].
+In this negotiation model, each OID represents one GSS API mechanism or one variant (see Section 6) of it, according to [RFC2743].
+OBJECT IDENTIFIER   OID represents each security mechanism as suggested by
+The syntax of the initial negotiation tokens follows the initialContextToken syntax defined in Section 3.1 of [RFC2743].
+The SPNEGO pseudo mechanism is identified by the Object Identifier iso.org.dod.internet.security.mechanism.snego (1.3.6.1.5.5.2).
+Subsequent tokens MUST NOT be encapsulated in this GSS API generic token framing.
+This section specifies the syntax of the inner token for the initial message and the syntax of subsequent context establishment tokens.
+This is the syntax for the inner token of the initial negotiation message.
+This field contains one or more security mechanisms available for the initiator, in decreasing preference order (favorite choice first).
+reqFlags This field, if present, contains the service options that are requested to establish the context (the req flags parameter of GSS Init sec context()).
+This field is inherited from RFC 2478 and is not integrity protected.
+For implementations of this specification, the initiator SHOULD omit this reqFlags field and the acceptor MUST ignore this reqFlags field.
+The size constraint on the ContextFlags ASN.1 type only applies to the abstract type.
+The ASN.1 DER requires that all trailing zero bits be truncated from the encoding of a bit string type whose abstract definition includes named bits.
+Implementations should not expect to receive exactly 32 bits in an encoding of ContextFlags.
+This field, if present, contains the optimistic mechanism token.
+This field, if present, contains an MIC token for the mechanism list in the initial negotiation message.
+This MIC token is computed according to Section 5.
+This field, if present, contains the state of the negotiation.
+This can be: accept completed No further negotiation message from the peer is expected, and the security context is established for the sender.
+At least one additional negotiation message from the peer is needed to establish the security context.
+reject The sender terminates the negotiation.
+The sender indicates that the exchange of MIC tokens, as described in Section 5, will be REQUIRED if per message integrity services are available on the mechanism context to be established.
+This value SHALL only be present in the first reply from the target.
+This field is REQUIRED in the first reply from the target, and is OPTIONAL thereafter.
+When negState is absent, the actual state should be inferred from the state of the negotiated mechanism context.
+This field SHALL only be present in the first reply from the target.
+It MUST be one of the mechanism(s) offered by the initiator.
+ResponseToken This field, if present, contains tokens specific to the mechanism selected.
+This field, if present, contains an MIC token for the mechanism list in the initial negotiation message.
+This MIC token is computed according to Section 5.
+If the mechanism selected by the negotiation does not support integrity protection, then no mechlistMIC token is used.
+Otherwise, if the accepted mechanism is the most preferred mechanism of both the initiator and the acceptor, then the MIC token exchange, as described later in this section, is OPTIONAL.
+A mechanism is the acceptor's most preferred mechanism if there is no other mechanism that the acceptor would have preferred over the accepted mechanism
+had it been present in the mechanism list.
+In all other cases, MIC tokens MUST be exchanged after the mechanism context is fully established.
+The mechlistMIC token (or simply the MIC token) is computed over the mechanism list in the initial negotiation message by invoking GSS GetMIC() as follows: the input context handle is the established mechanism context, the input qop req is 0, and the input message is the DER encoding of the value of type MechTypeList, which is contained in the "mechTypes" field of the NegTokenInit.
+The input message is NOT the DER encoding of the type "[0] MechTypeList".
+If the selected mechanism exchanges an even number of mechanism tokens (i.e., the acceptor sends the last mechanism token), the acceptor does the following when generating the negotiation message containing the last mechanism token: if the MIC token exchange is optional, GSS Accept sec context() either indicates GSS S COMPLETE and does not include a mechlistMIC token, or indicates GSS S CONTINUE NEEDED and includes a mechlistMIC token and an accept incomplete state; if the MIC token exchange is required, GSS Accept sec context() indicates GSS S CONTINUE NEEDED and includes a mechlistMIC token.
+Acceptors that wish to be compatible with legacy Windows SPNEGO implementations, as described in Appendix C, should not generate a mechlistMIC token when the MIC token exchange is not required.
+The initiator then processes the last mechanism token, and does one of the following: I)
+If a mechlistMIC token was included and is correctly verified, GSS Init sec context() indicates GSS S COMPLETE.
+The output negotiation message contains a mechlistMIC token and an accept complete state.
+The acceptor MUST then verify this mechlistMIC token.
+If a mechlistMIC token was included but is incorrect, the negotiation SHALL be terminated.
+GSS Init sec context() indicates GSS S DEFECTIVE TOKEN.
+If no mechlistMIC token was included and the MIC token exchange is not required, GSS Init sec context() indicates GSS S COMPLETE with no output token.
+If no mechlistMIC token was included but the MIC token exchange is required, the negotiation SHALL be terminated.
+GSS Accept sec context() indicates GSS S DEFECTIVE TOKEN.
+In the case that the chosen mechanism exchanges an odd number of mechanism tokens (i.e., the initiator sends the last mechanism token), the initiator does the following when generating the negotiation message containing the last mechanism token:
+if the negState was request mic in the first reply from the target, a mechlistMIC token MUST be included; otherwise, the mechlistMIC token is OPTIONAL.
+(Note that the MIC token exchange is required if a mechanism other than the initiator's first choice is chosen.)
+In the case that the optimistic mechanism token is the only mechanism token for the initiator's preferred mechanism, the mechlistMIC token is OPTIONAL.
+Whether the mechlistMIC token is included, GSS Init sec context() indicates GSS S CONTINUE NEEDED.
+Initiators that wish to be compatible with legacy Windows SPNEGO implementations, as described in Appendix C, should not generate a mechlistMIC token when the MIC token exchange is not required.
+The acceptor then processes the last mechanism token and does one of the following: I)
+If a mechlistMIC token was included and is correctly verified, GSS Accept sec context() indicates GSS S COMPLETE.
+The output negotiation message contains a mechlistMIC token and an accept complete state.
+The initiator MUST then verify this mechlistMIC token.
+If a mechlistMIC token was included but is incorrect, the negotiation SHALL be terminated.
+GSS Accept sec context() indicates GSS S DEFECTIVE TOKEN.
+If no mechlistMIC token was included and the mechlistMIC token exchange is not required, GSS Accept sec context() indicates GSS S COMPLETE.
+The output negotiation message contains an accept complete state.
+In the case that the optimistic mechanism token is also the last mechanism token (when the initiator's preferred mechanism is accepted by the target) and the target sends a request mic state but the initiator did not send a mechlistMIC token, the target then MUST include a mechlistMIC token in that first reply.
+GSS Accept sec context() indicates GSS S CONTINUE NEEDED.
+The initiator MUST verify the received mechlistMIC token and generate a mechlistMIC token to send back to the target.
+The target SHALL, in turn, verify the returned mechlistMIC token and complete the negotiation.
+If no mechlistMIC token was included and the acceptor sent a request mic state in the first reply message (the exchange of MIC tokens is required), the negotiation SHALL be terminated.
+GSS Accept sec context() indicates GSS S DEFECTIVE TOKEN.
+Extensibility Two mechanisms are provided for extensibility.
+First, the ASN.1 structures in this specification MAY be expanded by IETF standards action.
+Implementations receiving unknown fields MUST ignore these fields.
+Secondly, OIDs corresponding to a desired mechanism attribute (i.e., mechanism variants) may be included in the set of preferred mechanisms by an initiator.
+The acceptor can choose to honor this request by preferring mechanisms that have the included attributes.
+Future work within the Kitten working group is expected to standardize common attributes that SPNEGO mechanisms may wish to support.
+At this time, it is sufficient to say that initiators MAY include OIDs that do not correspond to mechanisms.
+Such OIDs MAY influence the acceptor's choice of mechanism.
+As discussed in Section 5, if there are mechanisms that, if present in the initiator's list of mechanisms, might be preferred by the acceptor instead of the initiator's preferred mechanism, the acceptor MUST demand the MIC token exchange.
+As the consequence, acceptors MUST demand the MIC token exchange if they support negotiation of attributes not available in the initiator's preferred mechanism, regardless of whether the initiator actually requested these attributes.
+In order to produce the MIC token for the mechanism list, the mechanism must provide integrity protection.
+When the selected mechanism does not support integrity protection, the negotiation is vulnerable: an active attacker can force it to use a security mechanism that is not mutually preferred but is acceptable to the target.
+This protocol provides the following guarantees when per message integrity services are available on the established mechanism context, and the mechanism list was altered by an adversary such that a mechanism that is not mutually preferred could be selected: a)
+If the last mechanism token is sent by the initiator, both peers shall fail; b)
+If the last mechanism token is sent by the acceptor, the acceptor shall not complete and the initiator, at worst, shall complete with its preferred mechanism being selected.
+The negotiation may not be terminated if an alteration was made but had no material impact.
+The protection of the negotiation depends on the strength of the integrity protection.
+In particular, the strength of SPNEGO is no stronger than the integrity protection of the weakest mechanism acceptable to GSS API peers.
+Note that where there exist multiple mechanisms with similar context tokens, but different semantics, such that some or all of the mechanisms' context tokens can be easily altered so that one mechanism's context tokens may pass for another of the similar mechanism's context tokens, then there may exist a downgrade or similar attacks.
+For example, if a given family of mechanisms uses the same context token syntax for two or more variants and depends on the OID in the initial token's pseudo ASN.1/DER wrapper, but does not provide integrity protection for that OID, then there may exist an attack against those mechanisms.
+SPNEGO does not generally defeat such attacks.
+In all cases, the communicating peers are exposed to the denial of service threat.
+SPNEGO ASN.1 Module SPNEGOASNOneSpec { iso(1) identified
+) spec2(2) } DEFINITIONS EXPLICIT TAGS ::
+OBJECT IDENTIFIER   OID represents each security mechanism as suggested by
+In order to provide to a GSS API caller (the initiator or the target or both) with the ability to choose among the set of supported mechanisms, a reduced set of mechanisms for negotiation and two additional APIs are defined:  GSS Get neg mechs() indicates the set of security mechanisms available on the local system to the caller for negotiation, for which appropriate credentials are available.
+GSS Set neg mechs() specifies the set of security mechanisms to be used on the local system by the caller for negotiation, for the given credentials.
+GSS Set neg mechs Call Inputs:  cred handle CREDENTIAL HANDLE,
+mech set SET OF OBJECT
+IDENTIFIER Outputs:  major status INTEGER,  minor status INTEGER Return
+GSS S COMPLETE indicates that the set of security mechanisms available for negotiation has been set to mech set.
+GSS S FAILURE indicates that the requested operation could not be performed for reasons unspecified at the GSS API level.
+This allows callers to specify the set of security mechanisms that may be negotiated with the credential identified by cred handle.
+This call is intended to support specialized callers who need to restrict the set of negotiable security mechanisms from the set of all security mechanisms available to the caller (based on available credentials).
+Note that if more than one mechanism is specified in mech set, the order in which those mechanisms are specified implies a relative preference.
+GSS Get neg mechs Call
+credentials Outputs:  major status INTEGER,  minor status INTEGER,
+mech set SET OF OBJECT IDENTIFIER Return major status codes:
+GSS S COMPLETE indicates that the set of security mechanisms available for negotiation has been returned in mech set.
+GSS S FAILURE indicates that the requested operation could not be performed for reasons unspecified at the GSS API level.
+This allows callers to determine the set of security mechanisms available for negotiation with the credential identified by cred handle.
+This call is intended to support specialized callers who need to reduce the set of negotiable security mechanisms from the set of supported security mechanisms available to the caller (based on available credentials).
+mechs() function indicates the full set of mechanism types available on the local system.
+Since this call has no input parameter, the returned set is not necessarily available for all credentials.
+Appendix C.  Changes since RFC 2478 SPNEGO implementations in Microsoft Windows 2000/Windows XP/Windows Server 2003 have the following behavior:
+no mechlistMIC is produced and mechlistMIC is not processed if one is provided; if the initiator sends the last mechanism token, the acceptor will send back a negotiation token with an accept complete state and no mechlistMIC
+In addition, an incorrect OID (1.2.840.48018.1.2.2) can be used to identify the GSS API Kerberos Version 5 mechanism.
+The following changes have been made to be compatible with these legacy implementations.
+NegTokenTarg is changed to negTokenResp and is the message format for all subsequent negotiation tokens.
+NegTokenInit is the message for the initial negotiation message, and only that message.
+mechTypes in negTokenInit is not optional.
+If the selected mechanism is also the most preferred mechanism for both peers, it is safe to omit the MIC tokens.
+If at least one of the two peers implements the updated pseudo mechanism in this document, the negotiation is protected.
+The following changes are to address problems in RFC 2478.
+reqFlags is not protected, therefore it should not impact the negotiation.
+GSS GetMIC() input is clarified.
+Per message integrity services are requested for the negotiated mechanism.
+Two MIC tokens are exchanged, one in each direction.
+An implementation that conforms to this specification will not inter operate with a strict RFC 2748 implementation.
+Even if the new implementation always sends a mechlistMIC token, it will still fail to inter operate.
+If it is a server, it will fail because it requests a mechlistMIC token using an option that older implementations do not support.
+Clients will tend to fail as well.
+As an alternative to the approach chosen in this specification, we could have documented a correct behavior that is fully backward compatible with RFC 2478 and included an appendix on how to inter  operate with existing incorrect implementations of RFC 2478.
+As a practical matter, the SPNEGO implementers within the IETF have valued interoperability with the Microsoft implementations.
+We were unable to choose to maintain reasonable security guarantees, to maintain interoperability with the Microsoft implementations, and to maintain interoperability with correct implementations of RFC 2478.
+The working group was not aware of any RFC 2478 implementations deployed on the Internet.
+Even if there are such implementations, it is unlikely that they will inter operate because of a critical flaw in the description of the encoding of the mechanism list in RFC 2478.
+With the approach taken in this specification, security is ensured between new implementations all the time while maintaining interoperability with the implementations deployed within the IETF community.
+The working group believes that this justifies breaking compatibility with a correct implementation of RFC 2478.
+The following is an example to illustrate how the mechListMIC field would be computed.
+The initial part of the DER encoding of NegTokenInit is constructed as follows (the "nn" are length encodings, possibly longer than one octet): 30   identifier octet for constructed SEQUENCE (NegTokenInit)
+contents octets of the SEQUENCE begin with   DER encoding of "[0] MechTypeList":
+A0   identifier octet for constructed [0]
+length   contents of the constructed [0] are DER encoding   of MechTypeList (which is a SEQUENCE): 30   identifier octet for constructed SEQUENCE nn
+contents octets of the SEQUENCE begin with   DER encoding of OBJECT IDENTIFIER: 06   identifier octet for primitive OBJECT IDENTIFIER 09
+length 2A 86 48 86 F7 12
+Kerberos V5   {1 2 840 113554 1 2 2}
+If a mechlistMIC needs to be generated (according to the rules in Section 5), it is computed by using the DER encoding of the type MechTypeList data from the initiator's NegTokenInit token as input to the GSS GetMIC() function.
+In this case, the MIC would be computed over the following octets: DER encoding of MechTypeList: 30 nn 06 09 2A 86 48 86 F7 12 01 02 02 ...
+Note that the identifier octet and length octet(s) for constructed [0]
+(A0 nn) are not included in the MIC computation.

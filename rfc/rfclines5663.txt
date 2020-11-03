@@ -1,0 +1,339 @@
+Abstract Parallel NFS (pNFS) extends
+Network File Sharing version 4
+(NFSv4) to allow clients to directly access file data on the storage used by the NFSv4 server.
+This ability to bypass the server for data access can increase both performance and parallelism, but requires additional client functionality for data access, some of which is dependent on the class of storage used.
+The main pNFS operations document specifies storage class independent extensions to NFS; this document specifies the additional extensions (primarily data structures) for use of
+pNFS with block  and volume based storage.
+Introduction Figure 1 shows the overall architecture of a Parallel NFS (pNFS) system:
+The overall approach is that pNFS enhanced clients obtain sufficient information from the server to enable them to access the underlying storage (on the storage systems) directly.
+See the pNFS portion of [NFSv4.1] for more details.
+This document is concerned with access from pNFS clients to storage systems over storage protocols based on blocks and volumes, such as the Small Computer System Interface (SCSI) protocol family (e.g., parallel SCSI, Fibre Channel Protocol (FCP) for Fibre Channel, Internet SCSI (iSCSI), Serial Attached SCSI (SAS), and Fibre Channel over Ethernet (FCoE)).
+This class of storage is referred to as block/volume storage.
+While the Server to Storage System protocol, called the "Control Protocol", is not of concern for interoperability here, it will typically also be a block/volume protocol when clients use block/ volume protocols.
+Conventions Used in This Document
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "
+SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119
+The following definitions are provided for the purpose of providing an appropriate context for the reader.
+Byte This document defines a byte as an octet, i.e., a datum exactly 8 bits in length.
+Client The "client" is the entity that accesses the NFS server's resources.
+The client may be an application that contains the logic to access the NFS server directly.
+The client may also be the traditional operating system client that provides remote file system services for a set of applications.
+Server The "server" is the entity responsible for coordinating client access to a set of file systems and is identified by a server owner.
+The external data representation (XDR) description and scripts for extracting the XDR description are Code Components as described in Section 4 of "Legal Provisions Relating to IETF Documents" [LEGAL].
+These Code Components are licensed according to the terms of Section 4 of "Legal Provisions Relating to IETF Documents".
+This document contains the XDR
+([XDR]) description of the NFSv4.1 block layout protocol.
+The XDR description is embedded in this document in a way that makes it simple for the reader to extract into a ready to compile form.
+The reader can feed this document into the following shell script to produce the machine readable XDR description of the NFSv4.1 block layout: #!
+That is, if the above script is stored in a file called "extract.sh", and this document is in a file called "spec.txt", then the reader can do:
+sh extract.sh < spec.txt >
+This code was derived from RFC 5663.
+Please reproduce this note if possible.
+IETF Trust and the persons identified ///
+Neither the name of Internet Society, IETF or IETF ///
+IS PROVIDED BY THE COPYRIGHT HOLDERS ///
+AS IS" AND ANY EXPRESS
+FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+EVENT SHALL THE COPYRIGHT OWNER
+NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+HOWEVER CAUSED AND ON ANY THEORY OF ///
+IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+The XDR code contained in this document depends on types from the nfsv41.x file.
+This includes both nfs types that end with a 4, such as offset4, length4, etc., as well as more generic types such as uint32 t and uint64 t. 2.
+The fundamental storage abstraction supported by block/volume storage is a storage volume consisting of a sequential series of fixed size blocks.
+This can be thought of as a logical disk; it may be realized by the storage system as a physical disk, a portion of a physical disk, or something more complex (e.g., concatenation, striping, RAID, and combinations thereof) involving multiple physical disks or portions thereof.
+A pNFS layout for this block/volume class of storage is responsible for mapping from an NFS file (or portion of a file) to the blocks of storage volumes that contain the file.
+The blocks are expressed as extents with 64 bit offsets and lengths using the existing NFSv4 offset4 and length4 types.
+Clients must be able to perform I/
+O to the block extents without affecting additional areas of storage (especially important for writes); therefore, extents MUST be aligned to 512 byte boundaries, and writable extents MUST be aligned to the block size used by the NFSv4 server in managing the actual file system (4 kilobytes and 8 kilobytes are common block sizes).
+This block size is available as the NFSv4.1 layout blksize attribute.
+Readable extents SHOULD be aligned to the block size used by the NFSv4 server, but in order to support legacy file systems with fragments, alignment to 512 byte boundaries is acceptable.
+The pNFS operation for requesting a layout (LAYOUTGET) includes the "layoutiomode4 loga iomode" argument, which indicates whether the requested layout is for read only use or read write use.
+A read only layout may contain holes that are read as zero, whereas a read write layout will contain allocated, but un initialized storage in those holes (read as zero, can be written by client).
+This document also supports client participation in copy on write (e.g., for file systems with snapshots) by providing both read only and un  initialized storage for the same range in a layout.
+Reads are initially performed on the read only storage, with writes going to the un initialized storage.
+After the first write that initializes the un initialized storage, all reads are performed to that now  initialized writable storage, and the corresponding read only storage is no longer used.
+The block/volume layout solution expands the security responsibilities of the pNFS clients, and there are a number of environments where the mandatory to implement security properties for NFS cannot be satisfied.
+The additional security responsibilities of the client follow, and a full discussion is present in Section 3, "Security Considerations".
+Typically, storage area network (SAN) disk arrays and SAN protocols provide access control mechanisms (e.g., Logical Unit Number (LUN) mapping and/or masking), which operate at the granularity of individual hosts, not individual blocks.
+For this reason, block based protection must be provided by the client software.
+Similarly, SAN disk arrays and SAN protocols typically are not able to validate NFS locks that apply to file regions.
+For instance, if a file is covered by a mandatory read only lock, the server can ensure that only readable layouts for the file are granted to pNFS clients.
+However, it is up to each pNFS client to ensure that the readable layout is used only to service read requests, and not to allow writes to the existing parts of the file.
+Since block/volume storage systems are generally not capable of enforcing such file based security, in environments where pNFS clients cannot be trusted to enforce such policies, pNFS block/volume storage layouts SHOULD NOT be used.
+Volume Identification Storage systems such as storage arrays can have multiple physical network ports that need not be connected to a common network, resulting in a pNFS client having simultaneous multipath access to the same storage volumes via different ports on different networks.
+The networks may not even be the same technology   for example, access to the same volume via
+both iSCSI and Fibre Channel is possible, hence network addresses are difficult to use for volume identification.
+For this reason, this pNFS block layout identifies storage volumes by content, for example providing the means to match (unique portions of) labels used by volume managers.
+Volume identification is performed by matching one or more opaque byte sequences to specific parts of the stored data.
+Any block pNFS system using this layout MUST support a means of content based unique volume identification that can be employed via the data structure given here.
+There are no restrictions on alignment (e.g., neither bsc sig offset nor the length are required to be multiples of 4).
+The bsc sig offset is a signed quantity, which, when positive, represents an byte offset from the start of the volume, and when negative represents an byte offset from the end of the volume.
+Negative offsets are permitted in order to simplify the client implementation on systems where the device label is found at a fixed offset from the end of the volume.
+If the server uses negative offsets to describe the signature, then the client and server MUST NOT see different volume sizes.
+Negative offsets SHOULD NOT be used in systems that dynamically resize volumes unless care is taken to ensure that the device label is always present at the offset from the end of the volume as seen by the clients.
+A signature is an array of up to "PNFS BLOCK MAX SIG COMP" (defined below) signature components.
+The client MUST NOT assume that all signature components are co located within a single sector on a block device.
+The pNFS client block layout driver uses this volume identification to map pnfs block volume type4 PNFS BLOCK VOLUME SIMPLE deviceid4s to its local view of a LUN.
+The pNFS block server volume topology is expressed as an arbitrary combination of base volume types enumerated in the following data structures.
+The individual components of the topology are contained in an array and components may refer to other components by using array indices.
+PNFS BLOCK VOLUME SLICE    1,
+PNFS BLOCK VOLUME CONCAT   2,
+/  volume is striped across ///
+The types of aggregations that are allowed are stripes, concatenations, and slices.
+Note that the volume topology expressed in the pnfs block
+deviceaddr4 data structure will always resolve to a set of pnfs block volume type4 PNFS BLOCK VOLUME SIMPLE.
+The array of volumes is ordered such that the root of the volume hierarchy is the last element of the array.
+Concat, slice, and stripe volumes MUST refer to volumes defined by lower indexed elements of the array.
+The "pnfs block device addr4" data structure is returned by the server as the storage protocol specific opaque field da addr body in the "device addr4" structure by a successful GETDEVICEINFO operation [NFSv4.1].
+As noted above, all device addr4 structures eventually resolve to a set of volumes of type PNFS BLOCK VOLUME SIMPLE.
+These volumes are each uniquely identified by a set of signature components.
+Complicated volume hierarchies may be composed of dozens of volumes each with several signature components; thus, the device address may require several kilobytes.
+The client SHOULD be prepared to allocate a large buffer to contain the result.
+In the case of the server returning
+NFS4ERR TOOSMALL, the client SHOULD allocate a buffer of at least gdir mincount bytes to contain the expected result and retry the GETDEVICEINFO request.
+The server in response to a GETDEVICELIST request typically will return a single "deviceid4" in the gdlr deviceid list array.
+This is because the deviceid4 when passed to GETDEVICEINFO will return a "device addr4", which encodes the entire volume hierarchy.
+In the case of copy on write file systems, the "gdlr deviceid list" array may contain two deviceid4's, one referencing the read only volume hierarchy, and one referencing the writable volume hierarchy.
+There is no required ordering of the readable and writable IDs in the array as the volumes are uniquely identified by their deviceid4, and are referred to by layouts using the deviceid4.
+Another example of the server returning multiple device items occurs when the file handle represents the root of a namespace spanning multiple physical file systems on the server, each with a different volume hierarchy.
+In this example, a server implementation may return either a list of device IDs used by each of the physical file systems, or it may return an empty list.
+Each deviceid4 returned by a successful GETDEVICELIST operation is a shorthand id used to reference the whole volume topology.
+These device IDs, as well as device IDs returned in extents of a LAYOUTGET operation, can be used as input to the GETDEVICEINFO operation.
+Decoding the "pnfs block deviceaddr4" results in a flat ordering of data blocks mapped to PNFS BLOCK VOLUME
+Combined with the mapping to a client LUN described in Section 2.2.1 "Volume Identification", a logical volume offset can be mapped to a block on a pNFS client LUN [NFSv4.1].
+A pNFS block layout is a list of extents within a flat array of data blocks in a logical volume.
+The details of the volume topology can be determined by using the GETDEVICEINFO operation (see discussion of volume identification, Section 2.2 above).
+The block layout describes the individual block extents on the volume that make up the file.
+The offsets and length contained in an extent are specified in units of bytes.
+the data located by this ///
+/  the location is invalid.
+It is a hole in the file.
+d of logical volume on ///
+The "bex storage offset" field within each extent identifies a location on the logical volume specified by the "bex vol id" field in the extent.
+id itself is shorthand for the whole topology of the logical volume on which the file is stored.
+The client is responsible for translating this logical offset into an offset on the appropriate underlying SAN logical unit.
+In most cases, all extents in a layout will reside on the same volume and thus have the same bex vol id.
+In the case of copy on write file systems, the PNFS BLOCK READ DATA extents may have a different bex vol id from the writable extents.
+Each extent maps a logical region of the file onto a portion of the specified logical volume.
+The bex file offset, bex length, and bex state fields for an extent returned from the server are valid for all extents.
+In contrast, the interpretation of the bex storage offset field depends on the value of bex state as follows (in increasing order):
+WRITE DATA means that bex storage offset is valid, and points to valid/initialized data that can be read and written.
+DATA means that bex storage offset is valid and points to valid/ initialized data that can only be read.
+Write operations are prohibited; the client may need to request a read write layout.
+PNFS BLOCK INVALID DATA means that bex storage offset is valid, but points to invalid un initialized data.
+This data must not be physically read from the disk until it has been initialized.
+A read request for a PNFS BLOCK INVALID DATA extent must fill the user buffer with zeros, unless the extent is covered by a PNFS BLOCK READ DATA extent of a copy on write file system.
+Write requests must write whole server sized blocks to the disk; bytes not initialized by the user must be set to zero.
+Any write to storage in a PNFS BLOCK INVALID DATA extent changes the written portion of the extent to PNFS BLOCK READ WRITE DATA; the pNFS client is responsible for reporting this change via LAYOUTCOMMIT.
+NONE DATA means that bex storage offset is not valid, and this extent may not be used to satisfy write requests.
+Read requests may be satisfied by zero filling as for PNFS BLOCK INVALID DATA.
+NONE DATA extents may be returned by requests for readable extents; they are never returned if the request was for a writable extent.
+An extent list contains all relevant extents in increasing order of the bex file offset of each extent; any ties are broken by increasing order of the extent state (bex state).
+Layout Requests and Extent Lists
+Each request for a layout specifies at least three parameters: file offset, desired size, and minimum size.
+If the status of a request indicates success, the extent list returned must meet the following criteria:  A request for a readable (but not writable) layout returns
+only PNFS BLOCK READ DATA or PNFS BLOCK
+NONE DATA extents (but not PNFS BLOCK INVALID DATA or PNFS BLOCK READ WRITE DATA extents).
+A request for a writable layout returns PNFS BLOCK READ WRITE DATA or PNFS BLOCK INVALID DATA extents (but not PNFS
+It may also return PNFS BLOCK READ DATA extents only when the offset ranges in those extents are also covered by PNFS BLOCK INVALID DATA extents to permit writes.
+The first extent in the list MUST contain the requested starting offset.
+The total size of extents within the requested range MUST cover at least the minimum size.
+One exception is allowed: the total size MAY be smaller if only readable extents were requested and EOF is encountered.
+Extents in the extent list MUST be logically contiguous for a read only layout.
+For a read write layout, the set of writable extents (i.e., excluding PNFS BLOCK READ DATA extents) MUST be logically contiguous.
+Every PNFS BLOCK READ DATA extent in a read write layout MUST be covered by one or more PNFS BLOCK INVALID DATA extents.
+This overlap of PNFS BLOCK READ
+DATA and PNFS BLOCK INVALID DATA extents is the only permitted extent overlap.
+Extents MUST be ordered in the list by starting offset, with PNFS BLOCK READ DATA extents preceding PNFS BLOCK INVALID DATA extents in the case of equal bex file offsets.
+If the minimum requested size, loga minlength, is zero, this is an indication to the metadata server that the client desires any layout at offset loga offset or less that the metadata server has "readily available".
+Readily is subjective, and depends on the layout type and the pNFS server implementation.
+For block layout servers, readily available SHOULD be interpreted such that readable layouts are always available, even if some extents are in the PNFS BLOCK NONE DATA state.
+When processing requests for writable layouts, a layout is readily available if extents can be returned in the PNFS BLOCK READ WRITE DATA state.
+The "blu commit list" field is an extent list covering regions of the file layout that were previously in the PNFS BLOCK INVALID DATA state, but have been written by the client and should now be considered in the PNFS BLOCK READ WRITE DATA state.
+The bex state field of each extent in the blu commit list MUST be set to PNFS BLOCK READ WRITE DATA.
+The extents in the commit list MUST be disjoint and MUST be sorted by bex file offset.
+The bex storage offset field is unused.
+Implementors should be aware that a server may be unable to commit regions at a granularity smaller than a file system block (typically 4 KB or 8 KB).
+As noted above, the block size that the server uses is available as an NFSv4 attribute, and any extents included in the "blu commit list" MUST be aligned to this granularity and have a size that is a multiple of this granularity.
+If the client believes that its actions have moved the end of file into the middle of a block being committed, the client MUST write zeroes from the end of file to the end of that block before committing the block.
+Failure to do so may result in junk (un initialized data) appearing in that area if the file is subsequently extended by moving the end of file.
+Layout Returns The LAYOUTRETURN operation is done without any block layout specific data.
+When the LAYOUTRETURN operation specifies a LAYOUTRETURN4 FILE return type, then the layoutreturn file4 data structure specifies the region of the file layout that is no longer needed by the client.
+The opaque "lrf body" field of the "layoutreturn file4" data structure MUST have length zero.
+A LAYOUTRETURN operation represents an explicit release of resources by the client, usually done for the purpose of avoiding unnecessary CB LAYOUTRECALL operations in the future.
+The client may return disjoint regions of the file by using multiple LAYOUTRETURN operations within a single COMPOUND operation.
+Note that the block/volume layout supports unilateral layout revocation.
+When a layout is unilaterally revoked by the server, usually due to the client's lease time expiring, or a delegation being recalled, or the client failing to return a layout in a timely manner, it is important for the sake of correctness that any in  flight
+Os that the client issued before the layout was revoked are rejected at the storage.
+For the block/volume protocol, this is possible by fencing a client with an expired layout timer from the physical storage.
+Note, however, that the granularity of this operation can only be at the host/logical unit level.
+Thus, if one of a client's layouts is unilaterally revoked by the server, it will effectively render useless  all  of the client's layouts for files located on the storage units comprising the logical volume.
+This may render useless the client's layouts for files in other file systems.
+Client Copy on Write Processing Copy on write is a mechanism used to support file and/or file system snapshots.
+When writing to unaligned regions, or to regions smaller than a file system block, the writer must copy the portions of the original file data to a new location on disk.
+This behavior can either be implemented on the client or the server.
+The paragraphs below describe how a pNFS block layout client implements access to a file that requires copy on write semantics.
+Distinguishing the PNFS BLOCK READ WRITE DATA and PNFS BLOCK
+READ DATA extent types in combination with the allowed overlap of PNFS BLOCK READ DATA extents with PNFS BLOCK INVALID DATA extents allows copy on write processing to be done by pNFS clients.
+In classic NFS, this operation would be done by the server.
+Since pNFS enables clients to do direct block access, it is useful for clients to participate in copy on write operations.
+All block/volume pNFS clients MUST support this copy on write processing.
+When a client wishes to write data covered by a PNFS BLOCK READ DATA extent, it MUST have requested a writable layout from the server; that layout will contain PNFS BLOCK INVALID DATA extents to cover all the data ranges of that layout's PNFS BLOCK READ DATA extents.
+More precisely, for any bex file offset range covered by one or more PNFS BLOCK READ DATA extents in a writable layout, the server MUST include one or more PNFS BLOCK INVALID DATA extents in the layout that cover the same bex file offset range.
+When performing a write to such an area of a layout, the client MUST effectively copy the data from the PNFS BLOCK READ DATA extent for any partial blocks of bex file offset and range, merge in the changes to be written, and write the result to the PNFS BLOCK INVALID DATA extent for the blocks for that bex file offset and range.
+That is, if entire blocks of data are to be overwritten by an operation, the corresponding PNFS BLOCK READ DATA blocks need not be fetched, but any partial  block writes must be merged with data fetched via PNFS BLOCK
+READ DATA extents before storing the result via PNFS BLOCK INVALID DATA extents.
+For the purposes of this discussion, "entire blocks" and "partial blocks" refer to the server's file system block size.
+Storing of data in a PNFS BLOCK INVALID DATA extent converts the written portion of the PNFS BLOCK INVALID DATA extent to a PNFS BLOCK READ WRITE DATA extent; all subsequent reads MUST be performed from this extent; the corresponding portion of the PNFS BLOCK READ DATA extent MUST NOT be used after storing data in a PNFS BLOCK INVALID DATA extent.
+If a client writes only a portion of an extent, the extent may be split at block aligned boundaries.
+When a client wishes to write data to a PNFS BLOCK INVALID DATA extent that is not covered by a PNFS BLOCK READ DATA extent, it MUST treat this write identically to a write to a file not involved with copy on write semantics.
+Thus, data must be written in at least block sized increments, aligned to multiples of block sized offsets, and unwritten portions of blocks must be zero filled.
+In the LAYOUTCOMMIT operation that normally sends updated layout information back to the server, for writable data, some PNFS BLOCK INVALID DATA extents may be committed as PNFS BLOCK READ WRITE DATA extents, signifying that the storage at the corresponding bex storage offset values has been stored into and is now to be considered as valid data to be read.
+DATA extents are not committed to the server.
+For extents that the client receives via LAYOUTGET as PNFS BLOCK INVALID DATA and returns via LAYOUTCOMMIT as PNFS BLOCK READ WRITE DATA, the server will understand that the PNFS BLOCK READ DATA mapping for that extent is no longer valid or necessary for that file.
+Permissions Layout extents returned to pNFS clients grant permission to read or write; PNFS BLOCK READ DATA and PNFS BLOCK
+NONE DATA are read only (PNFS BLOCK NONE DATA reads as zeroes), PNFS BLOCK READ WRITE DATA and
+PNFS BLOCK INVALID DATA are read/write, (PNFS BLOCK INVALID DATA reads as zeros, any write converts it to PNFS BLOCK READ WRITE DATA).
+This is the only means a client has of obtaining permission to perform direct I/
+O to storage devices; a pNFS client MUST NOT perform direct I/O operations that are not permitted by an extent held by the client.
+Client adherence to this rule places the pNFS server in control of potentially conflicting storage device operations, enabling the server to determine what does conflict and how to avoid conflicts by granting and recalling extents to/from clients.
+Block/volume class storage devices are not required to perform read and write operations atomically.
+Overlapping concurrent read and write operations to the same data may cause the read to return a mixture of before write and after write data.
+Overlapping write operations can be worse, as the result could be a mixture of data from the two write operations; data corruption can occur if the underlying storage is striped and the operations complete in different orders on different stripes.
+When there are multiple clients who wish to access the same data, a pNFS server can avoid these conflicts by implementing a concurrency control policy of single writer XOR multiple readers.
+This policy MUST be implemented when storage devices do not provide atomicity for concurrent read/write and write/write operations to the same data.
+If a client makes a layout request that conflicts with an existing layout delegation, the request will be rejected with the error NFS4ERR LAYOUTTRYLATER.
+This client is then expected to retry the request after a short interval.
+During this interval, the server SHOULD recall the conflicting portion of the layout delegation from the client that currently holds it.
+This reject and retry approach does not prevent client starvation when there is contention for the layout of a particular file.
+For this reason, a pNFS server SHOULD implement a mechanism to prevent starvation.
+One possibility is that the server can maintain a queue of rejected layout requests.
+Each new layout request can be checked to see if it conflicts with a previous rejected request, and if so, the newer request can be rejected.
+Once the original requesting client retries its request, its entry in the rejected request queue can be cleared, or the entry in the rejected request queue can be removed when it reaches a certain age.
+NFSv4 supports mandatory locks and share reservations.
+These are mechanisms that clients can use to restrict the set of I/O operations that are permissible to other clients.
+I/O operations ultimately arrive at the NFSv4 server for processing, the server is in a position to enforce these restrictions.
+However, with pNFS layouts, I/Os will be issued from the clients that hold the layouts directly to the storage devices that host the data.
+These devices have no knowledge of files, mandatory locks, or share reservations, and are not in a position to enforce such restrictions.
+For this reason the NFSv4 server MUST NOT grant layouts that conflict with mandatory locks or share reservations.
+Further, if a conflicting mandatory lock request or a conflicting open request arrives at the server, the server MUST recall the part of the layout in conflict with the request before granting the request.
+The end of file location can be changed in two ways: implicitly as the result of a WRITE or LAYOUTCOMMIT beyond the current end of file, or explicitly as the result of a SETATTR request.
+Typically, when a file is truncated by an NFSv4 client via the SETATTR call, the server frees any disk blocks belonging to the file that are beyond the new end of file byte, and MUST write zeros to the portion of the new end of file block beyond the new end of file byte.
+These actions render any pNFS layouts that refer to the blocks that are freed or written semantically invalid.
+Therefore, the server MUST recall from clients the portions of any pNFS layouts that refer to blocks that will be freed or written by the server before processing the truncate request.
+These recalls may take time to complete; as explained in [NFSv4.1], if the server cannot respond to the client SETATTR request in a reasonable amount of time, it SHOULD reply to the client with the error NFS4ERR DELAY.
+Blocks in the PNFS BLOCK INVALID DATA state that lie beyond the new end of file block present a special case.
+The server has reserved these blocks for use by a pNFS client with a writable layout for the file, but the client has yet to commit the blocks, and they are not yet a part of the file mapping on disk.
+The server MAY free these blocks while processing the SETATTR request.
+If so, the server MUST recall any layouts from pNFS clients that refer to the blocks before processing the truncate.
+If the server does not free the PNFS BLOCK INVALID DATA blocks while processing the SETATTR request, it need not recall layouts that refer only to the PNFS BLOCK INVALID DATA blocks.
+When a file is extended implicitly by a WRITE or LAYOUTCOMMIT beyond the current end of file, or extended explicitly by a SETATTR request, the server need not recall any portions of any pNFS layouts.
+The SETATTR operation supports a layout hint attribute [NFSv4.1].
+When the client sets a layout hint (data type layouthint4) with a layout type of LAYOUT4 BLOCK VOLUME (the loh type field), the loh body field contains a value of data type pnfs block layouthint4.
+o time in seconds ///
+/O to execute on the client.
+Clients using block layouts MUST set the layout hint attribute before using LAYOUTGET operations.
+Client Fencing The pNFS block protocol must handle situations in which a system failure, typically a network connectivity issue, requires the server to unilaterally revoke extents from one client in order to transfer the extents to another client.
+The pNFS server implementation MUST ensure that when resources are transferred to another client, they are not used by the client originally owning them, and this must be ensured against any possible combination of partitions and delays among all of the participants to the protocol (server, storage and client).
+Two approaches to guaranteeing this isolation are possible and are discussed below.
+One implementation choice for fencing the block client from the block storage is the use of LUN masking or mapping at the storage systems or storage area network to disable access by the client to be isolated.
+This requires server access to a management interface for the storage system and authorization to perform LUN masking and management operations.
+For example, the Storage Management Initiative Specification (SMI S) [SMIS] provides a means to discover and mask LUNs, including a means of associating clients with the necessary World Wide Names or Initiator names to be masked.
+In the absence of support for LUN masking, the server has to rely on the clients to implement a timed lease I/O fencing mechanism.
+Because clients do not know if the server is using LUN masking, in all cases, the client MUST implement timed lease fencing.
+In timed  lease fencing, we define two time periods, the first, "lease time" is the length of a lease as defined by the server's lease time attribute (see [NFSv4.1]), and the second, "blh maximum io time" is the maximum time it can take for a client I/
+O to the storage system to either complete or fail; this value is often 30 seconds or 60 seconds, but may be longer in some environments.
+If the maximum client I/
+O time cannot be bounded, the client MUST use a value of all 1s as the blh maximum io time.
+After a new client ID is established, the client MUST use SETATTR with a layout hint of type LAYOUT4 BLOCK VOLUME to inform the server of its maximum
+O time prior to issuing the first LAYOUTGET operation.
+O time hint is a per file attribute, it is actually a per client characteristic.
+Thus, the server MUST maintain the last maximum I/
+O time hint sent separately for each client.
+Each time the maximum I/
+O time changes, the server MUST apply it to all files for which the client has a layout.
+If the client does not specify this attribute on a file for which a block layout is requested, the server SHOULD use the most recent value provided by the same client for any file; if that client has not provided a value for this attribute, the server SHOULD reject the layout request with the error NFS4ERR LAYOUTUNAVAILABLE.
+The client SHOULD NOT send a SETATTR of the layout hint with every LAYOUTGET.
+A server that implements fencing via LUN masking SHOULD accept any maximum I/
+O time value from a client.
+A server that does not implement fencing may return an error NFS4ERR INVAL to the SETATTR operation.
+Such a server SHOULD return NFS4ERR INVAL when a client sends an unbounded maximum I/
+O time (all 1s), or when the maximum I/
+O time is significantly greater than that of other clients using block layouts with pNFS.
+When a client receives the error NFS4ERR INVAL in response to the SETATTR operation for a layout hint, the client MUST NOT use the LAYOUTGET operation.
+After responding with NFS4ERR INVAL to the SETATTR for layout hint, the server MUST return the error NFS4ERR LAYOUTUNAVAILABLE to all subsequent LAYOUTGET operations from that client.
+Thus, the server, by returning either NFS4ERR INVAL or NFS4 OK determines whether or not a client with a large, or an unbounded maximum I/
+O time may use pNFS.
+Using the lease time and the maximum I/
+O time values, we specify the behavior of the client and server as follows.
+When a client receives layout information via a LAYOUTGET operation, those layouts are valid for at most "lease time" seconds from when the server granted them.
+A layout is renewed by any successful SEQUENCE operation, or whenever a new stateid is created or updated (see the section "Lease Renewal" of [NFSv4.1]).
+If the layout lease is not renewed prior to expiration, the client MUST cease to use the layout after "lease time" seconds from when it either sent the original LAYOUTGET command or sent the last operation renewing the lease.
+In other words, the client may not issue any
+I/O to blocks specified by an expired layout.
+In the presence of large communication delays between the client and server, it is even possible for the lease to expire prior to the server response arriving at the client.
+In such a situation, the client MUST NOT use the expired layouts, and SHOULD revert to using standard NFSv41 READ and WRITE operations.
+Furthermore, the client must be configured such that I/O operations complete within the "blh maximum io time" even in the presence of multipath drivers that will retry
+As stated in the "Dealing with Lease Expiration on the Client" section of [NFSv4.1], if any SEQUENCE operation is successful, but sr status flag has SEQ4 STATUS
+EXPIRED SOME STATE REVOKED, or SEQ4 STATUS
+ADMIN STATE REVOKED is set, the client MUST immediately cease to use all layouts and device ID to device address mappings associated with the corresponding server.
+In the absence of known two way communication between the client and the server on the fore channel, the server must wait for at least the time period "lease time" plus "blh maximum io time" before transferring layouts from the original client to any other client.
+The server, like the client, must take a conservative approach, and start the lease expiration timer from the time that it received the operation that last renewed the lease.
+A critical requirement in crash recovery is that both the client and the server know when the other has failed.
+Additionally, it is required that a client sees a consistent view of data across server restarts.
+These requirements and a full discussion of crash recovery issues are covered in the "Crash Recovery" section of the NFSv41 specification [NFSv4.1].
+This document contains additional crash recovery material specific only to the block/volume layout.
+When the server crashes while the client holds a writable layout, and the client has written data to blocks covered by the layout, and the blocks are still in the PNFS BLOCK INVALID DATA state, the client has two options for recovery.
+If the data that has been written to these blocks is still cached by the client, the client can simply re write the data via NFSv4, once the server has come back online.
+However, if the data is no longer in the client's cache, the client MUST NOT attempt to source the data from the data servers.
+Instead, it should attempt to commit the blocks in question to the server during the server's recovery grace period, by sending a LAYOUTCOMMIT with the "loca reclaim" flag set to true.
+This process is described in detail in Section 18.42.4 of [NFSv4.1].
+The server may decide that it cannot hold all of the state for layouts without running out of resources.
+In such a case, it is free to recall individual layouts using CB LAYOUTRECALL to reduce the load, or it may choose to request that the client return any layout.
+The NFSv4.1 spec [NFSv4.1] defines the following types:
+2.6.  Transient and Permanent Errors
+The server may respond to LAYOUTGET with a variety of error statuses.
+These errors can convey transient conditions or more permanent conditions that are unlikely to be resolved soon.
+The transient errors, NFS4ERR RECALLCONFLICT and NFS4ERR TRYLATER, are used to indicate that the server cannot immediately grant the layout to the client.
+In the former case, this is because the server has recently issued a CB LAYOUTRECALL to the requesting client, whereas in the case of NFS4ERR TRYLATER, the server cannot grant the request possibly due to sharing conflicts with other clients.
+In either case, a reasonable approach for the client is to wait several milliseconds and retry the request.
+The client SHOULD track the number of retries, and if forward progress is not made, the client SHOULD send the READ or WRITE operation directly to the server.
+The error NFS4ERR LAYOUTUNAVAILABLE may be returned by the server if layouts are not supported for the requested file or its containing file system.
+The server may also return this error code if the server is the progress of migrating the file from secondary storage, or for any other reason that causes the server to be unable to supply the layout.
+As a result of receiving NFS4ERR LAYOUTUNAVAILABLE, the client SHOULD send future READ and WRITE requests directly to the server.
+It is expected that a client will not cache the file's layoutunavailable state forever, particular if the file is closed, and thus eventually, the client MAY reissue a LAYOUTGET operation.
+Typically, SAN disk arrays and SAN protocols provide access control mechanisms (e.g., LUN mapping and/or masking) that operate at the granularity of individual hosts.
+The functionality provided by such mechanisms makes it possible for the server to "fence" individual client machines from certain physical disks   that is to say, to prevent individual client machines from reading or writing to certain physical disks.
+Finer grained access control methods are not generally available.
+For this reason, certain security responsibilities are delegated to pNFS clients for block/volume layouts.
+Block/volume storage systems generally control access at a volume granularity, and hence pNFS clients have to be trusted to only perform accesses allowed by the layout extents they currently hold (e.g., and not access storage for files on which a layout extent is not held).
+In general, the server will not be able to prevent a client that holds a layout for a file from accessing parts of the physical disk not covered by the layout.
+Similarly, the server will not be able to prevent a client from accessing blocks covered by a layout that it has already returned.
+This block based level of protection must be provided by the client software.
+An alternative method of block/volume protocol use is for the storage devices to export virtualized block addresses, which do reflect the files to which blocks belong.
+These virtual block addresses are exported to pNFS clients via layouts.
+This allows the storage device to make appropriate access checks, while mapping virtual block addresses to physical block addresses.
+In environments where the security requirements are such that client side protection from access to storage outside of the authorized layout extents is not sufficient, pNFS block/volume storage layouts SHOULD NOT be used unless the storage device is able to implement the appropriate access checks, via use of virtualized block addresses or other means.
+In contrast, an environment where client side protection may suffice consists of co located clients, server and storage systems in a data center with a physically isolated SAN under control of a single system administrator or small group of system administrators.
+This also has implications for some NFSv4 functionality outside pNFS.
+For instance, if a file is covered by a mandatory read only lock, the server can ensure that only readable layouts for the file are granted to pNFS clients.
+However, it is up to each pNFS client to ensure that the readable layout is used only to service read requests, and not to allow writes to the existing parts of the file.
+Similarly, block/volume storage devices are unable to validate NFS Access Control Lists (ACLs) and file open modes, so the client must enforce the policies before sending a READ or WRITE request to the storage device.
+Since block/volume storage systems are generally not capable of enforcing such file based security, in environments where pNFS clients cannot be trusted to enforce such policies, pNFS block/volume storage layouts SHOULD NOT be used.
+Access to block/volume storage is logically at a lower layer of the
+I/O stack than NFSv4, and hence
+NFSv4 security is not directly applicable to protocols that access such storage directly.
+Depending on the protocol, some of the security mechanisms provided by NFSv4 (e.g., encryption, cryptographic integrity) may not be available or may be provided via different means.
+At one extreme, pNFS with block/volume storage can be used with storage access protocols (e.g., parallel SCSI) that provide essentially no security functionality.
+At the other extreme, pNFS may be used with storage protocols such as iSCSI that can provide significant security functionality.
+It is the responsibility of those administering and deploying pNFS with a block/volume storage access protocol to ensure that appropriate protection is provided to that protocol
+(physical security is a common means for protocols not based on IP).
+In environments where the security requirements for the storage protocol cannot be met, pNFS block/volume storage layouts SHOULD NOT be used.
+When security is available for a storage protocol, it is generally at a different granularity and with a different notion of identity than NFSv4 (e.g.
+, NFSv4 controls user access to files, iSCSI controls initiator access to volumes).
+The responsibility for enforcing appropriate correspondences between these security layers is placed upon the pNFS client.
+As with the issues in the first paragraph of this section, in environments where the security requirements are such that client side protection from access to storage outside of the layout is not sufficient, pNFS block/volume storage layouts SHOULD NOT be used.
+This document specifies the block/volume layout type for pNFS and associated functionality.
+There are no IANA considerations in this document.
+All pNFS IANA Considerations are covered in [NFSv4.1].

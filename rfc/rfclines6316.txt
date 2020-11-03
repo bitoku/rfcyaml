@@ -1,0 +1,509 @@
+Abstract This document specifies sockets API extensions for the multihoming shim layer.
+The API aims to enable interactions between applications and the multihoming shim layer for advanced locator management, and access to information about failure detection and path exploration.
+This document is based on an assumption that a multihomed host is equipped with a conceptual sub layer (hereafter called "shim sub  layer") inside the IP layer that maintains mappings between identifiers and locators.
+Examples of the shim are Shim6 and the Host Identity Protocol (HIP).
+This document defines sockets API extensions by which upper layer protocols may be informed about and control the way in which a multihoming shim sub layer in the IP layer manages the dynamic choice of locators.
+Initially, the multihoming shim sub layer refers to Shim6
+and/or HIP, but it is defined generically.
+The role of the multihoming shim sub layer (hereafter called "shim sub layer" in this document) is to avoid impacts to upper layer protocols that may be caused when the endhost changes its attachment point to the Internet   for instance, in the case of a rehoming event under the multihomed environment.
+There is, however, a need for an API in the cases where 1) the upper layer protocol is particularly sensitive to impacts, or 2) the upper layer protocol wants to benefit from better knowledge of what is going on underneath.
+There are various kinds of technologies that aim to solve the same issue (the multihoming issue).
+Note that there will be conflict when more than one shim sub layer is active at the same time.
+The assumption made in this document is that there is only a single shim sub layer (HIP or Shim6) activated on the system.
+The target readers of this document are application programmers who develop application software that may benefit greatly from multihomed environments.
+In addition, this document aims to provide necessary information for developers of shim protocols to implement APIs for enabling advanced locator management.
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC2119].
+This section provides terminology used in this document.
+Basically, most of the terms used in this document are taken from the following documents:  Shim6 Protocol Specification [RFC5533]  HIP Architecture [RFC4423]  Reachability Protocol (REAP)
+In this document, the term "IP" refers to both IPv4 and IPv6, unless the protocol version is specifically mentioned.
+The following are definitions of terms frequently used in this document:  Endpoint Identifier (EID)
+The identifier used by the application to specify the endpoint of a given communication.
+Applications may handle EIDs in various ways, such as long lived connections, callbacks, and referrals
+In the case of Shim6, an identifier called a ULID (Upper Layer Identifier) serves as an EID.
+A ULID is chosen from locators available on the host.
+In the case of HIP, an identifier called a Host Identifier serves as an EID.
+A Host Identifier is derived from the public key of a given host.
+For the sake of backward compatibility with the sockets API, the Host Identifier is represented in the form of a hash of a public key.
+Note that the EID appears in the standard sockets API as an address, and does not appear in the extensions defined in this document, which only concern locators.
+The IP address actually used to deliver IP packets.
+Locators are present in the source and destination fields of the IP header of a packet on the wire.
+A locator as discussed in this document could be either an IPv4 address or an IPv6 address.
+Note that HIP can handle both IPv4 and IPv6 locators, whereas Shim6 can handle only IPv6 locators.
+For the HIP case, a locator can be a private IPv4 address when the host is behind a NAT.
+Section 8.1.1 gives a detailed description about the handling of a locator behind a NAT.
+A list of locators associated with an EID.
+There are two lists of locators stored in a given context.
+One is associated with the local EID, and the other is associated with the remote EID.
+As defined in [RFC5533], the list of locators associated with an EID 'A' is denoted as Ls(A).
+The (source/destination) locator currently used to send packets within a given context.
+Any locator that does not appear in the locator list of the shim context associated with the socket.
+When there is no shim context associated with the socket, any source and/or destination locator requested by the application is considered to be an unknown locator.
+A valid locator means that the locator is considered to be valid in the security sense.
+More specifically, the validity indicates whether the locator is part of a Hash Based Address (HBA) set [RFC5535].
+A verified locator means that the locator is considered to be reachable according to the result of a REAP return routability check.
+Note that the verification applies only to the peer's locator.
+The conceptual sub layer inside the IP layer.
+This sub  layer maintains mappings between EIDs and locators.
+An EID can be associated with more than one locator at a time when the host is multihomed.
+The term "shim" does not refer to a specific protocol but refers to the conceptual sub layer inside the IP layer.
+The adaptation performed at the shim sub layer.
+This adaptation may end up re writing the source and/or destination addresses of an IP packet.
+In the outbound packet processing, the EID pair is converted to the associated locator pair.
+In the inbound packet processing, the locator pair is converted to the EID pair.
+The state information shared by a given pair of peers.
+Context stores a binding between the EID and associated locators.
+Contexts are maintained by the shim sub layer.
+Deferred context setup is a scenario where a context is established after the communication starts.
+Deferred context setup is possible if the ULID is routable, such as in the case of Shim6.
+The procedure to check reachability between a given locator pair.
+The sequence of routers that an IP packet goes through to reach the destination.
+The procedure to explore available paths for a given set of locator pairs.
+The incident that prevents IP packets flowing from the source locator to the destination locator.
+When there is an outage, it means that there is no reachability between a given locator pair.
+The outage may be caused by various reasons, such as a shortage of network resources, congestion, and human error (faulty operation).
+Working address pair Considered to be "working" if the packet can safely travel from the source to the destination, where the packet contains the first address from the pair as the source address and the second address from the pair as the destination address.
+If reachability is confirmed in both directions, the address pair is considered to be working bi directionally.
+The protocol for detecting failure and exploring reachability in a multihomed environment.
+REAP is defined in [RFC5534].
+In this document, syntax and semantics of the API are given in the same way as in the Portable Operating System Interface (POSIX) standard [POSIX].
+The API specifies how to use ancillary data (aka cmsg) to access the locator information with recvmsg()
+The API is described in C language, and data types are defined in the POSIX format; intN t means a signed integer of exactly N bits (e.g., int16 t), and uintN t means an unsigned integer of exactly N bits (e.g., uint32 t).
+The distinction between "connected" sockets and "unconnected" sockets is important when discussing the applicability of the sockets API defined in this document.
+A connected socket is bound to a given peer, whereas an unconnected socket is not bound to any specific peers.
+A TCP socket becomes a connected socket when the TCP connection establishment is completed.
+UDP sockets are unconnected, unless the application uses the connect() system call.
+System Overview Figure 1 illustrates the system overview.
+The shim sub layer and REAP component exist inside the IP layer.
+Applications use the sockets API defined in this document to interface with the shim sub layer and the transport layer for locator management, failure detection, and path exploration.
+It is also possible that the shim sub layer interacts with the transport layer; however, such an interaction is outside the scope of this document.
+The following is a list of requirements from applications:  Turn on/off shim.
+The application should be able to explicitly request that the shim sub layer apply multihoming support.
+The application should be able to request that the shim sub layer not apply the multihoming support but apply normal IP processing at the IP layer.
+Note that this function is also required by other types of multihoming mechanisms, such as the Stream Control Transmission Protocol (SCTP) and multipath TCP, to avoid potential conflict with the shim sub layer.
+It should be possible to set a preferred source and/or destination locator within a given context.
+It should be possible to get a preferred source and/or destination locator within a given context.
+It should be possible to set a list of source and/or destination locators within a given context: Ls(local) and Ls(remote).
+It should be possible to get a list of source and/or destination locators within a given context: Ls(local) and Ls(remote).
+Notification from applications and upper layer protocols to the shim sub layer about the status of the communication.
+The notification occurs in an event based manner.
+Applications and/or upper layer protocols may provide positive feedback or negative feedback to the shim sub layer.
+Note that these types of feedback are mentioned in [RFC5534]:
+Applications and/or upper layer protocols (e.g., TCP) may provide positive feedback to the shim sub layer informing that the communication is going well.
+Applications and/or upper layer protocols (e.g., TCP) may provide negative feedback to the shim sub layer informing that the communication status is not satisfactory.
+TCP may detect a problem when it does not receive any expected ACK message from the peer.
+The REAP module may be triggered by the negative feedback and invoke the path exploration procedure.
+Feedback from applications to the shim sub layer.
+Applications should be able to inform the shim sub layer of the timeout values for detecting failures, sending keepalives, and starting the exploration procedure.
+In particular, applications should be able to suppress keepalives.
+Applications may request the shim sub layer for a hot standby capability.
+This means that alternative paths are known to be working in advance of a failure detection.
+In such a case, it is possible for the shim sub layer to immediately replace the current locator pair with an alternative locator pair.
+An application should be able to inform the shim sub layer of how aggressively it wants the REAP mechanism to perform a path exploration (e.g., by specifying the number of concurrent attempts of discovery of working locator pairs) when an outage occurs on the path between the locator pair in use.
+Providing locator information to applications.
+An application should be able to obtain information about the locator pair that was actually used to send or receive packets.
+For inbound traffic, the application may be interested in the locator pair that was actually used to receive the packet.
+For outbound traffic, the application may be interested in the locator pair that was actually used to transmit the packet.
+In this way, applications may have additional control of the locator management.
+For example, an application becomes capable of verifying if its preference for a locator is actually applied to the flow or not.
+Applications should be able to know if the shim sub layer supports deferred context setup or not.
+An application should be able to know if the communication is now being served by the shim sub layer or not.
+An application should be able to use a common interface to access an IPv4 locator and an IPv6 locator.
+Socket Options for Multihoming Shim Sub Layer
+In this section, socket options that are specific to the shim sub layer are defined.
+Table 1 shows a list of the socket options that are specific to the shim sub layer.
+All of these socket options are defined at the level SOL SHIM.
+When an application uses one of the socket options by getsockopt() or setsockopt(), the second argument MUST be set to SOL SHIM.
+The first column of Table 1 gives the name of the option.
+The second column indicates whether the value for the socket option can be read by getsockopt(), and the third column indicates whether the value for the socket option can be written by setsockopt().
+The fourth column provides a brief description of the socket option.
+The fifth column shows the type of data structure specified along with the socket option.
+By default, the data structure type is an integer.
+Socket Options for Multihoming Shim Sub Layer Note 1:
+Pointer to a shim locator as defined in Section 8.
+Note 2: Pointer to an array of shim locator data.
+Pointer to a shim pathexplore as defined in Section 8.
+Figure 2 illustrates how the shim specific socket options fit into the system model of sockets API.
+The figure shows that the shim sub  layer and the additional protocol components (IPv4 and IPv6) below the shim sub layer are new to the system model.
+As previously mentioned, all the shim specific socket options are defined at the SOL SHIM level.
+This design choice brings the following advantages: 1.
+The existing sockets APIs continue to work at the layer above the shim sub layer.
+That is, those legacy APIs handle IP addresses as identifiers.
+With newly defined socket options for the shim sub layer, the application obtains additional control of locator management.
+The shim specific socket options can be kept independent from address family (IPPROTO IP or IPPROTO IPV6) and transport protocol (IPPROTO TCP or IPPROTO UDP) settings.
+Datagram Figure 2: System Model of Sockets API with Shim Sub Layer 6.1.
+The SHIM ASSOCIATED option is used to check whether or not the socket is associated with any shim context.
+This option is meaningful when the locator information of the received IP packet does not tell whether or not the identifier/ locator adaptation is performed.
+Note that the EID pair and the locator pair may be identical in some cases.
+Note that the socket option is read only, and the option value can be read by getsockopt().
+The result (0/1/2) is set in the option value (the fourth argument of getsockopt()).
+When the application specifies the socket option to an unconnected socket, error code EOPNOTSUPP is returned to the application.
+The data type of the option value is an integer.
+The option value indicates the presence of shim context.
+A return value of 1 means that the socket is associated with a shim context at the shim sub layer.
+A return value of 0 indicates that there is no shim context associated with the socket.
+A return value of 2 means that it is not known whether or not the socket is associated with a shim context, and this MUST be returned only when the socket is unconnected.
+In other words, the returned value MUST be 0 or 1 when the socket is connected.
+For example, the option can be used by the application as follows: int optval;
+int optlen   sizeof(optval); getsockopt(fd, SOL SHIM, SHIM ASSOCIATED, &optval, &optlen); 6.2.
+The SHIM DONTSHIM option is used to request that the shim layer not provide the multihoming support for the communication established over the socket.
+The data type of the option value is an integer, and it takes 0 or 1.
+An option value of 0 means that the shim sub layer is employed if available.
+An option value of 1 means that the application does not want the shim sub layer to provide the multihoming support for the communication established over the socket.
+The default value is set to 0, which means that the shim sub layer performs identifier/locator adaptation if available.
+Any attempt to disable the multihoming shim support MUST be made by the application before the socket is connected.
+If an application makes such an attempt for a connected socket, error code EOPNOTSUPP MUST be returned.
+For example, an application can request that the system not apply the multihoming support as follows: int optval; optval   1; setsockopt(fd, SOL SHIM, SHIM DONTSHIM, &optval, sizeof(optval)); For example, the application can check the option value as follows: int optval; int len; len   sizeof(optval); getsockopt(fd, SOL SHIM, SHIM DONTSHIM, &optval, &len); 6.3.
+The SHIM HOT STANDBY option is used to control whether or not the shim sub layer employs a hot standby connection for the socket.
+A hot standby connection is an alternative working locator pair to the current locator pair.
+This option is effective only when there is a shim context associated with the socket.
+The data type of the option value is an integer.
+The option value can be set by setsockopt().
+The option value can be read by getsockopt().
+By default, the value is set to 0, meaning that hot standby connection is disabled.
+When the application specifies the socket option to an unconnected socket, error code EOPNOTSUPP is returned to the application.
+When there is no shim context associated with the socket, error code ENOENT is returned to the application.
+For example, an application can request establishment of a hot  standby connection by using the socket option as follows:
+int optval; optval   1; setsockopt(fd, SOL SHIM, SHIM HOT STANDBY, &optval, sizeof(optval)); For example, an application can get the option value by using the socket option as follows: int optval;
+int len; len   sizeof(optval); getsockopt(fd, SOL SHIM, SHIM HOT STANDBY, &optval, &len); 6.4.
+The SHIM LOC LOCAL PREF option is used to set the preference value for a source locator for outbound traffic, or to get the preference value of the source locator for outbound traffic that has the highest preference value.
+This option is effective only when there is a shim context associated with the socket.
+By default, the option value is set to NULL, meaning that the option is disabled.
+The preference of a locator is defined by a combination of priority and weight as per DNS SRV [RFC2782].
+Note that the Shim6 base protocol defines the preference of a locator in the same way.
+The data type of the option value is a pointer to the shim locator information data structure as defined in Section 8.1.
+When an application specifies the socket option to an unconnected socket, error code EOPNOTSUPP is returned to the application.
+When there is no shim context associated with the socket, error code ENOENT is returned to the application.
+Error code EINVALIDLOCATOR is returned when the validation of the specified locator fails.
+An application can set the preference value for a source locator for outbound traffic by setsockopt() with the socket option.
+Note that lc ifidx and lc flags (as defined in Section 8.1) have no effect in a set operation.
+Below is an example of such a set operation.
+/ memset(&lc, 0, sizeof(shim locator));
+/ lc.lc ifidx   0; lc.lc flags   0;
+lc.lc weight   10; memcpy(&lc.lc addr, &ip6, sizeof(in6 addr))
+; setsockopt(fd, SOL SHIM, SHIM LOC LOCAL PREF, &lc, sizeof(optval)); An application can get the source locator for outbound traffic that has the highest preference value by using the socket option.
+Below is an example of such a get operation.
+struct shim locator lc; int len; len   sizeof(lc); getsockopt(fd, SOL SHIM,
+SHIM LOC LOCAL PREF, &lc, &len); 6.5.
+The SHIM LOC PEER PREF option is used to set the preference value for a destination locator for outbound traffic, or to get the preference value of the destination locator for outbound traffic that has the highest preference value.
+This option is effective only when there is a shim context associated with the socket.
+By default, the option value is set to NULL, meaning that the option is disabled.
+As defined earlier, the preference of a locator is defined by a combination of priority and weight as per DNS SRV [RFC2782].
+When there is more than one candidate destination locator, the shim sub layer makes a selection based on the priority and weight specified for each locator.
+The data type of the option value is a pointer to the shim locator information data structure as defined in Section 8.1.
+When the application specifies the socket option to an unconnected socket, error code EOPNOTSUPP is returned to the application.
+When there is no shim context associated with the socket, error code ENOENT is returned to the application.
+Error code EINVALIDLOCATOR is returned when the validation of the requested locator fails.
+Error code EUNREACHABLELOCATOR is returned when the requested locator is determined to be unreachable according to a reachability check.
+The usage of the option is the same as that of SHIM LOC LOCAL PREF.
+The SHIM LOC LOCAL RECV option can be used to request that the shim sub layer store the destination locator of the received IP packet in an ancillary data object that can be accessed by recvmsg().
+This option is effective only when there is a shim context associated with the socket.
+The data type of the option value is an integer.
+The option value MUST be binary (0 or 1).
+By default, the option value is set to 0, meaning that the option is disabled.
+An application can set the option value by setsockopt().
+An application can get the option value by getsockopt().
+See Section 7 for the procedure to access locator information stored in the ancillary data objects.
+When the application specifies the socket option to an unconnected socket, error code EOPNOTSUPP is returned to the application.
+When there is no shim context associated with the socket, error code ENOENT is returned to the application.
+For example, an application can request the shim sub layer to store a destination locator by using the socket option as follows:
+int optval; optval   1; setsockopt(fd, SOL SHIM, SHIM LOC LOCAL RECV, &optval, sizeof(optval)); For example, an application can get the option value as follows: int optval; int len; len   sizeof(optval); getsockopt(fd, SOL SHIM, SHIM LOC LOCAL RECV, &optval, &len); 6.7.
+The SHIM LOC PEER RECV option is used to request that the shim sub layer store the source locator of the received IP packet in an ancillary data object that can be accessed by recvmsg().
+This option is effective only when there is a shim context associated with the socket.
+The data type of the option value is an integer.
+The option value MUST be binary (0 or 1).
+By default, the option value is set to 0, meaning that the option is disabled.
+The option value can be set by setsockopt().
+The option value can be read by getsockopt().
+See Section 7 for the procedure to access locator information stored in the ancillary data objects.
+When the application specifies the socket option to an unconnected socket, error code EOPNOTSUPP is returned to the application.
+When there is no shim context associated with the socket, error code ENOENT is returned to the application.
+The usage of the option is the same as that of the SHIM LOC LOCAL RECV option.
+The SHIM LOC LOCAL SEND option is used to request that the shim sub layer use a specific locator as the source locator for the IP packets to be sent from the socket.
+This option is effective only when there is a shim context associated with the socket.
+The data type of the option value is a pointer to the shim locator data structure.
+An application can set the local locator by setsockopt(), providing a locator that is stored in a shim locator data structure.
+When a zero filled locator is specified, the pre existing setting of the local locator is inactivated.
+An application can get the local locator by getsockopt().
+When the application specifies the socket option to an unconnected socket, error code EOPNOTSUPP is returned to the application.
+When there is no shim context associated with the socket, error code ENOENT is returned to the application.
+Error code EINVALIDLOCATOR is returned when an invalid locator is specified.
+/  fill shim locator data structure
+/ locator.lc family   AF INET6;
+locator.lc ifidx   0; locator.lc flags   0; locator.lc prio   0; locator.lc weight   0; memcpy(&locator.lc addr, &ia6, sizeof(ia6)); setsockopt(fd, SOL SHIM, SHIM LOC LOCAL SEND, &locator, sizeof(locator))
+The SHIM LOC PEER SEND option is used to request that the shim sub layer use a specific locator for the destination locator of IP packets to be sent from the socket.
+This option is effective only when there is a shim context associated with the socket.
+The data type of the option value is a pointer to the shim locator data structure.
+An application can set the remote locator by setsockopt(), providing a locator that is stored in a shim locator data structure.
+When a zero filled locator is specified, the pre existing setting of the remote locator is inactivated.
+An application can get the specified remote locator by getsockopt().
+The difference between the SHIM LOC PEER SEND option and the SHIM LOC PEER PREF option is that the former guarantees the use of a requested locator when applicable, whereas the latter does not.
+When the application specifies the socket option to an unconnected socket, error code EOPNOTSUPP is returned to the application.
+When there is no shim context associated with the socket, error code ENOENT is returned to the application.
+Error code EINVALIDLOCATOR is returned when the validation of the requested locator fails.
+Error code EUNVERIFIEDLOCATOR is returned when reachability for the requested locator has not been verified yet.
+Error code EUNREACHABLELOCATOR is returned when the requested locator is determined to be unreachable according to a reachability check.
+The usage of the option is the same as that of the SHIM LOC LOCAL SEND option.
+The SHIM LOCLIST LOCAL option is used to get or set the locator list associated with the local EID of the shim context associated with the socket.
+This option is effective only when there is a shim context associated with the socket.
+The data type of the option value is a pointer to the buffer in which a locator list is stored.
+See Section 8 for the data structure for storing the locator information.
+By default, the option value is set to NULL, meaning that the option is disabled.
+An application can get the locator list by getsockopt().
+Note that the size of the buffer pointed to by the optval argument
+SHOULD be large enough to store an array of locator information.
+The number of the locator information is not known beforehand.
+The local locator list can be set by setsockopt().
+The buffer pointed to by the optval argument MUST contain an array of locator structures.
+When the application specifies the socket option to an unconnected socket, error code EOPNOTSUPP is returned to the application.
+When there is no shim context associated with the socket, error code ENOENT is returned to the application.
+Error code EINVALIDLOCATOR is returned when the validation of any of the specified locators failed.
+Error code ETOOMANYLOCATORS is returned when the number of locators specified exceeds the limit (SHIM MAX LOCATORS), or when the size of the buffer provided by the application is not large enough to store the locator list provided by the shim sub layer.
+For example, an application can set a list of locators to be associated with the local EID by using the socket option as follows.
+Note that an IPv4 locator can be handled by HIP and not by Shim6.
+/  first locator (an IPv6 address)
+; locators[0].lc flags   0; locators[0].lc prio   1
+second locator (an IPv4 address)
+; locators[1].lc flags   0; locators[1].lc prio   0
+locators[1].lc weight   0; memcpy(&locators[1].lc addr, &sa sin addr, sizeof(sa sin addr))
+; setsockopt(fd, SOL SHIM, SHIM LOCLIST LOCAL, locators, sizeof(locators)); For example, an application can get a list of locators that are associated with the local EID by using the socket option as follows: struct shim locator
+The SHIM LOCLIST PEER option is used to get or set the locator list associated with the peer EID of the shim context associated with the socket.
+This option is effective only when there is a shim context associated with the socket.
+The data type of the option value is a pointer to the buffer where a locator list is stored.
+See Section 8 for the data structure for storing the locator information.
+By default, the option value is set to NULL, meaning that the option is disabled.
+An application can get the locator list by getsockopt().
+Note that the size of the buffer pointed to by the optval argument
+SHOULD be large enough to store an array of locator information.
+The number of the locator information is not known beforehand.
+An application can set the locator list by setsockopt().
+The buffer pointed to by the optval argument MUST contain an array of locator list items.
+When the application specifies the socket option to an unconnected socket, error code EOPNOTSUPP is returned to the application.
+When there is no shim context associated with the socket, error code ENOENT is returned to the application.
+Error code EINVALIDLOCATOR is returned when the validation of any of the specified locators failed.
+Error code EUNVERIFIEDLOCATOR is returned when reachability for the requested locator has not been verified yet.
+Error code EUNREACHABLELOCATOR is returned when the requested locator is determined to be unreachable according to a reachability check.
+Error code ETOOMANYLOCATORS is returned when the number of locators specified exceeds the limit (SHIM MAX LOCATORS), or when the size of the buffer provided by the application is not large enough to store the locator list provided by the shim sub layer.
+The usage of the option is the same as that of SHIM LOCLIST LOCAL.
+The SHIM APP TIMEOUT option is used to get or set the Send Timeout value of REAP [RFC5534].
+This option is effective only when there is a shim context associated with the socket.
+The data type of the option value is an integer.
+The value indicates the period of timeout in seconds to send a REAP Keepalive message since the last outbound traffic.
+By default, the option value is set to 0, meaning that the option is disabled.
+When the option is disabled, the REAP mechanism follows its default Send Timeout value as specified in [RFC5534].
+When the application specifies the socket option to an unconnected socket, error code EOPNOTSUPP is returned to the application.
+When there is no shim context associated with the socket, error code ENOENT is returned to the application.
+When there is no REAP instance on the system, error code EOPNOTSUPP is returned to the application.
+For example, an application can set the timeout value by using the socket option as follows:
+The application MAY use this socket option to get or set parameters concerning path exploration.
+Path exploration is a procedure to find an alternative locator pair to the current locator pair.
+As the REAP specification defines, a peer may send Probe messages to find an alternative locator pair.
+This option is effective only when there is a shim context associated with the socket.
+The data type of the option value is a pointer to the buffer where a set of information for path exploration is stored.
+The data structure is defined in Section 8.
+By default, the option value is set to NULL, meaning that the option is disabled.
+When the application specifies the socket option to an unconnected socket, error code EOPNOTSUPP is returned to the application.
+When there is no shim context associated with the socket, error code ENOENT is returned to the application.
+; setsockopt(fd, SOL SHIM, SHIM PATHEXPLORE, &pe, sizeof(pe)); For example, an application can get parameters for path exploration by using the socket option as follows: struct shim6 pathexplore pe; int len; len
+sizeof(pe); getsockopt(fd, SOL SHIM, SHIM PATHEXPLORE, &pe, &len); 6.14.
+The SHIM DEFERRED CONTEXT SETUP option is used to check whether or not deferred context setup is possible.
+Deferred context setup means that the context is established in parallel with the data communication.
+Note that Shim6 supports deferred context setup and HIP does not, because EIDs in HIP (i.e., Host Identifiers) are non  routable.
+Note that the socket option is read only, and the option value can be read by getsockopt().
+The data type for the option value is an integer.
+The option value MUST be binary (0 or 1).
+The option value of 1 means that the shim sub layer supports deferred context setup.
+When the application specifies the socket option to an unconnected socket, error code EOPNOTSUPP is returned to the application.
+For example, an application can check whether deferred context setup is possible or not as follows: int optval; int len; len   sizeof(optval); getsockopt(fd, SOL SHIM, SHIM DEFERRED CONTEXT SETUP, &optval, &len); 6.15.
+All the socket options defined in this section except for the SHIM DONTSHIM option are applicable to applications that use connected sockets.
+All the socket options defined in this section except for the SHIM ASSOCIATED, SHIM DONTSHIM, and SHIM CONTEXT DEFERRED SETUP options are effective only when there is a shim context associated with the socket.
+If successful, getsockopt() and setsockopt
+() return 0; otherwise, the functions return  1 and set errno to indicate an error.
+The following are new error values defined for some shim specific socket options indicating that the getsockopt() or setsockopt() finished incompletely: EINVALIDLOCATOR
+This indicates that the locator is not part of the HBA set [RFC5535] within the shim context associated with the socket.
+This indicates that the reachability of the locator has not been confirmed.
+This error is applicable to only the peer's locator.
+This indicates that the locator is not reachable according to the result of the reachability check.
+This error is applicable to only the peer's locator.
+Ancillary Data for Multihoming Shim Sub Layer
+This section provides definitions of ancillary data to be used for locator management and notification from/to the shim sub layer to/ from the application.
+When the application performs locator management by sendmsg() or recvmsg(), a member of the msghdr structure (given in Figure 3) called msg control holds a pointer to the buffer in which one or more shim
+specific ancillary data objects may be stored.
+An ancillary data object can store a single locator.
+It should be possible to process the shim specific ancillary data object by the existing macros defined in the POSIX standard and [RFC3542].
+# elements in msg iov
+, see below  / u int
+In the case of an unconnected socket, msg name stores the socket address of the peer.
+Note that the address is not a locator of the peer but the identifier of the peer.
+SHIM LOC PEER RECV can be used to get the locator of the peer node.
+Table 2 is a list of the shim specific ancillary data that can be used for locator management by recvmsg() or sendmsg().
+In any case, the value of cmsg level MUST be set to SOL SHIM.
+Shim Specific Ancillary Data Note 1:
+cmsg data[] within msg control includes a single sockaddr in{} or sockaddr in6{} and padding if necessary 7.1.
+Get Locator from Incoming Packet
+An application can get locator information from the received IP packet by specifying the shim specific socket options for the socket.
+When SHIM LOC LOCAL RECV and/or SHIM LOC PEER RECV socket options are set, the application can retrieve a local and/or remote locator from the ancillary data.
+When there is no shim context associated with the socket, the shim sub layer MUST return zero filled locator information to the application.
+Set Locator for Outgoing Packet
+An application can specify the locators to be used for transmitting an IP packet by sendmsg().
+When the ancillary data of cmsg type SHIM LOC LOCAL SEND and/or SHIM LOC PEER SEND are specified, the application can explicitly specify the source and/or the destination locators to be used for the communication over the socket.
+If the specified locator pair is verified, the shim sub layer overrides the locator(s) of the outgoing IP packet.
+Note that the effect is limited to the datagram transmitted by the sendmsg().
+When there is no shim context associated with the socket, error code ENOENT is returned to the application.
+Error code EINVALIDLOCATOR is returned when validation of the specified locator fails.
+Error code EUNVERIFIEDLOCATOR is returned when reachability for the requested locator has not been verified yet.
+The application is recommended to use another destination locator until the reachability check for the requested locator is done.
+Error code EUNREACHABLELOCATOR is returned when the requested locator is determined to be unreachable according to a reachability check.
+The application is recommended to use another destination locator when receiving the error.
+Notification from Application to Multihoming Shim Sub Layer
+An application MAY provide feedback to the shim sub layer about the communication status.
+Such feedback is useful for the shim sub layer to monitor the reachability status of the currently used locator pair in a given shim context.
+The notification can be made by sendmsg() specifying a new ancillary data called SHIM FEEDBACK.
+The ancillary data can be handled by specifying the SHIM FEEDBACK option in cmsg type.
+When there is no shim context associated with the socket, error code ENOENT is returned to the application.
+See Section 8.3 for details of the data structure to be used.
+It is outside the scope of this document to describe how the shim sub layer would react when feedback is provided by an application.
+All the ancillary data for the shim sub layer is applicable to connected sockets.
+Care is needed when the SHIM LOC   RECV socket option is used for stream oriented sockets (e.g., TCP sockets) because there is no one  to one mapping between a single send or receive operation and the data (e.g., a TCP segment) being received.
+In other words, there is no guarantee that the locator(s) set in the SHIM LOC   RECV ancillary data is identical to the locator(s)
+that appears in the IP packets received.
+The shim sub layer SHOULD provide the latest locator information to the application in response to the SHIM LOC   RECV socket option.
+This section gives data structures for the shim sub layer.
+These data structures are either used as a parameter for setsockopt() or getsockopt() (as mentioned in Section 6), or as a parameter for ancillary data to be processed by sendmsg() or recvmsg() (as mentioned in Section 7).
+Data Structure for Locator Information
+As defined in Section 6, the SHIM LOC   PREF, SHIM LOC   SEND, and SHIM LOCLIST   socket options need to handle one or more locator information points.
+Locator information includes not only the locator itself but also additional information about the locator that is useful for locator management.
+A new data structure is defined to serve as a placeholder for the locator information.
+Figure 4 illustrates the data structure called shim locator, which stores locator information.
+; Figure 4: Shim Locator Structure lc family Address family of the locator (e.g., AF INET, AF INET6).
+It is required that the parameter contains a non zero value indicating the exact address family of the locator.
+lc proto Internet Protocol number for the protocol that is used to handle a locator behind a NAT.
+The value MUST be set to zero when there is no NAT involved.
+When the locator is behind a NAT, the value MUST be set to IPPROTO UDP.
+lc port Port number that is used for handling a locator behind a NAT.
+lc prio Priority of the locator.
+The range is 0 65535.
+The lowest priority value means the highest priority.
+lc weight Weight value indicates a relative weight for locators with the same priority value.
+The range is 0 65535.
+A locator with higher weight value is prioritized over the other locators with lower weight values.
+lc ifidx Interface index of the network interface to which the locator is assigned.
+This field is applicable only to local locators, and has no effect in set operations.
+lc addr Contains the locator.
+In the case of IPv4, the locator MUST be formatted in the IPv4 mapped IPv6 address as defined in [RFC4291].
+The locator MUST be stored in network byte order.
+lc flags Each bit of the flags represents a specific characteristic of the locator.
+The Hash Based Address (HBA) is defined as 0x01.
+The Cryptographically Generated Address (CGA) is defined as 0x02.
+This field has no effect in set operations.
+Handling Locator behind NAT Note that the locator information MAY contain a locator behind a Network Address Translator (NAT).
+Such a situation may arise when the host is behind the NAT and uses a local address as a source locator to communicate with the peer.
+Note that a NAT traversal mechanism for HIP is defined, which allows a HIP host to tunnel control and data traffic over UDP [RFC5770].
+Note also that the locator behind a NAT is not necessarily an IPv4 address and can be an IPv6 address.
+Below is an example where the application sets a UDP encapsulation interface as a source locator when sending IP packets.
+locator.lc proto   IPPROTO UDP; locator.lc port   50500; locator.lc ifidx   0; locator.lc flags   0; locator.lc prio   0; locator.lc weight   0; memcpy(&locator.lc addr, &ia6, sizeof(ia6)); setsockopt(fd, SOL SHIM, SHIM LOC LOCAL SEND, &locator, sizeof(locator)); Figure 5: Handling Locator behind NAT 8.2.
+As defined in Section 6, SHIM PATHEXPLORE allows an application to set or read the parameters for path exploration and failure detection.
+A new data structure called shim pathexplore is defined to store the necessary parameters.
+Figure 6 illustrates the data structure.
+The data structure can be passed to getsockopt() or setsockopt() as an argument.
+struct shim pathexplore { uint16 t
+Keepalive Interval  / uint16 t
+Path Explore Structure pe probenum Indicates the number of initial Probe messages to be sent.
+The value MUST be set as per [RFC5534].
+pe keepaliveto Indicates the timeout value in seconds for detecting a failure when the host does not receive any packets for a certain period of time while there is outbound traffic.
+When the timer expires, the path exploration procedure will be carried out by sending a REAP Probe message.
+The value MUST be set as per [RFC5534].
+pe keepaliveint Indicates the interval of REAP Keepalive messages in seconds to be sent by the host when there is no outbound traffic to the peer host.
+The value MUST be set as per [RFC5534].
+pe initprobeto Indicates the retransmission timer of the REAP Probe message in milliseconds.
+Note that this timer is applied before exponential back off is started.
+A REAP Probe message for the same locator pair may be retransmitted.
+The value MUST be set as per [RFC5534].
+pe reserved A reserved field for future extension.
+By default, the field MUST be initialized to zero.
+As mentioned in Section 7.3, applications can inform the shim sub layer about the status of unicast reachability of the locator pair currently in use.
+The feedback information can be handled by using ancillary data called SHIM FEEDBACK.
+A new data structure named shim feedback is illustrated in Figure 7.
+fb direction Indicates the direction of reachability between the locator pair in question.
+A value of 0 indicates outbound direction, and a value of 1 indicates inbound direction.
+A value indicating the degree of satisfaction of a unidirectional reachability for a given locator pair.
+Whenever this value is specified, the feedback information MUST NOT be processed by the shim sub layer.
+There is no unidirectional reachability between the locator pair in question.
+The application is not satisfied with the unidirectional reachability between the locator pair in question.
+There is satisfactory unidirectional reachability between the locator pair in question.
+MUST be ignored by the receiver.
+As addressed in Section 6, most of the socket options and ancillary data defined in this document are applicable to connected sockets.
+It is assumed that the kernel is capable of maintaining the association between a connected socket and a shim context.
+This requirement is considered to be reasonable because a pair of source and destination IP addresses is bound to a connected socket.
+Relation to Existing Sockets API Extensions
+This section explains the relation between the sockets API defined in this document and the existing sockets API extensions.
+As mentioned in Section 6, the basic assumption is that the existing sockets API continues to work above the shim sub layer.
+This means that the existing sockets API deals with identifiers, and the sockets API defined in this document deals with locators.
+SHIM LOC LOCAL SEND and SHIM LOC PEER SEND socket options are semantically similar to the IPV6 PKTINFO
+sockets API in the sense that both provide a means for an application to set the source IP address of outbound IP packets.
+SHIM LOC LOCAL RECV and SHIM LOC PEER RECV socket options are semantically similar to the IP RECVDSTADDR and IPV6 PKTINFO
+sockets APIs in the sense that both provide a means for an application to get the source and/or destination IP address of inbound IP packets.
+getsockname() and getpeername() enable an application to get the "name" of the communication endpoints, which is represented by a pair of IP addresses and port numbers assigned to the socket.
+getsockname() gives the IP address and port number assigned to the socket on the local side, and getpeername() gives the IP address and port number of the peer side.
+This section gives operational considerations of the sockets API defined in this document.
+Conflict Resolution There can be a conflicting situation when different applications specify different preferences for the same shim context.
+For instance, suppose that applications A and B establish communication with the same EID pair while both applications have different preferences in their choice of local locator.
+The notion of context forking in Shim6 can resolve the conflicting situation.
+It is possible that socket options defined in Section 6 cause a conflicting situation when the target context is shared by multiple applications.
+In such a case, the socket handler should inform the shim sub layer that context forking is required.
+In Shim6, when a context is forked, a unique identifier called the Forked Instance Identifier (FII) is assigned to the newly forked context.
+The forked context is then exclusively associated with the socket through which a non default preference value was specified.
+The forked context is maintained by the shim sub layer during the lifetime of the associated socket instance.
+When the socket is closed, the shim sub layer SHOULD delete the associated context.
+When the application specifies SHIM LOC   SEND specifying a different source or destination locator that does not have the highest priority and weight specified by the SHIM LOC   PREF, the shim sub layer SHOULD supersede the request made by SHIM LOC   SEND over the preference specified by SHIM LOC   PREF.
+When the peer provides preferences of the locators (e.g., a Shim6 peer sends a locator with a Locator Preferences Option) that conflict with preferences specified by the applications either by SHIM LOC PEER SEND or SHIM LOC PEER PREF, the shim sub layer SHOULD supersede the preferences made by the applications over the preferences specified by the peer.
+Incompatibility between IPv4 and IPv6
+The shim sub layer performs identifier/locator adaptation.
+Therefore, in some cases, the whole IP header can be replaced with a new IP header of a different address family (e.g., conversion from IPv4 to IPv6 or vice versa).
+Hence, there is an issue regarding how to make the conversion with minimum impact.
+Note that this issue is common in other protocol conversion techniques [RFC2765] [RFC6145].
+As studied in the previous works on protocol conversion [RFC2765], [RFC6145] some of the features (IPv6 routing headers, hop by hop extension headers, and destination headers) from IPv6 are not convertible to IPv4.
+In addition, the notion of source routing is not exactly the same in IPv4 and IPv6.
+This means that an error may occur during the conversion of the identifier and locator.
+It is outside the scope of this document to describe how the shim sub layer should behave in such erroneous cases.
+There are no IANA considerations for the socket options (
+All the numbers concerned are not under the control of the IETF or IANA, but they are platform specific.
+This section defines a protocol constant.
+The maximum number of locators to be included in a locator list.
+The value is set to 32.
+This section gives security considerations of the API defined in this document.
+When sending IP packets, there is a possibility that an application will request the use of an unknown locator for the source and/or destination locators.
+Note that the treatment of an unknown locator can be a subject of security considerations, because the use of an invalid source and/or destination locator may cause a redirection attack.
+Treatment of Unknown Source Locator
+The shim sub layer checks to determine if the requested locator is available on any local interface.
+If not, the shim sub layer MUST reject the request and return an error message with the EINVALIDLOCATOR code to the application.
+If the locator is confirmed to be available, the shim sub layer SHOULD initiate the procedure to update the locator list.
+Use of the following socket options and ancillary data requires treatment of an unknown source locator:
+Treatment of Unknown Destination Locator
+If the shim sub layer turns out to be Shim6, the Shim6 layer MUST reject the request for using an unknown destination locator.
+If the shim sub layer turns out to be HIP, the HIP layer MUST reject the request for using an unknown destination locator.
+There is, however, an exceptional case where the HIP layer SHOULD accept the request, provided that the HIP association is in the UNASSOCIATED state.
+Details of locator handling in HIP are described in Section 4.6 of [RFC6317].
+Use of the following socket options and ancillary data requires treatment of an unknown destination locator:
+SHIM LOCLIST PEER Appendix A.  Context Forking
+In this section, an issue concerning context forking and its relation to the multihoming shim API are discussed.
+Shim6 supports the notion of context forking.
+A peer may decide to fork a context for a certain reason (e.g., an upper layer protocol prefers to use a different locator pair than the one defined in an available context).
+The procedure of context forking is done similarly to the normal context establishment, performing the 4 way message exchange.
+A peer who has decided to fork a context initiates the context establishment.
+Hereafter, we call this peer the "initiator".
+The peer of the initiator is called the "responder".
+Once the forked context is established between the peers, on the initiator side, it is possible to apply forked context to the packet flow, since the system maintains an association between the forked context and the socket owned by the application that has requested the context forking.
+How this association is maintained is an implementation specific issue.
+However, on the responder side, there is a question of how the outbound packet can be multiplexed by the shim sub layer, because there is more than one Shim6 context that matches with the ULID pair of the packet flow.
+There is a need to differentiate packet flows not only by the ULID pairs but by some other information and associate a given packet flow with a specific context.
+Figure 8 gives an example of a scenario where two communicating peers fork a context.
+Initially, there has been a single transaction between the peers, by the application 1 (App1).
+Accordingly, another transaction is started, by application 2 (App2).
+Both of the transactions are made based on the same ULID pair.
+The first context pair (Ctx1) is established for the transaction of App1.
+Given the requests from App2, the shim sub layer on Peer 1 decides to fork a context.
+Accordingly, a forked context (Ctx2) is established between the peers, which should be exclusively applied to the transaction of App2.
+Ideally, multiplexing and demultiplexing of packet flows that relate to App1 and App2 should be done as illustrated in Figure 8.
+However, as mentioned earlier, the responder needs to multiplex outbound flows of App1 and App2 somehow.
+Note that if a context forking occurs on the initiator side, a context forking needs to also occur on the responder side.
+Context Forking How to solve the issue described above is a topic for further study.

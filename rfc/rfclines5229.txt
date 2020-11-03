@@ -1,0 +1,100 @@
+Abstract In advanced mail filtering rule sets, it is useful to keep state or configuration details across rules.
+This document updates the Sieve filtering language (RFC 5228) with an extension to support variables.
+The extension changes the interpretation of strings, adds an action to store data in variables, and supplies a new test so that the value of a string can be examined.
+This is an extension to the Sieve language defined by [SIEVE].
+It adds support for storing and referencing named data.
+The mechanisms detailed in this document will only apply to Sieve scripts that include a require clause for the "variables" extension.
+The require clauses themselves are not affected by this extension.
+Conventions for notations are as in [SIEVE] section 1.1, including use of [KEYWORDS] and [ABNF].
+The grammar builds on the grammar of [SIEVE].
+In this document, "character" means a character from the ISO 10646 coded character set [ISO10646], which may consist of multiple octets coded in [UTF 8], and "variable" is a named reference to data stored or read back using the mechanisms of this extension.
+The capability string associated with the extension defined in this document is "variables".
+This extension changes the semantics of quoted string, multi line  literal and multi line dotstuff found in [SIEVE] to enable the inclusion of the value of variables.
+When a string is evaluated, substrings matching variable ref SHALL be replaced by the value of variable name.
+Only one pass through the string SHALL be done.
+Variable names are case insensitive, so "foo" and "FOO" refer to the same variable.
+Unknown variables are replaced by the empty string.
+unchanged, as the empty string is an illegal identifier "${doh!}"
+The variable "company" holds the value "ACME".
+No other variables are set.
+Strings where no variable substitutions take place are referred to as constant strings.
+Future extensions may specify that passing non  constant strings as arguments to its actions or tests is an error.
+Namespaces are meant for future extensions that make internal state available through variables.
+These variables SHOULD be put in a namespace whose first component is the same as its capability string.
+Such extensions SHOULD state which, if any, of the variables in its namespace are modifiable with the "set" action.
+References to namespaces without a prior require statement for the relevant extension MUST cause an error.
+Tests or actions in future extensions may need to access the unexpanded version of the string argument and, e.g., do the expansion after setting variables in its namespace.
+The design of the implementation should allow this.
+The semantics of quoting using backslash are not changed: backslash quoting is resolved before doing variable substitution.
+Similarly, encoded character processing (see Section 2.4.2.4 of [SIEVE]) is performed before doing variable substitution, but after quoting.
+a backslash character followed by the expansion of variable foo.
+If it is required to include a character sequence such as
+"${beep}" verbatim in a text literal, the user can define a variable to circumvent expansion to the empty string.
+Example: require ["encoded character", "variables"];
+Match Variables A "match variable" has a name consisting only of decimal digits and has no namespace component.
+The decimal value of the match variable name will index the list of matching strings from the most recently evaluated successful match of type ":matches".
+The list is empty if no match has been successful.
+Extra leading zeroes are allowed and ignored.
+Each string holds the substring from the source value that the corresponding wildcard expands to, possibly the empty string.
+The wildcards match as little as possible (non greedy matching).
+The first string in the list has index 1.
+If the index is out of range, the empty string will be substituted.
+Index 0 contains the matched part of the source value.
+The interpreter MUST short circuit tests, i.e., not perform more tests than necessary to find the result.
+Evaluation order MUST be left to right.
+If a test has two or more list arguments, the implementation is free to choose which to iterate over first.
+An extension describing a new match type (e.g., [REGEX])
+MAY specify that match variables are set as a side effect when the match type is used in a script that has enabled the "variables" extension.
+[fwd] version 1.0 is out if header :matches "Subject" "
+# Imagine the header #
+{ # Control wouldn't reach this block if any match was # successful, so no match variables are set at this # point. }
+{ # The second test is never evaluated, so there are # still no match variables set.
+string> The "set" action stores the specified value in the variable identified by name.
+The name MUST be a constant string and conform to the syntax of variable name.
+Match variables cannot be set.
+A namespace cannot be used unless an extension explicitly allows its use in "set".
+An invalid name MUST be detected as a syntax error.
+Modifiers are applied on a value before it is stored in the variable.
+See the next section for details.
+Variables are only visible to the currently running script.
+Note: Future extensions may provide different scoping rules for variables.
+Variable names are case insensitive.
+Example: set "honorific"  "Mr"; set "first name" "Wile"; set "last name"  "Coyote"; set "vacation" text:
+${last name}, I'm out, please leave a message after the meep.
+; "set" does not affect the implicit keep.
+It is compatible with all actions defined in [SIEVE].
+:length" Modifier names are case insensitive.
+Unknown modifiers MUST yield a syntax error.
+It is an error to use two or more modifiers of the same precedence in a single "set" action.
+This modifier adds the necessary quoting to ensure that the expanded text will only match a literal occurrence if used as a parameter to :matches.
+These modifiers change the letters of the text from upper to lower case or vice versa.
+Characters other than "A" "Z" and "a" "z" from US ASCII are left unchanged.
+Modifier ":upper" All lower case letters are converted to their upper case counterparts.
+Modifier ":lower" All upper case letters are converted to their lower case counterparts.
+Modifier ":upperfirst" The first character of the string is converted to upper case if it is a letter and set in lower case.
+The rest of the string is left unchanged.
+Modifier ":lowerfirst" The first character of the string is converted to lower case if it is a letter and set in upper case.
+The rest of the string is left unchanged.
+[COMPARATOR] <source: string list> <key list:
+The "string" test evaluates to true if any of the source strings matches any key.
+The type of match defaults to ":is".
+In the "string" test, both source and key list are taken from the script, not the message, and whitespace stripping MUST NOT be done unless the script explicitly requests this through some future mechanism.
+# the above test always succeeds } The "relational" extension [RELATIONAL] adds a match type called ":count".
+The count of a single string is 0 if it is the empty string, or 1 otherwise.
+The count of a string list is the sum of the counts of the member strings.
+An implementation of this document MUST support at least 128 distinct variables.
+The supported length of variable names MUST be at least 32 characters.
+Each variable MUST be able to hold at least 4000 characters.
+Attempts to set the variable to a value larger than what the implementation supports SHOULD be reported as an error at compile time if possible.
+If the attempt is discovered during run  time, the value SHOULD be truncated, and it MUST NOT be treated as an error.
+Match variables ${1} through ${9} MUST be supported.
+References to higher indices than those the implementation supports MUST be treated as a syntax error, which SHOULD be discovered at compile time.
+Security Considerations When match variables are used, and the author of the script isn't careful, strings can contain arbitrary values controlled by the sender of the mail.
+Since values stored by "set" that exceed implementation limits are silently truncated, it's not appropriate to store large structures with security implications in variables.
+The introduction of variables makes advanced decision making easier to write, but since no looping construct is provided, all Sieve scripts will terminate in an orderly manner.
+Sieve filtering should not be relied on as a security measure against hostile mail messages.
+Sieve is designed to do simple, mostly static tests, and is not suitable for use as a spam or virus checker, where the perpetrator has a motivation to vary the format of the mail in order to avoid filtering rules.
+The following template specifies the IANA registration of the variables Sieve extension specified in this document:
+Registration of new Sieve extension Capability name:
+Adds support for variables to the Sieve filtering language.
+The Sieve discussion list <ietf mta filters@imc.org>

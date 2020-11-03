@@ -1,0 +1,355 @@
+Abstract This document provides an informational guide for users of the Signaling Compression (SigComp) protocol.
+The aim of the document is to assist users when making SigComp implementation decisions, for example, the choice of compression algorithm and the level of robustness against lost or misordered packets.
+This document provides an informational guide for users of the SigComp protocol, RFC 3320 [2].
+The idea behind SigComp is to standardize a Universal Decompressor Virtual Machine (UDVM) that can be programmed to understand the output of many well known compressors including DEFLATE [8] and LZW [7].
+The bytecode for the chosen compression algorithm is uploaded to the UDVM as part of the compressed data.
+The basic SigComp RFC describes the actions that an endpoint must take upon receiving a SigComp message.
+However, the entity responsible for generating new SigComp messages (the SigComp compressor) is left as an implementation decision; any compressor can be used provided that it generates SigComp messages that can be successfully decompressed by the receiving endpoint.
+This document gives examples of a number of different compressors that can be used by the SigComp protocol.
+It also gives examples of how to use some of the mechanisms (such as acknowledgements) described in RFC 3321 [3].
+Overview of the User Guide
+When implementing a SigComp compressor, the first step is to choose a compression algorithm that can encode the application messages into a (hopefully) smaller form.
+Since SigComp can upload bytecode for new algorithms to the receiving endpoint, arbitrary compression algorithms can be supported provided that suitable bytecode has been written for the corresponding decompressor.
+This document provides example bytecode for the following algorithms:
+Any of the above algorithms may be useful depending on the desired compression ratio, processing and memory requirements, code size, implementation complexity, and Intellectual Property (IPR) considerations.
+As well as encoding the application messages using the chosen algorithm, the SigComp compressor is responsible for ensuring that messages can be correctly decompressed even if packets are lost or misordered during transmission.
+The SigComp feedback mechanism can be used to acknowledge successful decompression at the remote endpoint.
+The following robustness techniques and other mechanisms specific to the SigComp environment are covered in this document:
+Acknowledgements using the SigComp feedback mechanism 2.
+Cyclic redundancy code (CRC) checksum 4.
+Any or all of the above mechanisms can be implemented in conjunction with the chosen compression algorithm.
+An example subroutine of UDVM bytecode is provided for each of the mechanisms; these subroutines can be added to the bytecode for one of the basic compression algorithms.
+(Note: The subroutine or the basic algorithm may require minor modification to ensure they work together correctly.)
+UDVM Assembly Language Writing UDVM programs directly in bytecode would be a daunting task, so a simple assembly language is provided to facilitate the creation of new decompression algorithms.
+The assembly language includes mnemonic codes for each of the UDVM instructions, as well as simple directives for evaluating integer expressions, padding the bytecode, and so forth.
+The syntax of the UDVM assembly language uses the customary two level description technique, partitioning the grammar into a lexical and a syntactic level.
+On a lexical level, a string of assembly consists of zero or more tokens optionally separated by whitespace.
+Each token can be a text name, an instruction opcode, a delimiter, or an integer (specified as decimal, binary, or hex).
+> is skipped between tokens, but serves to terminate the longest match for a token.
+Any other input is a syntax error.
+When parsing on the lexical level, the string of assembly should be divided up into a list of successive tokens.
+The whitespace and comments should also be deleted.
+The assembly should then be parsed on the syntactic level as explained in Section 3.2.
+Once the string of assembly has been divided into tokens as per Section 3.1, the next step is to convert the assembly into a string of UDVM bytecode.
+On a syntactic level, a string of assembly consists of zero or more instructions, directives, or labels, each of which is itself built up from one or more lexical tokens.
+The following ABNF description specifies the syntax of the assembly language.
+Note that the lexical parsing step is assumed to have been carried out; so in particular, the boundaries between tokens are already known, and the comments and whitespace have been deleted:
+; Operands can be left blank if they can ; be automatically inferred by the ; compiler, e.g., a literal operand ; that specifies the total number of ; operands for the instruction.
+This symbol is mandatory for ; reference operands, optional for ; multitypes and addresses, and ; disallowed for literals.
+The resulting bytecode ; may or may not generate the expected ; results.
+is ; the location of the closest ; DECOMPRESSION FAILURE
+The following sections define how to convert the instructions, labels and directives into UDVM bytecode:
+The operand values needed by particular instructions or directives can be given in the form of expressions.
+An expression can include one or more values specified as decimal, binary, or hex (binary values are preceded by "0b" and hex values are preceded by "0x").
+The expression may also include one or more of the following operators:
+The operands for each operator must always be surrounded by parentheses so that the order in which the operators should be evaluated is clear.
+This can be useful when writing UDVM instructions that call a decompression failure, for example: INPUT BYTES (1, temp, !)
+The above instruction causes a decompression failure to occur if it tries to input data from beyond the end of the compressed message.
+The readonly directive (see Section 3.2.3) can be used to do this.
+It is also possible to assign integer values to text names:
+when a text name is encountered in an expression, it is replaced by the integer value assigned to it.
+Section 3.2.3 explains how to assign integer values to text names.
+A UDVM instruction is specified by the instruction opcode followed by zero or more operands.
+The instruction operands are enclosed in parentheses and separated by commas, for example: ADD ($3, 4) When generating the bytecode, the parser should replace the instruction opcode with the corresponding 1 byte value as per Figure 11 of SigComp [2].
+This symbol indicates that the supplied integer value must be interpreted as the memory address at which the operand value can be found, rather than the actual operand value itself.
+When converting each instruction operand to bytecode, the parser first determines whether the instruction expects the operand to be a literal, a reference, a multitype, or an address.
+If the operand is a literal, then, as per Figure 8 of SigComp, the parser inserts bytecode (usually the shortest) capable of encoding the supplied operand value.
+Since literal operands are used to indicate the total number of operands for an instruction, it is possible to leave a literal operand blank and allow its value to be inferred automatically by the assembler.
+For example: MULTILOAD (64, , 1, 2, 3, 4)
+The missing operand should be given the value 4 because it is followed by a total of 4 operands.
+If the operand is a reference, then, as per Figure 9 of SigComp, the parser inserts bytecode (usually the shortest) capable of encoding the supplied memory address.
+If so, then, as per Figure 10 of SigComp, it inserts bytecode (usually the shortest) capable of encoding the supplied integer as a memory address.
+If not, then, as per Figure 10 of SigComp, it inserts bytecode (usually the shortest) that encodes the supplied integer as an operand value.
+If so, then the supplied integer is encoded as a memory address, just as for the multitype instruction above.
+If not, then the byte position of the opcode is subtracted from the supplied integer modulo 16, and the result is encoded as an operand value as per Figure 10 of SigComp.
+The length of the resulting bytecode is dependent on the parser in use.
+There can be several correct and usable representations of the same instruction.
+The assembly language provides a number of directives for evaluating expressions, moving instructions to a particular memory address, etc.
+The directives "pad", "align", and "at" can be used to add padding to the bytecode.
+The directive "pad (n)" appends n consecutive padding bytes to the bytecode.
+The actual value of the padding bytes is unimportant, so when the bytecode is uploaded to the UDVM, the padding bytes can be set to the initial values contained in the UDVM memory (this helps to reduce the size of a SigComp message).
+The directive "align (n)" appends the minimum number of padding bytes to the bytecode such that the total number of bytes of bytecode generated so far is a multiple of n bytes.
+If the bytecode is already aligned to a multiple of n bytes, then no padding bytes are added.
+The directive "at (n)" appends enough padding bytes to the bytecode such that the total number of bytes of bytecode generated so far is exactly n bytes.
+If more than n bytes have already been generated before the "at" directive is encountered then the assembly code contains an error.
+The directives "byte" and "word" can be used to add specific data strings to the bytecode.
+The directive "set (name, n)" assigns an integer value n to a specified text name.
+The integer value can be supplied in the form of an expression.
+The directive "readonly (n)" where n is 0 or 1 can be used to indicate that an area of memory could be changed (0) or will not be changed (1) during the execution of the UDVM.
+If no readonly directive is used, then any address containing zero can be used by "!"
+(i.e., by default, there is assumed to be a readonly (1) directive at Address 0) and it is up to the author of the assembly code to ensure that the address in question will still contain zero when the bytecode is executed.
+When a readonly directive has been used, the bytes obey that directive from that address to either another readonly directive or the end of UDVM memory, whichever comes first.
+A label is a special directive used to assign memory addresses to text names.
+Labels are specified by a single colon followed by the text name to be defined.
+The (absolute) position of the byte immediately following the label is evaluated and assigned to the text name.
+For example: :start LOAD (temp, 1)
+Since the label "start" occurs at the beginning of the bytecode, it is assigned the integer value 0.
+Note that writing the label ":name" has exactly the same behavior as writing the directive "
+Uploading the Bytecode to the UDVM
+Once the parser has converted a string of assembly into the corresponding bytecode, it must be copied to the UDVM memory beginning at Address 0 and then executed, beginning from the first UDVM instruction in the bytecode.
+SigComp provides the following message format for uploading bytecode to the UDVM: 0
+The destination field should be set to the memory address of the first UDVM instruction.
+Note that if this address cannot be represented by the destination field, then the bytecode cannot be uploaded to the UDVM using the standard SigComp header.
+In particular, the memory address of the first UDVM instruction must always be a multiple of 64 bytes or the standard SigComp header cannot be used.
+Of course, there may be other ways to upload the bytecode to the UDVM, such as retrieving the bytecode directly via the INPUT BYTES instruction.
+Additionally, all memory addresses between Address 0 and Address 31 inclusive are initialized to endpoint specific values by the UDVM, so they must be specified as padding in the bytecode, or the standard SigComp header cannot be used.
+Memory addresses from Address 32 to Address (destination 1) inclusive are initialized to 0, so they must be specified either as padding or as 0s if the bytecode is to be successfully uploaded using the standard SigComp header.
+The code len field should be set to the smallest value such that all memory addresses beginning at Address (destination   code len) are either as initialised by the UDVM (to 0) or as set by the bytecode at runtime.
+The "uploaded UDVM bytecode" should be set to contain the segment of bytecode that lies between Address (destination) and Address (destination   code len 1) inclusive.
+This section describes a number of compression algorithms that can be used by a SigComp compressor.
+In each case, the document provides UDVM bytecode for the corresponding decompression algorithm, which can be uploaded to the receiving endpoint as part of a SigComp message.
+Each algorithm (as written in this section) assumes that there is a 16K decompression memory size, there are 16 cycles per bit, and there is an 8K state memory size.
+Decompression will succeed with a smaller value for state memory size; however, the full state will not be created.
+Section 4.1.1 covers a simple algorithm in some detail, including the steps required to compress and decompress a SigComp message.
+The remaining sections cover well known compression algorithms that can be adapted for use in SigComp with minimal modification.
+Well known Compression Algorithms 4.1.1.
+This section describes how to implement a very simple compression algorithm based on LZ77 [5].
+A compressed message generated by the simplified LZ77 scheme consists of a sequence of 4 byte characters, where each character contains a 2 byte position value followed by a 2 byte length value.
+Each pair of integers identifies a byte string in the UDVM memory; when concatenated, these byte strings form the decompressed message.
+The first 128 bytes are used to hold the 2 byte variables needed by the LZ77 decompressor.
+Within this memory, the first 64 bytes are used as a scratch pad, holding the 2 byte variables that can be discarded between SigComp messages.
+In contrast, the next 64 bytes (and in fact all of the UDVM memory starting from Address 64) should be saved after decompressing a SigComp message to improve the compression ratio of subsequent messages.
+The bytecode for the LZ77 decompressor is stored beginning at Address 128.
+A total of 128 bytes are reserved for the bytecode although the LZ77 decompressor requires less; this allows room for adding additional features to the decompressor at a later stage.
+The next 256 bytes are initialized by the bytecode to contain the integers 0 to 255 inclusive.
+The purpose of this memory area is to provide a dictionary of all possible uncompressed characters; this is important to ensure that the compressor can always generate a sequence of position/length pairs that encode a given message.
+For example, a byte with value 0x41 (corresponding to the ASCII character "A") can be found at Address 0x0141 of the UDVM memory, so
+the compressed character 0x0141 0001 will decompress to give this ASCII character.
+Note that encoding each byte in the application message as a separate 4 byte compressed character is not recommended, however, as the resulting "compressed" message is four times as large as the original uncompressed message.
+The compression ratio of LZ77 is improved by the remaining UDVM memory, which is used to store a history buffer containing the previously decompressed messages.
+Compressed characters can point to strings that have previously been decompressed and stored in the buffer, so the overall compression ratio of the LZ77 algorithm improves as the decompressor "learns" more text strings and is able to encode longer strings using a single compressed character.
+The buffer is circular, so older messages are overwritten by new data when the buffer becomes full.
+The steps required to implement an LZ77 compressor and decompressor are similar, although compression is more processor intensive as it requires a searching operation to be performed.
+These variables will form part of the SigComp state ;
+A ; variable decompressed pointer is also created and set pointing to ; the start of the circular buffer: MULTILOAD (64, 3, circular buffer, udvm memory size, circular buffer) ; The "dictionary" area of the UDVM memory is initialized to contain ; the values 0 to 255 inclusive: MEMSET (static dictionary, 256, 0, 1) :decompress sigcomp message :next character ;
+The next character in the compressed message is read by the UDVM ; and the position and length integers are stored in the variables ; position value and length value, respectively.
+If no more ; compressed data is available, the decompressor jumps to the ; "end of message" subroutine: INPUT BYTES (4, position value, end of message) ; The position value and length value point to a byte string in the ; UDVM memory, which is copied into the circular buffer at the ; position specified by decompressed pointer.
+This allows the string ; to be referenced by later characters in the compressed message: COPY LITERAL ($position value, $length value, $decompressed pointer) ; The byte string is also outputted onto the end of the decompressed
+; message: OUTPUT ($position value, $length value) ; The decompressor jumps back to consider the next character in the
+; compressed message: JUMP (next character) :end of message ;
+that the above bytecode will decompress to give the desired application message.
+As an example, a message compressed using the simplified LZ77 algorithm is given below: 0x0154 0001 0168
+0173 0x0002 0161 0001 0175
+0001 0201 0003 0145 0001
+0120 0001 016f 0001 0166
+0001 0211 0005 0155 0001 0x016e 0001 0169
+The uncompressed message is "The Restaurant at the End of the Universe\n".
+The bytecode for the LZ77 decompressor can be uploaded as part of the compressed message, as specified in Section 3.3.
+However, in order to improve the overall compression ratio, it is important to avoid uploading bytecode in every compressed message.
+For this reason, SigComp allows the UDVM to save an area of its memory as a state item between compressed messages.
+Once a state item has been created, it can be retrieved by sending the corresponding state identifier using the following SigComp message format: 0
+The partial state identifier field must contain the first 6 bytes of the state identifier for the state item to be accessed (see [2] for details of how state identifiers are derived).
+Note that the partial state identifier field could be 9 or 12 bytes and that in these cases, bits 6 and 7 of the first byte of the message would be 10 or 11, respectively.
+This section provides UDVM bytecode for the simple but effective LZSS compression algorithm [6].
+The principal improvement offered by LZSS over LZ77 is that each compressed character begins with a 1 bit indicator flag to specify whether the character is a literal or an offset/length pair.
+A literal value is simply a single uncompressed byte that is appended directly to the decompressed message.
+An offset/length pair contains a 12 bit offset value from 1 to 4096 inclusive, followed by a 4 bit length value from 3 to 18 inclusive.
+Taken together, these values specify one of the previously received text strings in the circular buffer, which is then appended to the end of the decompressed message.
+set (state length, (udvm memory size 64)) MULTILOAD (64, 4, circular buffer, udvm memory size, 0, circular buffer) :
+next character INPUT HUFFMAN (index, end of message, 2, 9, 0, 255, 16384, 4, 4096, 8191, 1) COMPARE ($index, 8192, length, end of message, literal) :literal set (index lsb, (index   1))
+COPY LITERAL (index lsb, 1, $decompressed pointer)
+length INPUT BITS (4, length value, !)
+LOAD (old pointer, $decompressed pointer)
+COPY OFFSET ($index, $length value, $decompressed pointer) OUTPUT ($old pointer, $length value)
+JUMP (next character) :end of message END MESSAGE (requested feedback location, returned parameters location, state length, 64, decompress sigcomp message, 6, 0) readonly (0) :
+An example of a message compressed using the LZSS algorithm is given below: 0x279a 0406
+The uncompressed message is "Oh no, not again!".
+This section provides UDVM bytecode for the well known LZW compression algorithm LZW [7].
+This algorithm is used in a number of standards including the GIF image format.
+LZW compression operates in a similar manner to LZ77 in that it maintains a circular buffer of previously received decompressed data, and each compressed character references exactly one byte string from the circular buffer.
+However, LZW also maintains a "codebook" containing 1024 position/length pairs that point to byte strings that LZW believes are most likely to occur in the uncompressed data.
+The byte strings stored in the LZW codebook can be referenced by sending a single 10 bit value from 0 to 1023 inclusive.
+The UDVM extracts the corresponding text string from the codebook and appends it to the end of the decompressed message.
+It then creates a new codebook entry containing the current text string and the next character to occur in the decompressed message.
+Assembly for an LZW decompressor is given below: at (32)
+set (state length, (udvm memory size 64)) MULTILOAD (64, 6, circular buffer, udvm memory size, 0, codebook, 1, static dictionary) :
+initialize codebook ; The following instructions are used to initialize the first 256 ; entries in the LZW codebook with single ASCII characters: set (index lsb, (index   1)) set (current length lsb, (current length   1))
+COPY LITERAL (current length lsb, 3, $codebook next)
+COPY LITERAL (index lsb, 1,
+$decompressed pointer) ADD ($index, 1) COMPARE ($index, 256, initialize codebook, next character, 0) :decompress sigcomp message :
+next character ; The following INPUT BITS instruction extracts 10 bits from the ; compressed message:
+INPUT BITS (10, index, end of message) ; The following instructions interpret the received bits as an index ; into the LZW codebook and extract the corresponding ; position/length pair: set (length value lsb, (length value   1))
+ADD ($index, codebook) COPY ($index, 3, length value lsb)
+; The following instructions append the selected text string to the ; circular buffer and create a new codebook entry pointing to this ; text string: LOAD (current length, 1) ADD ($current length, $length value)
+COPY LITERAL (current length lsb, 3, $codebook next)
+COPY LITERAL ($position value, $length value, $decompressed pointer) ; The following instruction outputs the text string specified by the ; position/length pair: OUTPUT ($position value, $length value)
+JUMP (next character) :end of message END MESSAGE (requested feedback location, returned parameters location, state length, 64, decompress sigcomp message, 6, 0) :
+An example of a message compressed using the LZW algorithm is given below:
+The uncompressed message is "So long and thanks for all the fish!\n".
+This section provides UDVM bytecode for the DEFLATE compression algorithm.
+DEFLATE is the algorithm used in the well known "gzip" file format.
+The following bytecode will decompress the DEFLATE compressed data format [8] with the following modifications: 1.
+The DEFLATE compressed data format separates blocks of compressed data by transmitting 7 consecutive zero bits.
+Each SigComp message is assumed to contain a separate block of compressed data, so the end of block bits are implicit and do not need to be transmitted at the end of a SigComp message.
+This bytecode supports only DEFLATE block type 01
+(data compressed with fixed Huffman codes).
+:initialize memory set (udvm memory size, 8192)
+set (state length, (udvm memory size 64))
+(length table mid, (length table start   24))
+set (distance table start, (distance table / 4))
+decompress sigcomp message INPUT BITS (3, extra length bits, !)
+:next character INPUT HUFFMAN (index, end of message, 4, 7, 0, 23, length table start, 1, 48, 191, 0, 0, 192, 199, length table mid, 1, 400, 511, 144)
+COMPARE ($index, length table start, literal, end of message, length distance)
+:literal set (index lsb, (index   1)) OUTPUT (index lsb, 1)
+COPY LITERAL (index lsb, 1, $decompressed pointer)
+length distance ; this is the length part MULTIPLY ($index, 4) COPY ($index, 4, extra length bits)
+INPUT BITS ($extra length bits, extra length bits, !)
+MULTIPLY ($index, 4) COPY ($index, 4, extra distance bits)
+INPUT BITS ($extra distance bits, extra distance bits, !)
+ADD ($distance value, $extra distance bits)
+COPY OFFSET ($distance value, $length value, $decompressed pointer) OUTPUT ($index, $length value)
+JUMP (next character) :end of message END MESSAGE (requested feedback location, returned parameters location, state length, 64, decompress sigcomp message, 6, 0) readonly (0) :
+An example of a message compressed using the DEFLATE algorithm is given below:
+The uncompressed message is "Life, the Universe and Everything\n".
+This section provides UDVM bytecode for the LZJH compression algorithm.
+LZJH is the algorithm adopted by the International Telecommunication Union (ITU T) Recommendation V.44 [9].
+The following 2 byte variables are saved as state after ; decompressing a SigComp message:
+(returned parameters location, 0) align (64) readonly (1) :initialize memory ; The following constants can be adjusted to configure the LZJH ; decompressor.
+set (first codeword, (codebook start 12))
+set (state length, (udvm memory size 64)) MULTILOAD (64, 8, circular buffer, udvm memory size, 7, 0, circular buffer, min ordinal length, min codeword length, codebook start) :
+decompress sigcomp message :standard prefix ; The following code decompresses the standard 1 bit LZJH prefix ; that specifies whether the next character is an ordinal or a
+INPUT BITS (1, index, end of message) COMPARE ($index, 1, ordinal, codeword control, codeword control) :prefix after codeword ; The following code decompresses the special LZJH prefix that only ; occurs after a codeword.
+It specifies whether the next character ; is an ordinal, a codeword/control value, or a string extension: INPUT HUFFMAN (index, end of message, 2, 1, 1, 1, 2, 1, 0, 1, 0) COMPARE ($index, 1, ordinal, string extension, codeword control) :ordinal ; The following code decompresses an ordinal character and creates ; a new codebook entry consisting of the ordinal character and the ; next character to be decompressed
+: set (index lsb, (index   1))
+set (current length lsb, (current length   1))
+INPUT BITS ($ordinal length, index, !)
+OUTPUT (index lsb, 1) LOAD (current length, 2) COPY LITERAL (current length lsb, 3, $codebook next)
+COPY LITERAL (index lsb, 1,
+$decompressed pointer) JUMP (standard prefix) :codeword control
+; The following code decompresses a codeword/control value: INPUT BITS ($codeword length, index, !)
+COMPARE ($index, 3, control code, initialize memory, codeword) :
+codeword ; The following code interprets a codeword as an index into the LZJH ; codebook.
+It extracts the position/length pair from the specified ; codebook entry; the position/length pair points to a byte string ; in the circular buffer, which is then copied to the end of the ; decompressed message.
+The code also creates a new codebook entry ; consisting of the byte string plus the next character to be ; decompressed: set (length value lsb, (length value   1))
+COPY ($index, 3, length value lsb) LOAD
+(current length, 1) ADD ($current length, $length value)
+LOAD (codebook old, $codebook next)
+COPY LITERAL (current length lsb, 3, $codebook next)
+COPY LITERAL ($position value, $length value, $decompressed pointer) OUTPUT ($position value, $length value)
+JUMP (prefix after codeword) :string extension
+; The following code decompresses a Huffman encoded string extension:
+extra bits INPUT BITS (max extension length, extra extension bits, !)
+ADD ($index, $extra extension bits) :continue ; The following code extends the most recently created codebook entry ; by the number of bits specified in the string extension: COPY LITERAL ($position value, $length value, $position value)
+COPY LITERAL ($position value, $index, $decompressed pointer) OUTPUT ($position value, $index) ADD ($index, $length value) COPY (index lsb, 1, $codebook old)
+JUMP (standard prefix) :control code
+; The code can handle all of the control characters in V.44 except ; for ETM (Enter Transparent Mode), which is not required for ; message based protocols such as SigComp.
+flush ; The FLUSH control character jumps to the beginning of the next ; complete byte in the compressed message: INPUT BYTES (0, 0, 0) JUMP (standard prefix) :stepup ; The STEPUP control character increases the number of bits used to ; encode an ordinal value or a codeword: INPUT BITS (1, index, !)
+COMPARE ($index, 1, stepup ordinal, stepup codeword, 0) :stepup ordinal ADD ($ordinal length, 1)
+JUMP (ordinal) :stepup codeword ADD ($codeword length, 1)
+JUMP (codeword control) :end of message END MESSAGE (requested feedback location, returned parameters location, state length, 64, decompress sigcomp message, 6, 0) readonly (0) :
+An example of a message compressed using the LZJH algorithm is given below:
+e6e0 cadc c8d2 dcce 40c2 40f2
+eae4 e0de e6ca e65c 1403
+Modified DEFLATE Alternative algorithms can also be used with SigComp.
+This section shows a modified version of the DEFLATE [8] algorithm.
+The two stage encoding of DEFLATE is replaced by a single step with a discrete Huffman code for each symbol.
+The literal/length symbol probabilities are dependent upon whether the previous symbol was a literal or a match.
+Bit handling is also simpler, in that all bits are input using the INPUT HUFFMAN instruction and the value of the H bit does not change so all bits are input, read, and interpreted in the same order.
+Assembly for the algorithm is given below.
+String matching rules are the same as for the other LZ based algorithms, with the alternative encoding of the literals and length/distance pairs.
+set (state length, (udvm memory size 64)) MULTILOAD (64, 4, circular buffer, udvm memory size, 0, circular buffer) :
+decompress sigcomp message :character after literal INPUT HUFFMAN (index, end of message, 16, 5, 0, 11, 46, 0, 12, 12, 256, 1, 26, 32, 257, 1, 66, 68, 32, 0, 69, 94, 97, 0, 95, 102, 264, 0, 103, 103, 511, 2, 416, 426, 35, 0, 427, 465, 58, 0, 466, 481, 272, 1, 964, 995, 288, 3, 7968, 7988, 123, 0, 7989, 8115, 384, 1, 16232, 16263, 0, 0, 16264, 16327, 320, 1, 32656, 32767, 144) COMPARE ($index, 256, literal, distance, distance)
+:character after match INPUT HUFFMAN (index, end of message, 16, 4, 0, 0, 511, 1, 2, 9, 256, 1, 20, 22, 32, 0, 23, 30, 264, 1, 62, 73, 46, 0, 74, 89, 272, 2, 360, 385, 97, 0, 386, 417, 288, 1, 836, 874, 58, 0, 875, 938, 320, 1, 1878, 1888, 35, 0, 1889, 2015, 384, 1, 4032, 4052, 123, 1, 8106, 8137, 0, 1, 16276, 16379, 144, 1, 32760, 32767, 248) COMPARE ($index, 256, literal, distance, distance)
+:literal set (index lsb, (index   1)) OUTPUT (index lsb, 1)
+COPY LITERAL (index lsb, 1, $decompressed pointer)
+JUMP (character after literal) :distance SUBTRACT ($index, 253)
+JUMP (character after match) :end of message END MESSAGE (requested feedback location, returned parameters location, state length, 64, decompress sigcomp message, 6, 0) readonly (0) :
+An example of a message compressed using the modified DEFLATE algorithm is given below:
+b362 653a d0a6 498b 5a6d 2970
+The uncompressed message is "Arthur leapt to his feet like an author hearing the phone ring".
+This section covers the additional mechanisms that can be employed by SigComp to improve the overall compression ratio, including the use of acknowledgements, dictionaries, and sharing state between two directions of a compressed message flow.
+An example of assembly code is provided for these mechanisms.
+Depending on the mechanism and basic algorithm in use, the assembly code for either the mechanism or the basic algorithm may require modification (e.g., if the algorithm uses 'no more input' to jump to end of message, following end of message with an input instruction for CRC will not work).
+In any case, these are examples and there may be alternative ways to make use of the mechanisms.
+When each of the compression algorithms described in Section 4 has successfully decompressed the current SigComp message, the contents of the UDVM memory are saved as a SigComp state item.
+Subsequent messages can access this state item by uploading the correct state identifier to the receiving endpoint, which avoids the need to upload the bytecode for the compression algorithm on a per message basis.
+However, before a state item can be accessed, the compressor must first ensure that it is available at the receiving endpoint.
+For each SigComp compartment, the receiving endpoint maintains a list of currently available states (where the total amount of state saved does not exceed the state memory size for the compartment).
+The SigComp compressor should maintain a similar list containing the states that it has instructed the receiving endpoint to save.
+As well as tracking the list of state items that it has saved at the remote endpoint, the compressor also maintains a flag for each state item indicating whether or not the state can safely be accessed.
+State items should not be accessed until they have been acknowledged (e.g., by using the SigComp feedback mechanism as per Section 5.1).
+State items are deleted from the list when adding a new piece of state when the total state memory size for the compartment is full.
+The state to be deleted is determined according to age and retention priority as discussed in SigComp [2].
+The SigComp compressor should not attempt to access any state items that have been deleted in this manner, as they may no longer be available at the receiving endpoint.
+Acknowledging a State Item SigComp [2] defines a feedback mechanism to allow the compressor to request feedback from the decompressor, to give the compressor indication that a message has been received and correctly decompressed and that state storage has been attempted.
+(Note: This mechanism cannot convey the success or failure of individual state creation requests.)
+In order to invoke the feedback mechanism, the following fields must be reserved in the UDVM memory:
+These fields can be reserved in any of the algorithms of Section 4 by replacing the line "set (requested feedback location, 0)" with the following assembly: :
+requested feedback location    pad (1) :
+When a SigComp message is successfully decompressed and saved as state, the following bytecode instructs the receiving endpoint to return the first 6 bytes of the corresponding state identifier.
+The bytecode can be added to any of the compression algorithms of Section 4 immediately following the ":end of message" label: :end of message set (hash length, (state length   8))
+LOAD (requested feedback location, 1158)
+MULTILOAD (hash start, 4, state length, 64, decompress sigcomp message, 6)
+(hash start, hash length, requested feedback field)
+The receiving endpoint then returns the state identifier in the "returned feedback field" of the next SigComp message to be transmitted in the reverse direction.
+When the state identifier is returned, the compressor can set the availability flag for the corresponding state to 1. 5.2.
+Static Dictionary Certain protocols that can be compressed using SigComp offer a fixed, mandatory state item known as a static dictionary.
+This dictionary contains a number of text strings that commonly occur in messages generated by the protocol in question.
+The overall compression ratio can often be improved by accessing the text phrases from this static dictionary rather than by uploading them as part of the compressed message.
+As an example, a static dictionary is provided for the protocols SIP and SDP, RFC 3485 [4].
+This dictionary is designed for use by a wide range of compression algorithms including all of the ones covered in Section 4.
+In any of the compression algorithms of Section 4, the static dictionary can be accessed by inserting the following instruction immediately after the ":initialize memory" label: STATE ACCESS (dictionary id, 6, 0, 0, 1024, 0)
+The parameters of STATE ACCESS instruction will depend on the compression algorithm in use.
+The following lines should also be inserted immediately after the END MESSAGE instruction: :
+0xfb, 0xe5, 0x07, 0xdf, 0xe5, 0xe6)
+The text strings contained in the static dictionary can then be accessed in exactly the same manner as the text strings from previously decompressed messages (see Section 5.1 for further details).
+Note that in some cases it is sufficient to load only part of the static dictionary into the UDVM memory.
+Further information on the contents of the SIP and SDP
+static dictionary can be found in the relevant document, RFC 3485 [4].
+The acknowledgement scheme of Section 5.1 is designed to indicate the successful decompression of a message.
+However, it does not guarantee that the decompressed message is identical to the original message, since decompression of a corrupted message could succeed but with some characters being incorrect.
+This could lead to an incorrect message being passed to the application or unexpected contents of state to be stored.
+In order to prevent this happening, a CRC check could be used.
+If an additional CRC check is required, then the following bytecode can be inserted after the ":end of message" label:
+INPUT BYTES (2, index, !)
+CRC ($index, 64, state length, !)
+The bytecode extracts a 2 byte CRC from the end of the SigComp message and compares it with a CRC calculated over the UDVM memory.
+Decompression failure occurs if the two CRC values do not match.
+A definition of the CRC polynomial used by the CRC instruction can be found in SigComp [2].
+If a particular endpoint is able to offer more processing or memory resources than the mandatory minimum, the SigComp feedback mechanism can be used to announce that these resources are available to the remote endpoint.
+This may help to improve the overall compression ratio between the two endpoints.
+Additionally, if an endpoint has any pieces of state that may be useful for the remote endpoint to reference, it can advertise the identifiers for the states.
+The remote endpoint can then make use of any that it also knows about (i.e., knows the contents of), for example, a dictionary or shared mode state (see Section 5.5).
+The values of the following SigComp parameters can be announced using the SigComp advertisement mechanism: cycles per bit decompression memory size state memory size
+SigComp version state identifiers As explained in SigComp, in order to announce the values of these parameters, the following fields must be reserved in the UDVM memory:
+When a SigComp message is successfully decompressed and saved as state, the following bytecode announces to the receiving endpoint that additional resources and pieces of state are available at the sending endpoint: :
+end of message LOAD (returned parameters location, N)
+INPUT BYTES (1, adverts len lsb, done)
+INPUT BYTES ($adverts len, state ids, done) :done Note that the integer value "N" should be set equal to the amount of resources available at the sending endpoint.
+N should be expressed as a 2 byte integer with the most significant bits corresponding to the cycles per bit parameter and the least significant bits corresponding to the SigComp version parameter.
+The length of the state identifiers followed by the state identifiers in the format shown are appended to the end of the compressed message.
+This section provides bytecode for implementing the SigComp shared compression mechanism, RFC 3321 [3].
+If two endpoints A and B are communicating via SigComp, shared compression allows the messages sent from Endpoint A to Endpoint B to be compressed relative to the messages sent from Endpoint B to Endpoint A (and vice versa).
+This may improve the overall compression ratio by reducing the need to transmit the same information in both directions.
+As described in RFC 3321 [3], two steps must be taken to implement shared compression at an endpoint.
+First, it is necessary to announce to the remote endpoint that shared compression is available.
+This is done by announcing the state identifier as an available piece of state.
+This can be done using the returned parameters location announcement as in Section 5.4.
+Second, assuming that such an announcement is received from the remote endpoint, then the state created by shared compression needs to be accessed by the message sent in the opposite direction.
+This can be done in a similar way to accessing the static dictionary (see Section 5.2), but using the appropriate state identifier, for example, by using the INPUT BYTES instruction as below: :
+STATE ACCESS (shared state id, 6, 0, 0, $decompressed start, 0) 6.
+This document describes implementation options for the SigComp protocol [2].
+Consequently, the security considerations for this document match those of SigComp.
+UDVM Bytecode for the Compression Algorithms
+The following sections list the UDVM bytecode generated for each compression algorithm of Section 4.
+Note that the different assemblers can output different bytecode for the same piece of assembly code, so a valid assembler can produce results different from those presented below.
+However, the following bytecode should always generate the same decompressed messages on any UDVM.
+0611 030e 2463 1450 5123 0x2252
+a0ce 13a0 4903 2313 2501 2506 1201 1752
+0612 b18f 1252 0321 0ea0 4801 0624 0x5013
+a049 0323 1351 5025 2251 5016 9fde
+7aa2 528d 05a2 5200 0300 0400 0500 0600 0700 0800
+020d 0311 0319 0421 0431
+a0bf 0000 a0c0 0xa0c7 8040
+a190 a1ff a090 1750 8040
+1109 a046 1322 2101 1321 0x0123
+169f d108 1004 1250 0422
+0614 530e 2063 1454 5223 2250 0x5216
+c317 5201 1a31 311e 0x24a0
+8312 5203 210e a046 0106 2350
+1351 5011 1351 0x5224 2251
+0d9e c206 2501 169f 6506
+0180 3f68 803f 8700 0080
+88a0 79a0 83a0 831e 0x20a0
+7b01 bfaa bfc9 0001 803f
+fd1e 229f d909 0x0900 0709 0008
