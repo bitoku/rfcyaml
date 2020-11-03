@@ -8,9 +8,11 @@ from tqdm import tqdm
 
 from RFC import RFC, RFCSection, RFCStatus
 from matplotlib import pyplot as plt
+import spacy
+from multiprocessing import Pool
 
 RFC_DIR = pathlib.Path(__file__).parent / 'rfc'
-
+nlp = spacy.load('en_core_web_sm')
 
 def ignore_trivial_line(text: List[str]) -> List[str]:
     """Ignore blank lines or fixed lines."""
@@ -96,20 +98,7 @@ def extract_sections(rfc_n: int, text: List[str]):
         1700, 1720, 1751, 1760, 1780, 1799, 1800, 1837, 1873, 1878, 1880, 1891, 1899, 1913, 1915, 1920, 1936, 1938,
         1999,
     ]
-    k2 = [
-        2000, 2007, 2099, 2144, 2199, 2200, 2202, 2223, 2286, 2289, 2294, 2299, 2300, 2329, 2331, 2399, 2400, 2459,
-        2499, 2500, 2599, 2600, 2626, 2699, 2700, 2708, 2799, 2800, 2822, 2849, 2897, 2899, 2900, 2999,
-    ]
-    k3 = [
-        3000, 3055, 3079, 3083, 3099, 3144, 3149, 3199, 3299, 3300, 3309, 3383, 3499, 3515, 3599, 3600, 3602, 3659,
-        3662, 3700, 3791, 3839, 3887, 3917, 3944,
-    ]
-    k4 = [4009, 4089, 4269, 4523, 4554, 4853, 4916, ]
-    k5 = [5000, 5035, 5208, 5516, 5806, 5892, ]
-    k6 = [6035, 6210, 6367, 6818, ]
-    k7 = [7281, 7468, 7764, ]
-    k8 = [8080, 8133]
-    l1 = set(k0 + k1 + k2 + k3 + k4 + k5 + k6 + k7 + k8)
+    l1 = set(k0 + k1)
     if rfc_n in l1:
         return get_sections_l1(text)
     return get_sections_l0(text)
@@ -132,36 +121,24 @@ def get_sections_l0(text: List[str]) -> List[RFCSection]:
 
 def get_sections_l1(text:List[str]) -> List[RFCSection]:
     return [RFCSection(title='__initial_text__', contents=[''.join(text)])]
-# def get_sections_l1(text: List[str]) -> List[RFCSection]:
-#     sections: List[RFCSection] = []
-#     section: List[str] = []
-#     title = '__initial_text__'
-#     prev_section_number: List[int] = [0]
-#     for line in text:
-#         # 1.2.3. -> [1, 2, 3]
-#         temp_section_number: List[int] = extract_section_number(line)
-#         if is_continuous(prev_section_number, temp_section_number):
-#             sections.append(RFCSection(title=title, contents=section))
-#             prev_section_number = temp_section_number
-#             title = line.strip()
-#             section = []
-#         section.append(line)
-#     return sections
 
 
 def main():
     bad = []
     ratios = []
-    for i in tqdm(range(1, 9000)):
+    for i in tqdm(range(3000, 9000)):
         try:
-            text = preprocess(i)
-            rfc = RFC(i, extract_sections(i, text))
+            rfc = RFC(i)
             ratio = len(rfc.sections) / len(rfc.get_text_all().split('\n'))
             if rfc.info['status'] in {
                 RFCStatus.PROPOSED_STANDARD,
                 RFCStatus.INTERNET_STANDARD,
                 RFCStatus.DRAFT_STANDARD
-            }:
+            } and not rfc.info['obsoleted_by']:
+                # if len(rfc.sections) == 1:
+                #     text = preprocess(i)
+                #     r = RFC(i, extract_sections(i, text))
+                #     r.dump()
                 if ratio > 0.15:
                     print(i)
                 ratios.append(ratio)
@@ -172,5 +149,56 @@ def main():
     plt.show()
 
 
+def lines(n):
+    try:
+        rfc = RFC(n)
+        text = rfc.get_text()
+        text = ' '.join([sentence.strip() for sentence in text.split('\n')])
+        text = re.sub(r' o | - |-+>|<-+|=+|--+|[+-]+|\||_+|\+|\*', ' ', text)
+
+        doc = nlp(text)
+        sents = list(doc.sents)
+        new_sents = []
+
+        for sent in sents:
+            ss = str(sent).strip()
+            if len(ss.split()) <= 4:
+                continue
+            if re.search(r'\W{5,}', ss):
+                continue
+            new_sents.append(str(sent).strip() + '\n')
+        with open(RFC_DIR / f'rfclines{n}.txt', 'w') as f:
+            f.writelines(new_sents)
+    except FileNotFoundError:
+        return
+    except ValueError:
+        print(n)
+
+
 if __name__ == '__main__':
-    main()
+    N = 9000
+    start = 5600
+    with tqdm(total=N-start) as t:
+        with Pool(4) as p:
+            for _ in p.imap_unordered(lines, range(start, N)):
+                t.update(1)
+    # main()
+
+    # x = 3074
+    # rfc = RFC(x)
+    # sections = []
+    # stop = False
+    # for section in rfc.sections:
+    #     if section['title'] == '7.  Security Considerations':
+    #         stop = False
+    #     if not stop:
+    #         sections.append(section)
+    #     else:
+    #         sections[-1]['contents'] += section['contents']
+    #     if section['title'] == '6.  Hash Function for Load Balancing':
+    #         stop = True
+    # r = RFC(x, sections)
+    # r.dump()
+
+
+
