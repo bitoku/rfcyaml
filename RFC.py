@@ -7,6 +7,10 @@ from enum import Enum
 from typing import Optional, List, Union, TypedDict
 
 import yaml
+try:
+    from yaml import CLoader, CDumper as Loader, Dumper
+except ImportError:
+    from yaml import Loader, Dumper
 
 RFC_DIR = pathlib.Path(__file__).parent / 'rfc'
 
@@ -30,7 +34,7 @@ class RFC:
 
     def _load_sections(self) -> List[RFCSection]:
         with open(self.yaml_file) as f:
-            return yaml.load(f, yaml.CSafeLoader)
+            return yaml.load(f, Loader)
 
     def _load_info(self) -> RFCInfo:
         with open(self.json_file) as f:
@@ -38,7 +42,7 @@ class RFC:
 
     def dump(self):
         with open(self.yaml_file, "w") as f:
-            yaml.dump(self.sections, f, yaml.CSafeDumper)
+            yaml.dump(self.sections, f, Dumper)
 
     def get_text(self):
         texts: List[str] = []
