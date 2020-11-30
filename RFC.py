@@ -8,7 +8,7 @@ from typing import Optional, List, Union, TypedDict
 
 import yaml
 try:
-    from yaml import CLoader, CDumper as Loader, Dumper
+    from yaml import CLoader as Loader, CDumper as Dumper
 except ImportError:
     from yaml import Loader, Dumper
 
