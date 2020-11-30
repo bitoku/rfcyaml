@@ -20,17 +20,29 @@ class RFC:
         if type(rfc) == int:
             self.n = rfc
         else:
-            m = re.match(r'rfc(%d+)', rfc)
+            m = re.match(r'rfc(\d+)', rfc)
             if not m:
                 raise ValueError
             self.n = int(m.group(1))
         filename = f'rfc{self.n}'
         self.yaml_file = RFC_DIR / f'{filename}.yaml'
         self.json_file = RFC_DIR / f'{filename}.json'
+        self.line_file = RFC_DIR / f'rfclines{self.n}.txt'
         if not self.json_file.exists():
+            raise FileNotFoundError
+        if not self.line_file.exists():
             raise FileNotFoundError
         self.info: RFCInfo = self._load_info()
         self.sections: List[RFCSection] = sections or self._load_sections()
+        self._lines: Optional[List[str]] = None
+
+    @property
+    def lines(self) -> List[str]:
+        if self._lines:
+            return self._lines
+        with open(RFC_DIR / f'rfclines{self.n}.txt') as f:
+            self._lines = f.readlines()
+            return self._lines
 
     def _load_sections(self) -> List[RFCSection]:
         with open(self.yaml_file) as f:
