@@ -12,7 +12,7 @@ import spacy
 from multiprocessing import Pool
 
 RFC_DIR = pathlib.Path(__file__).parent / 'rfc'
-nlp = spacy.load('en_core_web_sm')
+# nlp = spacy.load('en_core_web_sm')
 
 def ignore_trivial_line(text: List[str]) -> List[str]:
     """Ignore blank lines or fixed lines."""
@@ -126,7 +126,7 @@ def get_sections_l1(text:List[str]) -> List[RFCSection]:
 def main():
     bad = []
     ratios = []
-    for i in tqdm(range(3000, 9000)):
+    for i in range(3000, 9000):
         try:
             rfc = RFC(i)
             ratio = len(rfc.sections) / len(rfc.get_text_all().split('\n'))
@@ -176,29 +176,43 @@ def lines(n):
 
 
 if __name__ == '__main__':
-    N = 9000
-    start = 5600
-    with tqdm(total=N-start) as t:
-        with Pool(4) as p:
-            for _ in p.imap_unordered(lines, range(start, N)):
-                t.update(1)
+    # N = 9000
+    # start = 5600
+    # with tqdm(total=N-start) as t:
+    #     with Pool(4) as p:
+    #         for _ in p.imap_unordered(lines, range(start, N)):
+    #             t.update(1)
+
     # main()
 
-    # x = 3074
-    # rfc = RFC(x)
-    # sections = []
-    # stop = False
-    # for section in rfc.sections:
-    #     if section['title'] == '7.  Security Considerations':
-    #         stop = False
-    #     if not stop:
-    #         sections.append(section)
-    #     else:
-    #         sections[-1]['contents'] += section['contents']
-    #     if section['title'] == '6.  Hash Function for Load Balancing':
-    #         stop = True
-    # r = RFC(x, sections)
-    # r.dump()
+    # 5035
+    # 5396
+    # 5722
+    # 5871
+    # 5892
+    # 6035
+    # 6351
+    # 6818
+    # 7147
+    # 7468
+    # 7936
+    # 8080
+
+    x = 4916
+    rfc = RFC(x)
+    sections = []
+    stop = False
+    for section in rfc.sections:
+        if section['title'] == '6.  IANA Considerations':
+            stop = False
+        if not stop:
+            sections.append(section)
+        else:
+            sections[-1]['contents'] += section['contents']
+        if section['title'] == '5.2.  Sending Revised Connected Identity during a Call':
+            stop = True
+    r = RFC(x, sections)
+    r.dump()
 
 
 
