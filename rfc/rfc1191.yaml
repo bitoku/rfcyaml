@@ -1,646 +1,628 @@
-- title: __initial_text__
-  contents:
+- contents:
   - '                           Path MTU Discovery
 
     '
-- title: Status of this Memo
-  contents:
-  - "Status of this Memo\n   This RFC specifies a protocol on the IAB Standards Track\
-    \ for the\n   Internet community, and requests discussion and suggestions for\n\
-    \   improvements.  Please refer to the current edition of the \"IAB\n   Official\
-    \ Protocol Standards\" for the standardization state and status\n   of this protocol.\
-    \  Distribution of this memo is unlimited.\n                           Table of\
-    \ Contents\n       Status of this Memo                                       \
-    \      1\n       Abstract                                                    \
-    \    2\n       Acknowledgements                                              \
-    \  2\n       1. Introduction                                                 2\n\
-    \       2. Protocol overview                                            3\n  \
-    \     3. Host specification                                           4\n    \
-    \       3.1. TCP MSS Option                                         5\n      \
-    \ 4. Router specification                                         6\n       5.\
-    \ Host processing of old-style messages                        7\n       6. Host\
-    \ implementation                                          8\n           6.1. Layering\
-    \                                               9\n           6.2. Storing PMTU\
-    \ information                              10\n           6.3. Purging stale PMTU\
-    \ information                        11\n           6.4. TCP layer actions   \
-    \                                  13\n           6.5. Issues for other transport\
-    \ protocols                  14\n           6.6. Management interface        \
-    \                          15\n       7. Likely values for Path MTUs         \
-    \                        15\n           7.1. A better way to detect PMTU increases\
-    \                 16\n       8. Security considerations                      \
-    \               18\n       References                                        \
-    \             18\n       Authors' Addresses                                  \
-    \           19\n                             List of Tables\n       Table 7-1:\
-    \   Common MTUs in the Internet                       17\n"
-- title: Abstract
-  contents:
-  - "Abstract\n   This memo describes a technique for dynamically discovering the\n\
-    \   maximum transmission unit (MTU) of an arbitrary internet path.  It\n   specifies\
-    \ a small change to the way routers generate one type of ICMP\n   message.  For\
-    \ a path that passes through a router that has not been\n   so changed, this technique\
-    \ might not discover the correct Path MTU,\n   but it will always choose a Path\
-    \ MTU as accurate as, and in many\n   cases more accurate than, the Path MTU that\
-    \ would be chosen by\n   current practice.\n"
-- title: Acknowledgements
-  contents:
-  - "Acknowledgements\n   This proposal is a product of the IETF MTU Discovery Working\
-    \ Group.\n   The mechanism proposed here was first suggested by Geof Cooper [2],\n\
-    \   who in two short paragraphs set out all the basic ideas that took the\n  \
-    \ Working Group months to reinvent.\n"
-- title: 1. Introduction
-  contents:
-  - "1. Introduction\n   When one IP host has a large amount of data to send to another\
-    \ host,\n   the data is transmitted as a series of IP datagrams.  It is usually\n\
-    \   preferable that these datagrams be of the largest size that does not\n   require\
-    \ fragmentation anywhere along the path from the source to the\n   destination.\
-    \  (For the case against fragmentation, see [5].)  This\n   datagram size is referred\
-    \ to as the Path MTU (PMTU), and it is equal\n   to the minimum of the MTUs of\
-    \ each hop in the path.  A shortcoming of\n   the current Internet protocol suite\
-    \ is the lack of a standard\n   mechanism for a host to discover the PMTU of an\
-    \ arbitrary path.\n          Note: The Path MTU is what in [1] is called the \"\
-    Effective MTU\n          for sending\" (EMTU_S).  A PMTU is associated with a\
-    \ path,\n          which is a particular combination of IP source and destination\n\
-    \          address and perhaps a Type-of-service (TOS).\n   The current practice\
-    \ [1] is to use the lesser of 576 and the\n   first-hop MTU as the PMTU for any\
-    \ destination that is not connected\n   to the same network or subnet as the source.\
-    \  In many cases, this\n   results in the use of smaller datagrams than necessary,\
-    \ because many\n   paths have a PMTU greater than 576.  A host sending datagrams\
-    \ much\n   smaller than the Path MTU allows is wasting Internet resources and\n\
-    \   probably getting suboptimal throughput.  Furthermore, current\n   practice\
-    \ does not prevent fragmentation in all cases, since there are\n   some paths\
-    \ whose PMTU is less than 576.\n   It is expected that future routing protocols\
-    \ will be able to provide\n   accurate PMTU information within a routing area,\
-    \ although perhaps not\n   across multi-level routing hierarchies.  It is not\
-    \ clear how soon\n   that will be ubiquitously available, so for the next several\
-    \ years\n   the Internet needs a simple mechanism that discovers PMTUs without\n\
-    \   wasting resources and that works before all hosts and routers are\n   modified.\n"
-- title: 2. Protocol overview
-  contents:
-  - "2. Protocol overview\n   In this memo, we describe a technique for using the\
-    \ Don't Fragment\n   (DF) bit in the IP header to dynamically discover the PMTU\
-    \ of a path.\n   The basic idea is that a source host initially assumes that the\
-    \ PMTU\n   of a path is the (known) MTU of its first hop, and sends all\n   datagrams\
-    \ on that path with the DF bit set.  If any of the datagrams\n   are too large\
-    \ to be forwarded without fragmentation by some router\n   along the path, that\
-    \ router will discard them and return ICMP\n   Destination Unreachable messages\
-    \ with a code meaning \"fragmentation\n   needed and DF set\" [7].  Upon receipt\
-    \ of such a message (henceforth\n   called a \"Datagram Too Big\" message), the\
-    \ source host reduces its\n   assumed PMTU for the path.\n   The PMTU discovery\
-    \ process ends when the host's estimate of the PMTU\n   is low enough that its\
-    \ datagrams can be delivered without\n   fragmentation.  Or, the host may elect\
-    \ to end the discovery process\n   by ceasing to set the DF bit in the datagram\
-    \ headers; it may do so,\n   for example, because it is willing to have datagrams\
-    \ fragmented in\n   some circumstances.  Normally, the host continues to set DF\
-    \ in all\n   datagrams, so that if the route changes and the new PMTU is lower,\
-    \ it\n   will be discovered.\n   Unfortunately, the Datagram Too Big message,\
-    \ as currently specified,\n   does not report the MTU of the hop for which the\
-    \ rejected datagram\n   was too big, so the source host cannot tell exactly how\
-    \ much to\n   reduce its assumed PMTU.  To remedy this, we propose that a currently\n\
-    \   unused header field in the Datagram Too Big message be used to report\n  \
-    \ the MTU of the constricting hop.  This is the only change specified\n   for\
-    \ routers in support of PMTU Discovery.\n   The PMTU of a path may change over\
-    \ time, due to changes in the\n   routing topology.  Reductions of the PMTU are\
-    \ detected by Datagram\n   Too Big messages, except on paths for which the host\
-    \ has stopped\n   setting the DF bit.  To detect increases in a path's PMTU, a\
-    \ host\n   periodically increases its assumed PMTU (and if it had stopped,\n \
-    \  resumes setting the DF bit).  This will almost always result in\n   datagrams\
-    \ being discarded and Datagram Too Big messages being\n   generated, because in\
-    \ most cases the PMTU of the path will not have\n   changed, so it should be done\
-    \ infrequently.\n   Since this mechanism essentially guarantees that host will\
-    \ not\n   receive any fragments from a peer doing PMTU Discovery, it may aid in\n\
-    \   interoperating with certain hosts that (improperly) are unable to\n   reassemble\
-    \ fragmented datagrams.\n"
-- title: 3. Host specification
-  contents:
-  - "3. Host specification\n   When a host receives a Datagram Too Big message, it\
-    \ MUST reduce its\n   estimate of the PMTU for the relevant path, based on the\
-    \ value of the\n   Next-Hop MTU field in the message (see section 4).  We do not\
-    \ specify\n   the precise behavior of a host in this circumstance, since different\n\
-    \   applications may have different requirements, and since different\n   implementation\
-    \ architectures may favor different strategies.\n   We do require that after receiving\
-    \ a Datagram Too Big message, a host\n   MUST attempt to avoid eliciting more\
-    \ such messages in the near\n   future.  The host may either reduce the size of\
-    \ the datagrams it is\n   sending along the path, or cease setting the Don't Fragment\
-    \ bit in\n   the headers of those datagrams.  Clearly, the former strategy may\n\
-    \   continue to elicit Datagram Too Big messages for a while, but since\n   each\
-    \ of these messages (and the dropped datagrams they respond to)\n   consume Internet\
-    \ resources, the host MUST force the PMTU Discovery\n   process to converge.\n\
-    \   Hosts using PMTU Discovery MUST detect decreases in Path MTU as fast\n   as\
-    \ possible.  Hosts MAY detect increases in Path MTU, but because\n   doing so\
-    \ requires sending datagrams larger than the current estimated\n   PMTU, and because\
-    \ the likelihood is that the PMTU will not have\n   increased, this MUST be done\
-    \ at infrequent intervals.  An attempt to\n   detect an increase (by sending a\
-    \ datagram larger than the current\n   estimate) MUST NOT be done less than 5\
-    \ minutes after a Datagram Too\n   Big message has been received for the given\
-    \ destination, or less than\n   1 minute after a previous, successful attempted\
-    \ increase.  We\n   recommend setting these timers at twice their minimum values\
-    \ (10\n   minutes and 2 minutes, respectively).\n   Hosts MUST be able to deal\
-    \ with Datagram Too Big messages that do not\n   include the next-hop MTU, since\
-    \ it is not feasible to upgrade all the\n   routers in the Internet in any finite\
-    \ time.  A Datagram Too Big\n   message from an unmodified router can be recognized\
-    \ by the presence\n   of a zero in the (newly-defined) Next-Hop MTU field.  (This\
-    \ is\n   required by the ICMP specification [7], which says that \"unused\"\n\
-    \   fields must be zero.)  In section 5, we discuss possible strategies\n   for\
-    \ a host to follow in response to an old-style Datagram Too Big\n   message (one\
-    \ sent by an unmodified router).\n   A host MUST never reduce its estimate of\
-    \ the Path MTU below 68\n   octets.\n   A host MUST not increase its estimate\
-    \ of the Path MTU in response to\n   the contents of a Datagram Too Big message.\
-    \  A message purporting to\n   announce an increase in the Path MTU might be a\
-    \ stale datagram that\n   has been floating around in the Internet, a false packet\
-    \ injected as\n   part of a denial-of-service attack, or the result of having\
-    \ multiple\n   paths to the destination.\n"
-- title: 3.1. TCP MSS Option
-  contents:
-  - "3.1. TCP MSS Option\n   A host doing PMTU Discovery must obey the rule that it\
-    \ not send IP\n   datagrams larger than 576 octets unless it has permission from\
-    \ the\n   receiver.  For TCP connections, this means that a host must not send\n\
-    \   datagrams larger than 40 octets plus the Maximum Segment Size (MSS)\n   sent\
-    \ by its peer.\n          Note: The TCP MSS is defined to be the relevant IP datagram\n\
-    \          size minus 40 [9].  The default of 576 octets for the maximum\n   \
-    \       IP datagram size yields a default of 536 octets for the TCP\n        \
-    \  MSS.\n   Section 4.2.2.6 of \"Requirements for Internet Hosts -- Communication\n\
-    \   Layers\" [1] says:\n          Some TCP implementations send an MSS option\
-    \ only if the\n          destination host is on a non-connected network.  However,\
-    \ in\n          general the TCP layer may not have the appropriate information\n\
-    \          to make this decision, so it is preferable to leave to the IP\n   \
-    \       layer the task of determining a suitable MTU for the Internet\n      \
-    \    path.\n   Actually, many TCP implementations always send an MSS option, but\
-    \ set\n   the value to 536 if the destination is non-local.  This behavior was\n\
-    \   correct when the Internet was full of hosts that did not follow the\n   rule\
-    \ that datagrams larger than 576 octets should not be sent to\n   non-local destinations.\
-    \  Now that most hosts do follow this rule, it\n   is unnecessary to limit the\
-    \ value in the TCP MSS option to 536 for\n   non-local peers.\n   Moreover, doing\
-    \ this prevents PMTU Discovery from discovering PMTUs\n   larger than 576, so\
-    \ hosts SHOULD no longer lower the value they send\n   in the MSS option.  The\
-    \ MSS option should be 40 octets less than the\n   size of the largest datagram\
-    \ the host is able to reassemble (MMS_R,\n   as defined in [1]); in many cases,\
-    \ this will be the architectural\n   limit of 65495 (65535 - 40) octets.  A host\
-    \ MAY send an MSS value\n   derived from the MTU of its connected network (the\
-    \ maximum MTU over\n   its connected networks, for a multi-homed host); this should\
-    \ not\n   cause problems for PMTU Discovery, and may dissuade a broken peer\n\
-    \   from sending enormous datagrams.\n          Note: At the moment, we see no\
-    \ reason to send an MSS greater\n          than the maximum MTU of the connected\
-    \ networks, and we\n          recommend that hosts do not use 65495.  It is quite\
-    \ possible\n          that some IP implementations have sign-bit bugs that would\
-    \ be\n          tickled by unnecessary use of such a large MSS.\n"
-- title: 4. Router specification
-  contents:
-  - "4. Router specification\n   When a router is unable to forward a datagram because\
-    \ it exceeds the\n   MTU of the next-hop network and its Don't Fragment bit is\
-    \ set, the\n   router is required to return an ICMP Destination Unreachable message\n\
-    \   to the source of the datagram, with the Code indicating\n   \"fragmentation\
-    \ needed and DF set\".  To support the Path MTU Discovery\n   technique specified\
-    \ in this memo, the router MUST include the MTU of\n   that next-hop network in\
-    \ the low-order 16 bits of the ICMP header\n   field that is labelled \"unused\"\
-    \ in the ICMP specification [7].  The\n   high-order 16 bits remain unused, and\
-    \ MUST be set to zero.  Thus, the\n   message has the following format:\n    \
-    \   0                   1                   2                   3\n       0 1\
-    \ 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1\n      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
-    \      |   Type = 3    |   Code = 4    |           Checksum            |\n   \
-    \   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n      |\
-    \           unused = 0          |         Next-Hop MTU          |\n      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n\
-    \      |      Internet Header + 64 bits of Original Datagram Data      |\n   \
-    \   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n   The\
-    \ value carried in the Next-Hop MTU field is:\n          The size in octets of\
-    \ the largest datagram that could be\n          forwarded, along the path of the\
-    \ original datagram, without\n          being fragmented at this router.  The\
-    \ size includes the IP\n          header and IP data, and does not include any\
-    \ lower-level\n          headers.\n   This field will never contain a value less\
-    \ than 68, since every\n   router \"must be able to forward a datagram of 68 octets\
-    \ without\n   fragmentation\" [8].\n"
-- title: 5. Host processing of old-style messages
-  contents:
-  - "5. Host processing of old-style messages\n   In this section we outline several\
-    \ possible strategies for a host to\n   follow upon receiving a Datagram Too Big\
-    \ message from an unmodified\n   router (i.e., one where the Next-Hop MTU field\
-    \ is zero).  This\n   section is not part of the protocol specification.\n   The\
-    \ simplest thing for a host to do in response to such a message is\n   to assume\
-    \ that the PMTU is the minimum of its currently-assumed PMTU\n   and 576, and\
-    \ to stop setting the DF bit in datagrams sent on that\n   path.  Thus, the host\
-    \ falls back to the same PMTU as it would choose\n   under current practice (see\
-    \ section 3.3.3 of \"Requirements for\n   Internet Hosts -- Communication Layers\"\
-    \ [1]).  This strategy has the\n   advantage that it terminates quickly, and does\
-    \ no worse than existing\n   practice.  It fails, however, to avoid fragmentation\
-    \ in some cases,\n   and to make the most efficient utilization of the internetwork\
-    \ in\n   other cases.\n   More sophisticated strategies involve \"searching\"\
-    \ for an accurate\n   PMTU estimate, by continuing to send datagrams with the\
-    \ DF bit while\n   varying their sizes.  A good search strategy is one that obtains\
-    \ an\n   accurate estimate of the Path MTU without causing many packets to be\n\
-    \   lost in the process.\n   Several possible strategies apply algorithmic functions\
-    \ to the\n   previous PMTU estimate to generate a new estimate.  For example,\
-    \ one\n   could multiply the old estimate by a constant (say, 0.75).  We do NOT\n\
-    \   recommend this; it either converges far too slowly, or it\n   substantially\
-    \ underestimates the true PMTU.\n   A more sophisticated approach is to do a binary\
-    \ search on the packet\n   size.  This converges somewhat faster, although it\
-    \ still takes 4 or 5\n   steps to converge from an FDDI MTU to an Ethernet MTU.\
-    \  A serious\n   disadvantage is that it requires a complex implementation in\
-    \ order to\n   recognize when a datagram has made it to the other end (indicating\n\
-    \   that the current estimate is too low).  We also do not recommend this\n  \
-    \ strategy.\n   One strategy that appears to work quite well starts from the\n\
-    \   observation that there are, in practice, relatively few MTU values in\n  \
-    \ use in the Internet.  Thus, rather than blindly searching through\n   arbitrarily\
-    \ chosen values, we can search only the ones that are\n   likely to appear.  Moreover,\
-    \ since designers tend to chose MTUs in\n   similar ways, it is possible to collect\
-    \ groups of similar MTU values\n   and use the lowest value in the group as our\
-    \ search \"plateau\".  (It\n   is clearly better to underestimate an MTU by a\
-    \ few per cent than to\n   overestimate it by one octet.)\n   In section 7, we\
-    \ describe how we arrived at a table of representative\n   MTU plateaus for use\
-    \ in PMTU estimation.  With this table,\n   convergence is as good as binary search\
-    \ in the worst case, and is far\n   better in common cases (for example, it takes\
-    \ only two round-trip\n   times to go from an FDDI MTU to an Ethernet MTU).  Since\
-    \ the plateaus\n   lie near powers of two, if an MTU is not represented in this\
-    \ table,\n   the algorithm will not underestimate it by more than a factor of\
-    \ 2.\n   Any search strategy must have some \"memory\" of previous estimates in\n\
-    \   order to chose the next one.  One approach is to use the\n   currently-cached\
-    \ estimate of the Path MTU, but in fact there is\n   better information available\
-    \ in the Datagram Too Big message itself.\n   All ICMP Destination Unreachable\
-    \ messages, including this one,\n   contain the IP header of the original datagram,\
-    \ which contains the\n   Total Length of the datagram that was too big to be forwarded\
-    \ without\n   fragmentation.  Since this Total Length may be less than the current\n\
-    \   PMTU estimate, but is nonetheless larger than the actual PMTU, it may\n  \
-    \ be a good input to the method for choosing the next PMTU estimate.\n       \
-    \   Note: routers based on implementations derived from 4.2BSD\n          Unix\
-    \ send an incorrect value for the Total Length of the\n          original IP datagram.\
-    \  The value sent by these routers is the\n          sum of the original Total\
-    \ Length and the original Header\n          Length (expressed in octets).  Since\
-    \ it is impossible for the\n          host receiving such a Datagram Too Big message\
-    \ to know if it\n          sent by one of these routers, the host must be conservative\n\
-    \          and assume that it is.  If the Total Length field returned is\n   \
-    \       not less than the current PMTU estimate, it must be reduced by\n     \
-    \     4 times the value of the returned Header Length field.\n   The strategy\
-    \ we recommend, then, is to use as the next PMTU estimate\n   the greatest plateau\
-    \ value that is less than the returned Total\n   Length field (corrected, if necessary,\
-    \ according to the Note above).\n"
-- title: 6. Host implementation
-  contents:
-  - "6. Host implementation\n   In this section we discuss how PMTU Discovery is implemented\
-    \ in host\n   software.  This is not a specification, but rather a set of\n  \
-    \ suggestions.\n      - What layer or layers implement PMTU Discovery?\n     \
-    \ - Where is the PMTU information cached?\n      - How is stale PMTU information\
-    \ removed?\n      - What must transport and higher layers do?\n"
-- title: 6.1. Layering
-  contents:
-  - "6.1. Layering\n   In the IP architecture, the choice of what size datagram to\
-    \ send is\n   made by a protocol at a layer above IP.  We refer to such a protocol\n\
-    \   as a \"packetization protocol\".  Packetization protocols are usually\n  \
-    \ transport protocols (for example, TCP) but can also be higher-layer\n   protocols\
-    \ (for example, protocols built on top of UDP).\n   Implementing PMTU Discovery\
-    \ in the packetization layers simplifies\n   some of the inter-layer issues, but\
-    \ has several drawbacks: the\n   implementation may have to be redone for each\
-    \ packetization protocol,\n   it becomes hard to share PMTU information between\
-    \ different\n   packetization layers, and the connection-oriented state maintained\
-    \ by\n   some packetization layers may not easily extend to save PMTU\n   information\
-    \ for long periods.\n   We therefore believe that the IP layer should store PMTU\
-    \ information\n   and that the ICMP layer should process received Datagram Too\
-    \ Big\n   messages.  The packetization layers must still be able to respond to\n\
-    \   changes in the Path MTU, by changing the size of the datagrams they\n   send,\
-    \ and must also be able to specify that datagrams are sent with\n   the DF bit\
-    \ set.  We do not want the IP layer to simply set the DF bit\n   in every packet,\
-    \ since it is possible that a packetization layer,\n   perhaps a UDP application\
-    \ outside the kernel, is unable to change its\n   datagram size.  Protocols involving\
-    \ intentional fragmentation, while\n   inelegant, are sometimes successful (NFS\
-    \ being the primary example),\n   and we do not want to break such protocols.\n\
-    \   To support this layering, packetization layers require an extension\n   of\
-    \ the IP service interface defined in [1]:\n          A way to learn of changes\
-    \ in the value of MMS_S, the \"maximum\n          send transport-message size\"\
-    , which is derived from the Path\n          MTU by subtracting the minimum IP\
-    \ header size.\n"
-- title: 6.2. Storing PMTU information
-  contents:
-  - "6.2. Storing PMTU information\n   In general, the IP layer should associate each\
-    \ PMTU value that it has\n   learned with a specific path.  A path is identified\
-    \ by a source\n   address, a destination address and an IP type-of-service.  (Some\n\
-    \   implementations do not record the source address of paths; this is\n   acceptable\
-    \ for single-homed hosts, which have only one possible\n   source address.)\n\
-    \          Note: Some paths may be further distinguished by different\n      \
-    \    security classifications.  The details of such classifications\n        \
-    \  are beyond the scope of this memo.\n   The obvious place to store this association\
-    \ is as a field in the\n   routing table entries.  A host will not have a route\
-    \ for every\n   possible destination, but it should be able to cache a per-host\
-    \ route\n   for every active destination.  (This requirement is already imposed\n\
-    \   by the need to process ICMP Redirect messages.)\n   When the first packet\
-    \ is sent to a host for which no per-host route\n   exists, a route is chosen\
-    \ either from the set of per-network routes,\n   or from the set of default routes.\
-    \  The PMTU fields in these route\n   entries should be initialized to be the\
-    \ MTU of the associated\n   first-hop data link, and must never be changed by\
-    \ the PMTU Discovery\n   process.  (PMTU Discovery only creates or changes entries\
-    \ for\n   per-host routes).  Until a Datagram Too Big message is received, the\n\
-    \   PMTU associated with the initially-chosen route is presumed to be\n   accurate.\n\
-    \   When a Datagram Too Big message is received, the ICMP layer\n   determines\
-    \ a new estimate for the Path MTU (either from a non-zero\n   Next-Hop MTU value\
-    \ in the packet, or using the method described in\n   section 5).  If a per-host\
-    \ route for this path does not exist, then\n   one is created (almost as if a\
-    \ per-host ICMP Redirect is being\n   processed; the new route uses the same first-hop\
-    \ router as the\n   current route).  If the PMTU estimate associated with the\
-    \ per-host\n   route is higher than the new estimate, then the value in the routing\n\
-    \   entry is changed.\n   The packetization layers must be notified about decreases\
-    \ in the\n   PMTU.  Any packetization layer instance (for example, a TCP\n   connection)\
-    \ that is actively using the path must be notified if the\n   PMTU estimate is\
-    \ decreased.\n          Note: even if the Datagram Too Big message contains an\n\
-    \          Original Datagram Header that refers to a UDP packet, the TCP\n   \
-    \       layer must be notified if any of its connections use the given\n     \
-    \     path.\n   Also, the instance that sent the datagram that elicited the Datagram\n\
-    \   Too Big message should be notified that its datagram has been\n   dropped,\
-    \ even if the PMTU estimate has not changed, so that it may\n   retransmit the\
-    \ dropped datagram.\n          Note: The notification mechanism can be analogous\
-    \ to the\n          mechanism used to provide notification of an ICMP Source\n\
-    \          Quench message.  In some implementations (such as\n          4.2BSD-derived\
-    \ systems), the existing notification mechanism\n          is not able to identify\
-    \ the specific connection involved, and\n          so an additional mechanism\
-    \ is necessary.\n          Alternatively, an implementation can avoid the use\
-    \ of an\n          asynchronous notification mechanism for PMTU decreases by\n\
-    \          postponing notification until the next attempt to send a\n        \
-    \  datagram larger than the PMTU estimate.  In this approach,\n          when\
-    \ an attempt is made to SEND a datagram with the DF bit\n          set, and the\
-    \ datagram is larger than the PMTU estimate, the\n          SEND function should\
-    \ fail and return a suitable error\n          indication.  This approach may be\
-    \ more suitable to a\n          connectionless packetization layer (such as one\
-    \ using UDP),\n          which (in some implementations) may be hard to \"notify\"\
-    \ from\n          the ICMP layer.  In this case, the normal timeout-based\n  \
-    \        retransmission mechanisms would be used to recover from the\n       \
-    \   dropped datagrams.\n   It is important to understand that the notification\
-    \ of the\n   packetization layer instances using the path about the change in\
-    \ the\n   PMTU is distinct from the notification of a specific instance that a\n\
-    \   packet has been dropped.  The latter should be done as soon as\n   practical\
-    \ (i.e., asynchronously from the point of view of the\n   packetization layer\
-    \ instance), while the former may be delayed until\n   a packetization layer instance\
-    \ wants to create a packet.\n   Retransmission should be done for only for those\
-    \ packets that are\n   known to be dropped, as indicated by a Datagram Too Big\
-    \ message.\n"
-- title: 6.3. Purging stale PMTU information
-  contents:
-  - "6.3. Purging stale PMTU information\n   Internetwork topology is dynamic; routes\
-    \ change over time.  The PMTU\n   discovered for a given destination may be wrong\
-    \ if a new route comes\n   into use.  Thus, PMTU information cached by a host\
-    \ can become stale.\n   Because a host using PMTU Discovery always sets the DF\
-    \ bit, if the\n   stale PMTU value is too large, this will be discovered almost\n\
-    \   immediately once a datagram is sent to the given destination.  No\n   such\
-    \ mechanism exists for realizing that a stale PMTU value is too\n   small, so\
-    \ an implementation should \"age\" cached values.  When a PMTU\n   value has not\
-    \ been decreased for a while (on the order of 10\n   minutes), the PMTU estimate\
-    \ should be set to the first-hop data-link\n   MTU, and the packetization layers\
-    \ should be notified of the change.\n   This will cause the complete PMTU Discovery\
-    \ process to take place\n   again.\n          Note: an implementation should provide\
-    \ a means for changing\n          the timeout duration, including setting it to\
-    \ \"infinity\".  For\n          example, hosts attached to an FDDI network which\
-    \ is then\n          attached to the rest of the Internet via a slow serial line\n\
-    \          are never going to discover a new non-local PMTU, so they\n       \
-    \   should not have to put up with dropped datagrams every 10\n          minutes.\n\
-    \   An upper layer MUST not retransmit datagrams in response to an\n   increase\
-    \ in the PMTU estimate, since this increase never comes in\n   response to an\
-    \ indication of a dropped datagram.\n   One approach to implementing PMTU aging\
-    \ is to add a timestamp field\n   to the routing table entry.  This field is initialized\
-    \ to a\n   \"reserved\" value, indicating that the PMTU has never been changed.\n\
-    \   Whenever the PMTU is decreased in response to a Datagram Too Big\n   message,\
-    \ the timestamp is set to the current time.\n   Once a minute, a timer-driven\
-    \ procedure runs through the routing\n   table, and for each entry whose timestamp\
-    \ is not \"reserved\" and is\n   older than the timeout interval:\n      - The\
-    \ PMTU estimate is set to the MTU of the associated first\n        hop.\n    \
-    \  - Packetization layers using this route are notified of the\n        increase.\n\
-    \   PMTU estimates may disappear from the routing table if the per-host\n   routes\
-    \ are removed; this can happen in response to an ICMP Redirect\n   message, or\
-    \ because certain routing-table daemons delete old routes\n   after several minutes.\
-    \  Also, on a multi-homed host a topology change\n   may result in the use of\
-    \ a different source interface.  When this\n   happens, if the packetization layer\
-    \ is not notified then it may\n   continue to use a cached PMTU value that is\
-    \ now too small.  One\n   solution is to notify the packetization layer of a possible\
-    \ PMTU\n   change whenever a Redirect message causes a route change, and\n   whenever\
-    \ a route is simply deleted from the routing table.\n          Note: a more sophisticated\
-    \ method for detecting PMTU increases\n          is described in section 7.1.\n"
-- title: 6.4. TCP layer actions
-  contents:
-  - "6.4. TCP layer actions\n   The TCP layer must track the PMTU for the destination\
-    \ of a\n   connection; it should not send datagrams that would be larger than\n\
-    \   this.  A simple implementation could ask the IP layer for this value\n   (using\
-    \ the GET_MAXSIZES interface described in [1]) each time it\n   created a new\
-    \ segment, but this could be inefficient.  Moreover, TCP\n   implementations that\
-    \ follow the \"slow-start\" congestion-avoidance\n   algorithm [4] typically calculate\
-    \ and cache several other values\n   derived from the PMTU.  It may be simpler\
-    \ to receive asynchronous\n   notification when the PMTU changes, so that these\
-    \ variables may be\n   updated.\n   A TCP implementation must also store the MSS\
-    \ value received from its\n   peer (which defaults to 536), and not send any segment\
-    \ larger than\n   this MSS, regardless of the PMTU.  In 4.xBSD-derived implementations,\n\
-    \   this requires adding an additional field to the TCP state record.\n   Finally,\
-    \ when a Datagram Too Big message is received, it implies that\n   a datagram\
-    \ was dropped by the router that sent the ICMP message.  It\n   is sufficient\
-    \ to treat this as any other dropped segment, and wait\n   until the retransmission\
-    \ timer expires to cause retransmission of the\n   segment.  If the PMTU Discovery\
-    \ process requires several steps to\n   estimate the right PMTU, this could delay\
-    \ the connection by many\n   round-trip times.\n   Alternatively, the retransmission\
-    \ could be done in immediate response\n   to a notification that the Path MTU\
-    \ has changed, but only for the\n   specific connection specified by the Datagram\
-    \ Too Big message.  The\n   datagram size used in the retransmission should, of\
-    \ course, be no\n   larger than the new PMTU.\n          Note: One MUST not retransmit\
-    \ in response to every Datagram\n          Too Big message, since a burst of several\
-    \ oversized segments\n          will give rise to several such messages and hence\
-    \ several\n          retransmissions of the same data.  If the new estimated PMTU\n\
-    \          is still wrong, the process repeats, and there is an\n          exponential\
-    \ growth in the number of superfluous segments sent!\n          This means that\
-    \ the TCP layer must be able to recognize when a\n          Datagram Too Big notification\
-    \ actually decreases the PMTU that\n          it has already used to send a datagram\
-    \ on the given\n          connection, and should ignore any other notifications.\n\
-    \   Modern TCP implementations incorporate \"congestion advoidance\" and\n   \"\
-    slow-start\" algorithms to improve performance [4].  Unlike a\n   retransmission\
-    \ caused by a TCP retransmission timeout, a\n   retransmission caused by a Datagram\
-    \ Too Big message should not change\n   the congestion window.  It should, however,\
-    \ trigger the slow-start\n   mechanism (i.e., only one segment should be retransmitted\
-    \ until\n   acknowledgements begin to arrive again).\n   TCP performance can be\
-    \ reduced if the sender's maximum window size is\n   not an exact multiple of\
-    \ the segment size in use (this is not the\n   congestion window size, which is\
-    \ always a multiple of the segment\n   size).  In many system (such as those derived\
-    \ from 4.2BSD), the\n   segment size is often set to 1024 octets, and the maximum\
-    \ window size\n   (the \"send space\") is usually a multiple of 1024 octets, so\
-    \ the\n   proper relationship holds by default.  If PMTU Discovery is used,\n\
-    \   however, the segment size may not be a submultiple of the send space,\n  \
-    \ and it may change during a connection; this means that the TCP layer\n   may\
-    \ need to change the transmission window size when PMTU Discovery\n   changes\
-    \ the PMTU value.  The maximum window size should be set to the\n   greatest multiple\
-    \ of the segment size (PMTU - 40) that is less than\n   or equal to the sender's\
-    \ buffer space size.\n   PMTU Discovery does not affect the value sent in the\
-    \ TCP MSS option,\n   because that value is used by the other end of the connection,\
-    \ which\n   may be using an unrelated PMTU value.\n"
-- title: 6.5. Issues for other transport protocols
-  contents:
-  - "6.5. Issues for other transport protocols\n   Some transport protocols (such\
-    \ as ISO TP4 [3]) are not allowed to\n   repacketize when doing a retransmission.\
-    \  That is, once an attempt is\n   made to transmit a datagram of a certain size,\
-    \ its contents cannot be\n   split into smaller datagrams for retransmission.\
-    \  In such a case, the\n   original datagram should be retransmitted without the\
-    \ DF bit set,\n   allowing it to be fragmented as necessary to reach its destination.\n\
-    \   Subsequent datagrams, when transmitted for the first time, should be\n   no\
-    \ larger than allowed by the Path MTU, and should have the DF bit\n   set.\n \
-    \  The Sun Network File System (NFS) uses a Remote Procedure Call (RPC)\n   protocol\
-    \ [11] that, in many cases, sends datagrams that must be\n   fragmented even for\
-    \ the first-hop link.  This might improve\n   performance in certain cases, but\
-    \ it is known to cause reliability\n   and performance problems, especially when\
-    \ the client and server are\n   separated by routers.\n   We recommend that NFS\
-    \ implementations use PMTU Discovery whenever\n   routers are involved.  Most\
-    \ NFS implementations allow the RPC\n   datagram size to be changed at mount-time\
-    \ (indirectly, by changing\n   the effective file system block size), but might\
-    \ require some\n   modification to support changes later on.\n   Also, since a\
-    \ single NFS operation cannot be split across several UDP\n   datagrams, certain\
-    \ operations (primarily, those operating on file\n   names and directories) require\
-    \ a minimum datagram size that may be\n   larger than the PMTU.  NFS implementations\
-    \ should not reduce the\n   datagram size below this threshold, even if PMTU Discovery\
-    \ suggests a\n   lower value.  (Of course, in this case datagrams should not be\
-    \ sent\n   with DF set.)\n"
-- title: 6.6. Management interface
-  contents:
-  - "6.6. Management interface\n   We suggest that an implementation provide a way\
-    \ for a system utility\n   program to:\n      - Specify that PMTU Discovery not\
-    \ be done on a given route.\n      - Change the PMTU value associated with a given\
-    \ route.\n   The former can be accomplished by associating a flag with the routing\n\
-    \   entry; when a packet is sent via a route with this flag set, the IP\n   layer\
-    \ leaves the DF bit clear no matter what the upper layer\n   requests.\n   These\
-    \ features might be used to work around an anomalous situation,\n   or by a routing\
-    \ protocol implementation that is able to obtain Path\n   MTU values.\n   The\
-    \ implementation should also provide a way to change the timeout\n   period for\
-    \ aging stale PMTU information.\n"
-- title: 7. Likely values for Path MTUs
-  contents:
-  - "7. Likely values for Path MTUs\n   The algorithm recommended in section 5 for\
-    \ \"searching\" the space of\n   Path MTUs is based on a table of values that\
-    \ severely restricts the\n   search space.  We describe here a table of MTU values\
-    \ that, as of\n   this writing, represents all major data-link technologies in\
-    \ use in\n   the Internet.\n   In table 7-1, data links are listed in order of\
-    \ decreasing MTU, and\n   grouped so that each set of similar MTUs is associated\
-    \ with a\n   \"plateau\" equal to the lowest MTU in the group.  (The table also\n\
-    \   includes some entries not currently associated with a data link, and\n   gives\
-    \ references where available).  Where a plateau represents more\n   than one MTU,\
-    \ the table shows the maximum inaccuracy associated with\n   the plateau, as a\
-    \ percentage.\n   We do not expect that the values in the table, especially for\
-    \ higher\n   MTU levels, are going to be valid forever.  The values given here\
-    \ are\n   an implementation suggestion, NOT a specification or requirement.\n\
-    \   Implementors should use up-to-date references to pick a set of\n   plateaus;\
-    \ it is important that the table not contain too many entries\n   or the process\
-    \ of searching for a PMTU might waste Internet\n   resources.  Implementors should\
-    \ also make it convenient for customers\n   without source code to update the\
-    \ table values in their systems (for\n   example, the table in a BSD-derived Unix\
-    \ kernel could be changed\n   using a new \"ioctl\" command).\n          Note:\
-    \ It might be a good idea to add a few table entries for\n          values equal\
-    \ to small powers of 2 plus 40 (for the IP and TCP\n          headers), where\
-    \ no similar values exist, since this seems to\n          be a reasonably non-arbitrary\
-    \ way of choosing arbitrary\n          values.\n          The table might also\
-    \ contain entries for values slightly less\n          than large powers of 2,\
-    \ in case MTUs are defined near those\n          values (it is better in this\
-    \ case for the table entries to be\n          low than to be high, or else the\
-    \ next lowest plateau may be\n          chosen instead).\n"
-- title: 7.1. A better way to detect PMTU increases
-  contents:
-  - "7.1. A better way to detect PMTU increases\n   Section 6.3 suggests detecting\
-    \ increases in the PMTU value by\n   periodically increasing the PTMU estimate\
-    \ to the first-hop MTU.\n   Since it is likely that this process will simply \"\
-    rediscover\" the\n   current PTMU estimate, at the cost of several dropped datagrams,\
-    \ it\n   should not be done often.\n   A better approach is to periodically increase\
-    \ the PMTU estimate to\n   the next-highest value in the plateau table (or the\
-    \ first-hop MTU, if\n   that is smaller).  If the increased estimate is wrong,\
-    \ at most one\n   round-trip time is wasted before the correct value is rediscovered.\n\
-    \   If the increased estimate is still too low, a higher estimate will be\n  \
-    \ attempted somewhat later.\n   Because it may take several such periods to discover\
-    \ a significant\n   increase in the PMTU, we recommend that a short timeout period\
-    \ should\n   be used after the estimate is increased, and a longer timeout be\
-    \ used\n   Plateau    MTU    Comments                      Reference\n   ------\
-    \     ---    --------                      ---------\n              65535  Official\
-    \ maximum MTU          RFC 791\n              65535  Hyperchannel            \
-    \      RFC 1044\n   65535\n   32000             Just in case\n              17914\
-    \  16Mb IBM Token Ring           ref. [6]\n   17914\n              8166   IEEE\
-    \ 802.4                    RFC 1042\n   8166\n              4464   IEEE 802.5\
-    \ (4Mb max)          RFC 1042\n              4352   FDDI (Revised)           \
-    \     RFC 1188\n   4352 (1%)\n              2048   Wideband Network          \
-    \    RFC 907\n              2002   IEEE 802.5 (4Mb recommended)  RFC 1042\n  \
-    \ 2002 (2%)\n              1536   Exp. Ethernet Nets            RFC 895\n    \
-    \          1500   Ethernet Networks             RFC 894\n              1500  \
-    \ Point-to-Point (default)      RFC 1134\n              1492   IEEE 802.3    \
-    \                RFC 1042\n   1492 (3%)\n              1006   SLIP           \
-    \               RFC 1055\n              1006   ARPANET                       BBN\
-    \ 1822\n   1006\n              576    X.25 Networks                 RFC 877\n\
-    \              544    DEC IP Portal                 ref. [10]\n              512\
-    \    NETBIOS                       RFC 1088\n              508    IEEE 802/Source-Rt\
-    \ Bridge     RFC 1042\n              508    ARCNET                        RFC\
-    \ 1051\n   508 (13%)\n              296    Point-to-Point (low delay)    RFC 1144\n\
-    \   296\n   68                Official minimum MTU          RFC 791\n        \
-    \        Table 7-1:  Common MTUs in the Internet\n   after the PTMU estimate is\
-    \ decreased because of a Datagram Too Big\n   message.  For example, after the\
-    \ PTMU estimate is decreased, the\n   timeout should be set to 10 minutes; once\
-    \ this timer expires and a\n   larger MTU is attempted, the timeout can be set\
-    \ to a much smaller\n   value (say, 2 minutes).  In no case should the timeout\
-    \ be shorter\n   than the estimated round-trip time, if this is known.\n"
-- title: 8. Security considerations
-  contents:
-  - "8. Security considerations\n   This Path MTU Discovery mechanism makes possible\
-    \ two denial-of-\n   service attacks, both based on a malicious party sending\
-    \ false\n   Datagram Too Big messages to an Internet host.\n   In the first attack,\
-    \ the false message indicates a PMTU much smaller\n   than reality.  This should\
-    \ not entirely stop data flow, since the\n   victim host should never set its\
-    \ PMTU estimate below the absolute\n   minimum, but at 8 octets of IP data per\
-    \ datagram, progress could be\n   slow.\n   In the other attack, the false message\
-    \ indicates a PMTU greater than\n   reality.  If believed, this could cause temporary\
-    \ blockage as the\n   victim sends datagrams that will be dropped by some router.\
-    \  Within\n   one round-trip time, the host would discover its mistake (receiving\n\
-    \   Datagram Too Big messages from that router), but frequent repetition\n   of\
-    \ this attack could cause lots of datagrams to be dropped.  A host,\n   however,\
-    \ should never raise its estimate of the PMTU based on a\n   Datagram Too Big\
-    \ message, so should not be vulnerable to this attack.\n   A malicious party could\
-    \ also cause problems if it could stop a victim\n   from receiving legitimate\
-    \ Datagram Too Big messages, but in this case\n   there are simpler denial-of-service\
-    \ attacks available.\n"
-- title: References
-  contents:
+  title: __initial_text__
+- contents:
+  - "Status of this Memo\n   This RFC specifies a protocol on the IAB Standards Track
+    for the\n   Internet community, and requests discussion and suggestions for\n
+    \  improvements.  Please refer to the current edition of the \"IAB\n   Official
+    Protocol Standards\" for the standardization state and status\n   of this protocol.
+    \ Distribution of this memo is unlimited.\n                           Table of
+    Contents\n       Status of this Memo                                             1\n
+    \      Abstract                                                        2\n       Acknowledgements
+    \                                               2\n       1. Introduction                                                 2\n
+    \      2. Protocol overview                                            3\n       3.
+    Host specification                                           4\n           3.1.
+    TCP MSS Option                                         5\n       4. Router specification
+    \                                        6\n       5. Host processing of old-style
+    messages                        7\n       6. Host implementation                                          8\n
+    \          6.1. Layering                                               9\n           6.2.
+    Storing PMTU information                              10\n           6.3. Purging
+    stale PMTU information                        11\n           6.4. TCP layer actions
+    \                                    13\n           6.5. Issues for other transport
+    protocols                  14\n           6.6. Management interface                                  15\n
+    \      7. Likely values for Path MTUs                                 15\n           7.1.
+    A better way to detect PMTU increases                 16\n       8. Security considerations
+    \                                    18\n       References                                                     18\n
+    \      Authors' Addresses                                             19\n                             List
+    of Tables\n       Table 7-1:   Common MTUs in the Internet                       17\n"
+  title: Status of this Memo
+- contents:
+  - "Abstract\n   This memo describes a technique for dynamically discovering the\n
+    \  maximum transmission unit (MTU) of an arbitrary internet path.  It\n   specifies
+    a small change to the way routers generate one type of ICMP\n   message.  For
+    a path that passes through a router that has not been\n   so changed, this technique
+    might not discover the correct Path MTU,\n   but it will always choose a Path
+    MTU as accurate as, and in many\n   cases more accurate than, the Path MTU that
+    would be chosen by\n   current practice.\n"
+  title: Abstract
+- contents:
+  - "Acknowledgements\n   This proposal is a product of the IETF MTU Discovery Working
+    Group.\n   The mechanism proposed here was first suggested by Geof Cooper [2],\n
+    \  who in two short paragraphs set out all the basic ideas that took the\n   Working
+    Group months to reinvent.\n"
+  title: Acknowledgements
+- contents:
+  - "1. Introduction\n   When one IP host has a large amount of data to send to another
+    host,\n   the data is transmitted as a series of IP datagrams.  It is usually\n
+    \  preferable that these datagrams be of the largest size that does not\n   require
+    fragmentation anywhere along the path from the source to the\n   destination.
+    \ (For the case against fragmentation, see [5].)  This\n   datagram size is referred
+    to as the Path MTU (PMTU), and it is equal\n   to the minimum of the MTUs of each
+    hop in the path.  A shortcoming of\n   the current Internet protocol suite is
+    the lack of a standard\n   mechanism for a host to discover the PMTU of an arbitrary
+    path.\n          Note: The Path MTU is what in [1] is called the \"Effective MTU\n
+    \         for sending\" (EMTU_S).  A PMTU is associated with a path,\n          which
+    is a particular combination of IP source and destination\n          address and
+    perhaps a Type-of-service (TOS).\n   The current practice [1] is to use the lesser
+    of 576 and the\n   first-hop MTU as the PMTU for any destination that is not connected\n
+    \  to the same network or subnet as the source.  In many cases, this\n   results
+    in the use of smaller datagrams than necessary, because many\n   paths have a
+    PMTU greater than 576.  A host sending datagrams much\n   smaller than the Path
+    MTU allows is wasting Internet resources and\n   probably getting suboptimal throughput.
+    \ Furthermore, current\n   practice does not prevent fragmentation in all cases,
+    since there are\n   some paths whose PMTU is less than 576.\n   It is expected
+    that future routing protocols will be able to provide\n   accurate PMTU information
+    within a routing area, although perhaps not\n   across multi-level routing hierarchies.
+    \ It is not clear how soon\n   that will be ubiquitously available, so for the
+    next several years\n   the Internet needs a simple mechanism that discovers PMTUs
+    without\n   wasting resources and that works before all hosts and routers are\n
+    \  modified.\n"
+  title: 1. Introduction
+- contents:
+  - "2. Protocol overview\n   In this memo, we describe a technique for using the
+    Don't Fragment\n   (DF) bit in the IP header to dynamically discover the PMTU
+    of a path.\n   The basic idea is that a source host initially assumes that the
+    PMTU\n   of a path is the (known) MTU of its first hop, and sends all\n   datagrams
+    on that path with the DF bit set.  If any of the datagrams\n   are too large to
+    be forwarded without fragmentation by some router\n   along the path, that router
+    will discard them and return ICMP\n   Destination Unreachable messages with a
+    code meaning \"fragmentation\n   needed and DF set\" [7].  Upon receipt of such
+    a message (henceforth\n   called a \"Datagram Too Big\" message), the source host
+    reduces its\n   assumed PMTU for the path.\n   The PMTU discovery process ends
+    when the host's estimate of the PMTU\n   is low enough that its datagrams can
+    be delivered without\n   fragmentation.  Or, the host may elect to end the discovery
+    process\n   by ceasing to set the DF bit in the datagram headers; it may do so,\n
+    \  for example, because it is willing to have datagrams fragmented in\n   some
+    circumstances.  Normally, the host continues to set DF in all\n   datagrams, so
+    that if the route changes and the new PMTU is lower, it\n   will be discovered.\n
+    \  Unfortunately, the Datagram Too Big message, as currently specified,\n   does
+    not report the MTU of the hop for which the rejected datagram\n   was too big,
+    so the source host cannot tell exactly how much to\n   reduce its assumed PMTU.
+    \ To remedy this, we propose that a currently\n   unused header field in the Datagram
+    Too Big message be used to report\n   the MTU of the constricting hop.  This is
+    the only change specified\n   for routers in support of PMTU Discovery.\n   The
+    PMTU of a path may change over time, due to changes in the\n   routing topology.
+    \ Reductions of the PMTU are detected by Datagram\n   Too Big messages, except
+    on paths for which the host has stopped\n   setting the DF bit.  To detect increases
+    in a path's PMTU, a host\n   periodically increases its assumed PMTU (and if it
+    had stopped,\n   resumes setting the DF bit).  This will almost always result
+    in\n   datagrams being discarded and Datagram Too Big messages being\n   generated,
+    because in most cases the PMTU of the path will not have\n   changed, so it should
+    be done infrequently.\n   Since this mechanism essentially guarantees that host
+    will not\n   receive any fragments from a peer doing PMTU Discovery, it may aid
+    in\n   interoperating with certain hosts that (improperly) are unable to\n   reassemble
+    fragmented datagrams.\n"
+  title: 2. Protocol overview
+- contents:
+  - "3. Host specification\n   When a host receives a Datagram Too Big message, it
+    MUST reduce its\n   estimate of the PMTU for the relevant path, based on the value
+    of the\n   Next-Hop MTU field in the message (see section 4).  We do not specify\n
+    \  the precise behavior of a host in this circumstance, since different\n   applications
+    may have different requirements, and since different\n   implementation architectures
+    may favor different strategies.\n   We do require that after receiving a Datagram
+    Too Big message, a host\n   MUST attempt to avoid eliciting more such messages
+    in the near\n   future.  The host may either reduce the size of the datagrams
+    it is\n   sending along the path, or cease setting the Don't Fragment bit in\n
+    \  the headers of those datagrams.  Clearly, the former strategy may\n   continue
+    to elicit Datagram Too Big messages for a while, but since\n   each of these messages
+    (and the dropped datagrams they respond to)\n   consume Internet resources, the
+    host MUST force the PMTU Discovery\n   process to converge.\n   Hosts using PMTU
+    Discovery MUST detect decreases in Path MTU as fast\n   as possible.  Hosts MAY
+    detect increases in Path MTU, but because\n   doing so requires sending datagrams
+    larger than the current estimated\n   PMTU, and because the likelihood is that
+    the PMTU will not have\n   increased, this MUST be done at infrequent intervals.
+    \ An attempt to\n   detect an increase (by sending a datagram larger than the
+    current\n   estimate) MUST NOT be done less than 5 minutes after a Datagram Too\n
+    \  Big message has been received for the given destination, or less than\n   1
+    minute after a previous, successful attempted increase.  We\n   recommend setting
+    these timers at twice their minimum values (10\n   minutes and 2 minutes, respectively).\n
+    \  Hosts MUST be able to deal with Datagram Too Big messages that do not\n   include
+    the next-hop MTU, since it is not feasible to upgrade all the\n   routers in the
+    Internet in any finite time.  A Datagram Too Big\n   message from an unmodified
+    router can be recognized by the presence\n   of a zero in the (newly-defined)
+    Next-Hop MTU field.  (This is\n   required by the ICMP specification [7], which
+    says that \"unused\"\n   fields must be zero.)  In section 5, we discuss possible
+    strategies\n   for a host to follow in response to an old-style Datagram Too Big\n
+    \  message (one sent by an unmodified router).\n   A host MUST never reduce its
+    estimate of the Path MTU below 68\n   octets.\n   A host MUST not increase its
+    estimate of the Path MTU in response to\n   the contents of a Datagram Too Big
+    message.  A message purporting to\n   announce an increase in the Path MTU might
+    be a stale datagram that\n   has been floating around in the Internet, a false
+    packet injected as\n   part of a denial-of-service attack, or the result of having
+    multiple\n   paths to the destination.\n"
+  title: 3. Host specification
+- contents:
+  - "3.1. TCP MSS Option\n   A host doing PMTU Discovery must obey the rule that it
+    not send IP\n   datagrams larger than 576 octets unless it has permission from
+    the\n   receiver.  For TCP connections, this means that a host must not send\n
+    \  datagrams larger than 40 octets plus the Maximum Segment Size (MSS)\n   sent
+    by its peer.\n          Note: The TCP MSS is defined to be the relevant IP datagram\n
+    \         size minus 40 [9].  The default of 576 octets for the maximum\n          IP
+    datagram size yields a default of 536 octets for the TCP\n          MSS.\n   Section
+    4.2.2.6 of \"Requirements for Internet Hosts -- Communication\n   Layers\" [1]
+    says:\n          Some TCP implementations send an MSS option only if the\n          destination
+    host is on a non-connected network.  However, in\n          general the TCP layer
+    may not have the appropriate information\n          to make this decision, so
+    it is preferable to leave to the IP\n          layer the task of determining a
+    suitable MTU for the Internet\n          path.\n   Actually, many TCP implementations
+    always send an MSS option, but set\n   the value to 536 if the destination is
+    non-local.  This behavior was\n   correct when the Internet was full of hosts
+    that did not follow the\n   rule that datagrams larger than 576 octets should
+    not be sent to\n   non-local destinations.  Now that most hosts do follow this
+    rule, it\n   is unnecessary to limit the value in the TCP MSS option to 536 for\n
+    \  non-local peers.\n   Moreover, doing this prevents PMTU Discovery from discovering
+    PMTUs\n   larger than 576, so hosts SHOULD no longer lower the value they send\n
+    \  in the MSS option.  The MSS option should be 40 octets less than the\n   size
+    of the largest datagram the host is able to reassemble (MMS_R,\n   as defined
+    in [1]); in many cases, this will be the architectural\n   limit of 65495 (65535
+    - 40) octets.  A host MAY send an MSS value\n   derived from the MTU of its connected
+    network (the maximum MTU over\n   its connected networks, for a multi-homed host);
+    this should not\n   cause problems for PMTU Discovery, and may dissuade a broken
+    peer\n   from sending enormous datagrams.\n          Note: At the moment, we see
+    no reason to send an MSS greater\n          than the maximum MTU of the connected
+    networks, and we\n          recommend that hosts do not use 65495.  It is quite
+    possible\n          that some IP implementations have sign-bit bugs that would
+    be\n          tickled by unnecessary use of such a large MSS.\n"
+  title: 3.1. TCP MSS Option
+- contents:
+  - "4. Router specification\n   When a router is unable to forward a datagram because
+    it exceeds the\n   MTU of the next-hop network and its Don't Fragment bit is set,
+    the\n   router is required to return an ICMP Destination Unreachable message\n
+    \  to the source of the datagram, with the Code indicating\n   \"fragmentation
+    needed and DF set\".  To support the Path MTU Discovery\n   technique specified
+    in this memo, the router MUST include the MTU of\n   that next-hop network in
+    the low-order 16 bits of the ICMP header\n   field that is labelled \"unused\"
+    in the ICMP specification [7].  The\n   high-order 16 bits remain unused, and
+    MUST be set to zero.  Thus, the\n   message has the following format:\n       0
+    \                  1                   2                   3\n       0 1 2 3 4
+    5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1\n      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n
+    \     |   Type = 3    |   Code = 4    |           Checksum            |\n      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n
+    \     |           unused = 0          |         Next-Hop MTU          |\n      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n
+    \     |      Internet Header + 64 bits of Original Datagram Data      |\n      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n
+    \  The value carried in the Next-Hop MTU field is:\n          The size in octets
+    of the largest datagram that could be\n          forwarded, along the path of
+    the original datagram, without\n          being fragmented at this router.  The
+    size includes the IP\n          header and IP data, and does not include any lower-level\n
+    \         headers.\n   This field will never contain a value less than 68, since
+    every\n   router \"must be able to forward a datagram of 68 octets without\n   fragmentation\"
+    [8].\n"
+  title: 4. Router specification
+- contents:
+  - "5. Host processing of old-style messages\n   In this section we outline several
+    possible strategies for a host to\n   follow upon receiving a Datagram Too Big
+    message from an unmodified\n   router (i.e., one where the Next-Hop MTU field
+    is zero).  This\n   section is not part of the protocol specification.\n   The
+    simplest thing for a host to do in response to such a message is\n   to assume
+    that the PMTU is the minimum of its currently-assumed PMTU\n   and 576, and to
+    stop setting the DF bit in datagrams sent on that\n   path.  Thus, the host falls
+    back to the same PMTU as it would choose\n   under current practice (see section
+    3.3.3 of \"Requirements for\n   Internet Hosts -- Communication Layers\" [1]).
+    \ This strategy has the\n   advantage that it terminates quickly, and does no
+    worse than existing\n   practice.  It fails, however, to avoid fragmentation in
+    some cases,\n   and to make the most efficient utilization of the internetwork
+    in\n   other cases.\n   More sophisticated strategies involve \"searching\" for
+    an accurate\n   PMTU estimate, by continuing to send datagrams with the DF bit
+    while\n   varying their sizes.  A good search strategy is one that obtains an\n
+    \  accurate estimate of the Path MTU without causing many packets to be\n   lost
+    in the process.\n   Several possible strategies apply algorithmic functions to
+    the\n   previous PMTU estimate to generate a new estimate.  For example, one\n
+    \  could multiply the old estimate by a constant (say, 0.75).  We do NOT\n   recommend
+    this; it either converges far too slowly, or it\n   substantially underestimates
+    the true PMTU.\n   A more sophisticated approach is to do a binary search on the
+    packet\n   size.  This converges somewhat faster, although it still takes 4 or
+    5\n   steps to converge from an FDDI MTU to an Ethernet MTU.  A serious\n   disadvantage
+    is that it requires a complex implementation in order to\n   recognize when a
+    datagram has made it to the other end (indicating\n   that the current estimate
+    is too low).  We also do not recommend this\n   strategy.\n   One strategy that
+    appears to work quite well starts from the\n   observation that there are, in
+    practice, relatively few MTU values in\n   use in the Internet.  Thus, rather
+    than blindly searching through\n   arbitrarily chosen values, we can search only
+    the ones that are\n   likely to appear.  Moreover, since designers tend to chose
+    MTUs in\n   similar ways, it is possible to collect groups of similar MTU values\n
+    \  and use the lowest value in the group as our search \"plateau\".  (It\n   is
+    clearly better to underestimate an MTU by a few per cent than to\n   overestimate
+    it by one octet.)\n   In section 7, we describe how we arrived at a table of representative\n
+    \  MTU plateaus for use in PMTU estimation.  With this table,\n   convergence
+    is as good as binary search in the worst case, and is far\n   better in common
+    cases (for example, it takes only two round-trip\n   times to go from an FDDI
+    MTU to an Ethernet MTU).  Since the plateaus\n   lie near powers of two, if an
+    MTU is not represented in this table,\n   the algorithm will not underestimate
+    it by more than a factor of 2.\n   Any search strategy must have some \"memory\"
+    of previous estimates in\n   order to chose the next one.  One approach is to
+    use the\n   currently-cached estimate of the Path MTU, but in fact there is\n
+    \  better information available in the Datagram Too Big message itself.\n   All
+    ICMP Destination Unreachable messages, including this one,\n   contain the IP
+    header of the original datagram, which contains the\n   Total Length of the datagram
+    that was too big to be forwarded without\n   fragmentation.  Since this Total
+    Length may be less than the current\n   PMTU estimate, but is nonetheless larger
+    than the actual PMTU, it may\n   be a good input to the method for choosing the
+    next PMTU estimate.\n          Note: routers based on implementations derived
+    from 4.2BSD\n          Unix send an incorrect value for the Total Length of the\n
+    \         original IP datagram.  The value sent by these routers is the\n          sum
+    of the original Total Length and the original Header\n          Length (expressed
+    in octets).  Since it is impossible for the\n          host receiving such a Datagram
+    Too Big message to know if it\n          sent by one of these routers, the host
+    must be conservative\n          and assume that it is.  If the Total Length field
+    returned is\n          not less than the current PMTU estimate, it must be reduced
+    by\n          4 times the value of the returned Header Length field.\n   The strategy
+    we recommend, then, is to use as the next PMTU estimate\n   the greatest plateau
+    value that is less than the returned Total\n   Length field (corrected, if necessary,
+    according to the Note above).\n"
+  title: 5. Host processing of old-style messages
+- contents:
+  - "6. Host implementation\n   In this section we discuss how PMTU Discovery is implemented
+    in host\n   software.  This is not a specification, but rather a set of\n   suggestions.\n
+    \     - What layer or layers implement PMTU Discovery?\n      - Where is the PMTU
+    information cached?\n      - How is stale PMTU information removed?\n      - What
+    must transport and higher layers do?\n"
+  title: 6. Host implementation
+- contents:
+  - "6.1. Layering\n   In the IP architecture, the choice of what size datagram to
+    send is\n   made by a protocol at a layer above IP.  We refer to such a protocol\n
+    \  as a \"packetization protocol\".  Packetization protocols are usually\n   transport
+    protocols (for example, TCP) but can also be higher-layer\n   protocols (for example,
+    protocols built on top of UDP).\n   Implementing PMTU Discovery in the packetization
+    layers simplifies\n   some of the inter-layer issues, but has several drawbacks:
+    the\n   implementation may have to be redone for each packetization protocol,\n
+    \  it becomes hard to share PMTU information between different\n   packetization
+    layers, and the connection-oriented state maintained by\n   some packetization
+    layers may not easily extend to save PMTU\n   information for long periods.\n
+    \  We therefore believe that the IP layer should store PMTU information\n   and
+    that the ICMP layer should process received Datagram Too Big\n   messages.  The
+    packetization layers must still be able to respond to\n   changes in the Path
+    MTU, by changing the size of the datagrams they\n   send, and must also be able
+    to specify that datagrams are sent with\n   the DF bit set.  We do not want the
+    IP layer to simply set the DF bit\n   in every packet, since it is possible that
+    a packetization layer,\n   perhaps a UDP application outside the kernel, is unable
+    to change its\n   datagram size.  Protocols involving intentional fragmentation,
+    while\n   inelegant, are sometimes successful (NFS being the primary example),\n
+    \  and we do not want to break such protocols.\n   To support this layering, packetization
+    layers require an extension\n   of the IP service interface defined in [1]:\n
+    \         A way to learn of changes in the value of MMS_S, the \"maximum\n          send
+    transport-message size\", which is derived from the Path\n          MTU by subtracting
+    the minimum IP header size.\n"
+  title: 6.1. Layering
+- contents:
+  - "6.2. Storing PMTU information\n   In general, the IP layer should associate each
+    PMTU value that it has\n   learned with a specific path.  A path is identified
+    by a source\n   address, a destination address and an IP type-of-service.  (Some\n
+    \  implementations do not record the source address of paths; this is\n   acceptable
+    for single-homed hosts, which have only one possible\n   source address.)\n          Note:
+    Some paths may be further distinguished by different\n          security classifications.
+    \ The details of such classifications\n          are beyond the scope of this
+    memo.\n   The obvious place to store this association is as a field in the\n   routing
+    table entries.  A host will not have a route for every\n   possible destination,
+    but it should be able to cache a per-host route\n   for every active destination.
+    \ (This requirement is already imposed\n   by the need to process ICMP Redirect
+    messages.)\n   When the first packet is sent to a host for which no per-host route\n
+    \  exists, a route is chosen either from the set of per-network routes,\n   or
+    from the set of default routes.  The PMTU fields in these route\n   entries should
+    be initialized to be the MTU of the associated\n   first-hop data link, and must
+    never be changed by the PMTU Discovery\n   process.  (PMTU Discovery only creates
+    or changes entries for\n   per-host routes).  Until a Datagram Too Big message
+    is received, the\n   PMTU associated with the initially-chosen route is presumed
+    to be\n   accurate.\n   When a Datagram Too Big message is received, the ICMP
+    layer\n   determines a new estimate for the Path MTU (either from a non-zero\n
+    \  Next-Hop MTU value in the packet, or using the method described in\n   section
+    5).  If a per-host route for this path does not exist, then\n   one is created
+    (almost as if a per-host ICMP Redirect is being\n   processed; the new route uses
+    the same first-hop router as the\n   current route).  If the PMTU estimate associated
+    with the per-host\n   route is higher than the new estimate, then the value in
+    the routing\n   entry is changed.\n   The packetization layers must be notified
+    about decreases in the\n   PMTU.  Any packetization layer instance (for example,
+    a TCP\n   connection) that is actively using the path must be notified if the\n
+    \  PMTU estimate is decreased.\n          Note: even if the Datagram Too Big message
+    contains an\n          Original Datagram Header that refers to a UDP packet, the
+    TCP\n          layer must be notified if any of its connections use the given\n
+    \         path.\n   Also, the instance that sent the datagram that elicited the
+    Datagram\n   Too Big message should be notified that its datagram has been\n   dropped,
+    even if the PMTU estimate has not changed, so that it may\n   retransmit the dropped
+    datagram.\n          Note: The notification mechanism can be analogous to the\n
+    \         mechanism used to provide notification of an ICMP Source\n          Quench
+    message.  In some implementations (such as\n          4.2BSD-derived systems),
+    the existing notification mechanism\n          is not able to identify the specific
+    connection involved, and\n          so an additional mechanism is necessary.\n
+    \         Alternatively, an implementation can avoid the use of an\n          asynchronous
+    notification mechanism for PMTU decreases by\n          postponing notification
+    until the next attempt to send a\n          datagram larger than the PMTU estimate.
+    \ In this approach,\n          when an attempt is made to SEND a datagram with
+    the DF bit\n          set, and the datagram is larger than the PMTU estimate,
+    the\n          SEND function should fail and return a suitable error\n          indication.
+    \ This approach may be more suitable to a\n          connectionless packetization
+    layer (such as one using UDP),\n          which (in some implementations) may
+    be hard to \"notify\" from\n          the ICMP layer.  In this case, the normal
+    timeout-based\n          retransmission mechanisms would be used to recover from
+    the\n          dropped datagrams.\n   It is important to understand that the notification
+    of the\n   packetization layer instances using the path about the change in the\n
+    \  PMTU is distinct from the notification of a specific instance that a\n   packet
+    has been dropped.  The latter should be done as soon as\n   practical (i.e., asynchronously
+    from the point of view of the\n   packetization layer instance), while the former
+    may be delayed until\n   a packetization layer instance wants to create a packet.\n
+    \  Retransmission should be done for only for those packets that are\n   known
+    to be dropped, as indicated by a Datagram Too Big message.\n"
+  title: 6.2. Storing PMTU information
+- contents:
+  - "6.3. Purging stale PMTU information\n   Internetwork topology is dynamic; routes
+    change over time.  The PMTU\n   discovered for a given destination may be wrong
+    if a new route comes\n   into use.  Thus, PMTU information cached by a host can
+    become stale.\n   Because a host using PMTU Discovery always sets the DF bit,
+    if the\n   stale PMTU value is too large, this will be discovered almost\n   immediately
+    once a datagram is sent to the given destination.  No\n   such mechanism exists
+    for realizing that a stale PMTU value is too\n   small, so an implementation should
+    \"age\" cached values.  When a PMTU\n   value has not been decreased for a while
+    (on the order of 10\n   minutes), the PMTU estimate should be set to the first-hop
+    data-link\n   MTU, and the packetization layers should be notified of the change.\n
+    \  This will cause the complete PMTU Discovery process to take place\n   again.\n
+    \         Note: an implementation should provide a means for changing\n          the
+    timeout duration, including setting it to \"infinity\".  For\n          example,
+    hosts attached to an FDDI network which is then\n          attached to the rest
+    of the Internet via a slow serial line\n          are never going to discover
+    a new non-local PMTU, so they\n          should not have to put up with dropped
+    datagrams every 10\n          minutes.\n   An upper layer MUST not retransmit
+    datagrams in response to an\n   increase in the PMTU estimate, since this increase
+    never comes in\n   response to an indication of a dropped datagram.\n   One approach
+    to implementing PMTU aging is to add a timestamp field\n   to the routing table
+    entry.  This field is initialized to a\n   \"reserved\" value, indicating that
+    the PMTU has never been changed.\n   Whenever the PMTU is decreased in response
+    to a Datagram Too Big\n   message, the timestamp is set to the current time.\n
+    \  Once a minute, a timer-driven procedure runs through the routing\n   table,
+    and for each entry whose timestamp is not \"reserved\" and is\n   older than the
+    timeout interval:\n      - The PMTU estimate is set to the MTU of the associated
+    first\n        hop.\n      - Packetization layers using this route are notified
+    of the\n        increase.\n   PMTU estimates may disappear from the routing table
+    if the per-host\n   routes are removed; this can happen in response to an ICMP
+    Redirect\n   message, or because certain routing-table daemons delete old routes\n
+    \  after several minutes.  Also, on a multi-homed host a topology change\n   may
+    result in the use of a different source interface.  When this\n   happens, if
+    the packetization layer is not notified then it may\n   continue to use a cached
+    PMTU value that is now too small.  One\n   solution is to notify the packetization
+    layer of a possible PMTU\n   change whenever a Redirect message causes a route
+    change, and\n   whenever a route is simply deleted from the routing table.\n          Note:
+    a more sophisticated method for detecting PMTU increases\n          is described
+    in section 7.1.\n"
+  title: 6.3. Purging stale PMTU information
+- contents:
+  - "6.4. TCP layer actions\n   The TCP layer must track the PMTU for the destination
+    of a\n   connection; it should not send datagrams that would be larger than\n
+    \  this.  A simple implementation could ask the IP layer for this value\n   (using
+    the GET_MAXSIZES interface described in [1]) each time it\n   created a new segment,
+    but this could be inefficient.  Moreover, TCP\n   implementations that follow
+    the \"slow-start\" congestion-avoidance\n   algorithm [4] typically calculate
+    and cache several other values\n   derived from the PMTU.  It may be simpler to
+    receive asynchronous\n   notification when the PMTU changes, so that these variables
+    may be\n   updated.\n   A TCP implementation must also store the MSS value received
+    from its\n   peer (which defaults to 536), and not send any segment larger than\n
+    \  this MSS, regardless of the PMTU.  In 4.xBSD-derived implementations,\n   this
+    requires adding an additional field to the TCP state record.\n   Finally, when
+    a Datagram Too Big message is received, it implies that\n   a datagram was dropped
+    by the router that sent the ICMP message.  It\n   is sufficient to treat this
+    as any other dropped segment, and wait\n   until the retransmission timer expires
+    to cause retransmission of the\n   segment.  If the PMTU Discovery process requires
+    several steps to\n   estimate the right PMTU, this could delay the connection
+    by many\n   round-trip times.\n   Alternatively, the retransmission could be done
+    in immediate response\n   to a notification that the Path MTU has changed, but
+    only for the\n   specific connection specified by the Datagram Too Big message.
+    \ The\n   datagram size used in the retransmission should, of course, be no\n
+    \  larger than the new PMTU.\n          Note: One MUST not retransmit in response
+    to every Datagram\n          Too Big message, since a burst of several oversized
+    segments\n          will give rise to several such messages and hence several\n
+    \         retransmissions of the same data.  If the new estimated PMTU\n          is
+    still wrong, the process repeats, and there is an\n          exponential growth
+    in the number of superfluous segments sent!\n          This means that the TCP
+    layer must be able to recognize when a\n          Datagram Too Big notification
+    actually decreases the PMTU that\n          it has already used to send a datagram
+    on the given\n          connection, and should ignore any other notifications.\n
+    \  Modern TCP implementations incorporate \"congestion advoidance\" and\n   \"slow-start\"
+    algorithms to improve performance [4].  Unlike a\n   retransmission caused by
+    a TCP retransmission timeout, a\n   retransmission caused by a Datagram Too Big
+    message should not change\n   the congestion window.  It should, however, trigger
+    the slow-start\n   mechanism (i.e., only one segment should be retransmitted until\n
+    \  acknowledgements begin to arrive again).\n   TCP performance can be reduced
+    if the sender's maximum window size is\n   not an exact multiple of the segment
+    size in use (this is not the\n   congestion window size, which is always a multiple
+    of the segment\n   size).  In many system (such as those derived from 4.2BSD),
+    the\n   segment size is often set to 1024 octets, and the maximum window size\n
+    \  (the \"send space\") is usually a multiple of 1024 octets, so the\n   proper
+    relationship holds by default.  If PMTU Discovery is used,\n   however, the segment
+    size may not be a submultiple of the send space,\n   and it may change during
+    a connection; this means that the TCP layer\n   may need to change the transmission
+    window size when PMTU Discovery\n   changes the PMTU value.  The maximum window
+    size should be set to the\n   greatest multiple of the segment size (PMTU - 40)
+    that is less than\n   or equal to the sender's buffer space size.\n   PMTU Discovery
+    does not affect the value sent in the TCP MSS option,\n   because that value is
+    used by the other end of the connection, which\n   may be using an unrelated PMTU
+    value.\n"
+  title: 6.4. TCP layer actions
+- contents:
+  - "6.5. Issues for other transport protocols\n   Some transport protocols (such
+    as ISO TP4 [3]) are not allowed to\n   repacketize when doing a retransmission.
+    \ That is, once an attempt is\n   made to transmit a datagram of a certain size,
+    its contents cannot be\n   split into smaller datagrams for retransmission.  In
+    such a case, the\n   original datagram should be retransmitted without the DF
+    bit set,\n   allowing it to be fragmented as necessary to reach its destination.\n
+    \  Subsequent datagrams, when transmitted for the first time, should be\n   no
+    larger than allowed by the Path MTU, and should have the DF bit\n   set.\n   The
+    Sun Network File System (NFS) uses a Remote Procedure Call (RPC)\n   protocol
+    [11] that, in many cases, sends datagrams that must be\n   fragmented even for
+    the first-hop link.  This might improve\n   performance in certain cases, but
+    it is known to cause reliability\n   and performance problems, especially when
+    the client and server are\n   separated by routers.\n   We recommend that NFS
+    implementations use PMTU Discovery whenever\n   routers are involved.  Most NFS
+    implementations allow the RPC\n   datagram size to be changed at mount-time (indirectly,
+    by changing\n   the effective file system block size), but might require some\n
+    \  modification to support changes later on.\n   Also, since a single NFS operation
+    cannot be split across several UDP\n   datagrams, certain operations (primarily,
+    those operating on file\n   names and directories) require a minimum datagram
+    size that may be\n   larger than the PMTU.  NFS implementations should not reduce
+    the\n   datagram size below this threshold, even if PMTU Discovery suggests a\n
+    \  lower value.  (Of course, in this case datagrams should not be sent\n   with
+    DF set.)\n"
+  title: 6.5. Issues for other transport protocols
+- contents:
+  - "6.6. Management interface\n   We suggest that an implementation provide a way
+    for a system utility\n   program to:\n      - Specify that PMTU Discovery not
+    be done on a given route.\n      - Change the PMTU value associated with a given
+    route.\n   The former can be accomplished by associating a flag with the routing\n
+    \  entry; when a packet is sent via a route with this flag set, the IP\n   layer
+    leaves the DF bit clear no matter what the upper layer\n   requests.\n   These
+    features might be used to work around an anomalous situation,\n   or by a routing
+    protocol implementation that is able to obtain Path\n   MTU values.\n   The implementation
+    should also provide a way to change the timeout\n   period for aging stale PMTU
+    information.\n"
+  title: 6.6. Management interface
+- contents:
+  - "7. Likely values for Path MTUs\n   The algorithm recommended in section 5 for
+    \"searching\" the space of\n   Path MTUs is based on a table of values that severely
+    restricts the\n   search space.  We describe here a table of MTU values that,
+    as of\n   this writing, represents all major data-link technologies in use in\n
+    \  the Internet.\n   In table 7-1, data links are listed in order of decreasing
+    MTU, and\n   grouped so that each set of similar MTUs is associated with a\n   \"plateau\"
+    equal to the lowest MTU in the group.  (The table also\n   includes some entries
+    not currently associated with a data link, and\n   gives references where available).
+    \ Where a plateau represents more\n   than one MTU, the table shows the maximum
+    inaccuracy associated with\n   the plateau, as a percentage.\n   We do not expect
+    that the values in the table, especially for higher\n   MTU levels, are going
+    to be valid forever.  The values given here are\n   an implementation suggestion,
+    NOT a specification or requirement.\n   Implementors should use up-to-date references
+    to pick a set of\n   plateaus; it is important that the table not contain too
+    many entries\n   or the process of searching for a PMTU might waste Internet\n
+    \  resources.  Implementors should also make it convenient for customers\n   without
+    source code to update the table values in their systems (for\n   example, the
+    table in a BSD-derived Unix kernel could be changed\n   using a new \"ioctl\"
+    command).\n          Note: It might be a good idea to add a few table entries
+    for\n          values equal to small powers of 2 plus 40 (for the IP and TCP\n
+    \         headers), where no similar values exist, since this seems to\n          be
+    a reasonably non-arbitrary way of choosing arbitrary\n          values.\n          The
+    table might also contain entries for values slightly less\n          than large
+    powers of 2, in case MTUs are defined near those\n          values (it is better
+    in this case for the table entries to be\n          low than to be high, or else
+    the next lowest plateau may be\n          chosen instead).\n"
+  title: 7. Likely values for Path MTUs
+- contents:
+  - "7.1. A better way to detect PMTU increases\n   Section 6.3 suggests detecting
+    increases in the PMTU value by\n   periodically increasing the PTMU estimate to
+    the first-hop MTU.\n   Since it is likely that this process will simply \"rediscover\"
+    the\n   current PTMU estimate, at the cost of several dropped datagrams, it\n
+    \  should not be done often.\n   A better approach is to periodically increase
+    the PMTU estimate to\n   the next-highest value in the plateau table (or the first-hop
+    MTU, if\n   that is smaller).  If the increased estimate is wrong, at most one\n
+    \  round-trip time is wasted before the correct value is rediscovered.\n   If
+    the increased estimate is still too low, a higher estimate will be\n   attempted
+    somewhat later.\n   Because it may take several such periods to discover a significant\n
+    \  increase in the PMTU, we recommend that a short timeout period should\n   be
+    used after the estimate is increased, and a longer timeout be used\n   Plateau
+    \   MTU    Comments                      Reference\n   ------     ---    --------
+    \                     ---------\n              65535  Official maximum MTU          RFC
+    791\n              65535  Hyperchannel                  RFC 1044\n   65535\n   32000
+    \            Just in case\n              17914  16Mb IBM Token Ring           ref.
+    [6]\n   17914\n              8166   IEEE 802.4                    RFC 1042\n   8166\n
+    \             4464   IEEE 802.5 (4Mb max)          RFC 1042\n              4352
+    \  FDDI (Revised)                RFC 1188\n   4352 (1%)\n              2048   Wideband
+    Network              RFC 907\n              2002   IEEE 802.5 (4Mb recommended)
+    \ RFC 1042\n   2002 (2%)\n              1536   Exp. Ethernet Nets            RFC
+    895\n              1500   Ethernet Networks             RFC 894\n              1500
+    \  Point-to-Point (default)      RFC 1134\n              1492   IEEE 802.3                    RFC
+    1042\n   1492 (3%)\n              1006   SLIP                          RFC 1055\n
+    \             1006   ARPANET                       BBN 1822\n   1006\n              576
+    \   X.25 Networks                 RFC 877\n              544    DEC IP Portal
+    \                ref. [10]\n              512    NETBIOS                       RFC
+    1088\n              508    IEEE 802/Source-Rt Bridge     RFC 1042\n              508
+    \   ARCNET                        RFC 1051\n   508 (13%)\n              296    Point-to-Point
+    (low delay)    RFC 1144\n   296\n   68                Official minimum MTU          RFC
+    791\n                Table 7-1:  Common MTUs in the Internet\n   after the PTMU
+    estimate is decreased because of a Datagram Too Big\n   message.  For example,
+    after the PTMU estimate is decreased, the\n   timeout should be set to 10 minutes;
+    once this timer expires and a\n   larger MTU is attempted, the timeout can be
+    set to a much smaller\n   value (say, 2 minutes).  In no case should the timeout
+    be shorter\n   than the estimated round-trip time, if this is known.\n"
+  title: 7.1. A better way to detect PMTU increases
+- contents:
+  - "8. Security considerations\n   This Path MTU Discovery mechanism makes possible
+    two denial-of-\n   service attacks, both based on a malicious party sending false\n
+    \  Datagram Too Big messages to an Internet host.\n   In the first attack, the
+    false message indicates a PMTU much smaller\n   than reality.  This should not
+    entirely stop data flow, since the\n   victim host should never set its PMTU estimate
+    below the absolute\n   minimum, but at 8 octets of IP data per datagram, progress
+    could be\n   slow.\n   In the other attack, the false message indicates a PMTU
+    greater than\n   reality.  If believed, this could cause temporary blockage as
+    the\n   victim sends datagrams that will be dropped by some router.  Within\n
+    \  one round-trip time, the host would discover its mistake (receiving\n   Datagram
+    Too Big messages from that router), but frequent repetition\n   of this attack
+    could cause lots of datagrams to be dropped.  A host,\n   however, should never
+    raise its estimate of the PMTU based on a\n   Datagram Too Big message, so should
+    not be vulnerable to this attack.\n   A malicious party could also cause problems
+    if it could stop a victim\n   from receiving legitimate Datagram Too Big messages,
+    but in this case\n   there are simpler denial-of-service attacks available.\n"
+  title: 8. Security considerations
+- contents:
   - 'References
 
     '
-- title: '[1]   R. Braden, ed.  Requirements for Internet Hosts -- Communication'
-  contents:
-  - "[1]   R. Braden, ed.  Requirements for Internet Hosts -- Communication\n    \
-    \  Layers.  RFC 1122, SRI Network Information Center, October, 1989.\n"
-- title: '[2]   Geof Cooper.  IP Datagram Sizes.  Electronic distribution of the'
-  contents:
-  - "[2]   Geof Cooper.  IP Datagram Sizes.  Electronic distribution of the\n    \
-    \  TCP-IP Discussion Group, Message-ID\n      <8705240517.AA01407@apolling.imagen.uucp>.\n"
-- title: '[3]   ISO.  ISO Transport Protocol Specification: ISO DP 8073.  RFC 905,'
-  contents:
-  - "[3]   ISO.  ISO Transport Protocol Specification: ISO DP 8073.  RFC 905,\n  \
-    \    SRI Network Information Center, April, 1984.\n"
-- title: '[4]   Van Jacobson.  Congestion Avoidance and Control.  In Proc. SIGCOMM'
-  contents:
-  - "[4]   Van Jacobson.  Congestion Avoidance and Control.  In Proc. SIGCOMM\n  \
-    \    '88 Symposium on Communications Architectures and Protocols, pages\n    \
-    \  314-329.  Stanford, CA, August, 1988.\n"
-- title: '[5]   C. Kent and J. Mogul.  Fragmentation Considered Harmful.  In Proc.'
-  contents:
-  - "[5]   C. Kent and J. Mogul.  Fragmentation Considered Harmful.  In Proc.\n  \
-    \    SIGCOMM '87 Workshop on Frontiers in Computer Communications\n      Technology.\
-    \  August, 1987.\n"
-- title: '[6]   Drew Daniel Perkins.  Private Communication.'
-  contents:
+  title: References
+- contents:
+  - "[1]   R. Braden, ed.  Requirements for Internet Hosts -- Communication\n      Layers.
+    \ RFC 1122, SRI Network Information Center, October, 1989.\n"
+  title: '[1]   R. Braden, ed.  Requirements for Internet Hosts -- Communication'
+- contents:
+  - "[2]   Geof Cooper.  IP Datagram Sizes.  Electronic distribution of the\n      TCP-IP
+    Discussion Group, Message-ID\n      <8705240517.AA01407@apolling.imagen.uucp>.\n"
+  title: '[2]   Geof Cooper.  IP Datagram Sizes.  Electronic distribution of the'
+- contents:
+  - "[3]   ISO.  ISO Transport Protocol Specification: ISO DP 8073.  RFC 905,\n      SRI
+    Network Information Center, April, 1984.\n"
+  title: '[3]   ISO.  ISO Transport Protocol Specification: ISO DP 8073.  RFC 905,'
+- contents:
+  - "[4]   Van Jacobson.  Congestion Avoidance and Control.  In Proc. SIGCOMM\n      '88
+    Symposium on Communications Architectures and Protocols, pages\n      314-329.
+    \ Stanford, CA, August, 1988.\n"
+  title: '[4]   Van Jacobson.  Congestion Avoidance and Control.  In Proc. SIGCOMM'
+- contents:
+  - "[5]   C. Kent and J. Mogul.  Fragmentation Considered Harmful.  In Proc.\n      SIGCOMM
+    '87 Workshop on Frontiers in Computer Communications\n      Technology.  August,
+    1987.\n"
+  title: '[5]   C. Kent and J. Mogul.  Fragmentation Considered Harmful.  In Proc.'
+- contents:
   - '[6]   Drew Daniel Perkins.  Private Communication.
 
     '
-- title: '[7]   J. Postel.  Internet Control Message Protocol.  RFC 792, SRI'
-  contents:
-  - "[7]   J. Postel.  Internet Control Message Protocol.  RFC 792, SRI\n      Network\
-    \ Information Center, September, 1981.\n"
-- title: '[8]   J. Postel.  Internet Protocol.  RFC 791, SRI Network Information'
-  contents:
-  - "[8]   J. Postel.  Internet Protocol.  RFC 791, SRI Network Information\n    \
-    \  Center, September, 1981.\n"
-- title: '[9]   J. Postel.  The TCP Maximum Segment Size and Related Topics.  RFC'
-  contents:
-  - "[9]   J. Postel.  The TCP Maximum Segment Size and Related Topics.  RFC\n   \
-    \   879, SRI Network Information Center, November, 1983.\n"
-- title: '[10]  Michael Reilly.  Private Communication.'
-  contents:
+  title: '[6]   Drew Daniel Perkins.  Private Communication.'
+- contents:
+  - "[7]   J. Postel.  Internet Control Message Protocol.  RFC 792, SRI\n      Network
+    Information Center, September, 1981.\n"
+  title: '[7]   J. Postel.  Internet Control Message Protocol.  RFC 792, SRI'
+- contents:
+  - "[8]   J. Postel.  Internet Protocol.  RFC 791, SRI Network Information\n      Center,
+    September, 1981.\n"
+  title: '[8]   J. Postel.  Internet Protocol.  RFC 791, SRI Network Information'
+- contents:
+  - "[9]   J. Postel.  The TCP Maximum Segment Size and Related Topics.  RFC\n      879,
+    SRI Network Information Center, November, 1983.\n"
+  title: '[9]   J. Postel.  The TCP Maximum Segment Size and Related Topics.  RFC'
+- contents:
   - '[10]  Michael Reilly.  Private Communication.
 
     '
-- title: '[11]  Sun Microsystems, Inc.  RPC: Remote Procedure Call Protocol.  RFC'
-  contents:
-  - "[11]  Sun Microsystems, Inc.  RPC: Remote Procedure Call Protocol.  RFC\n   \
-    \   1057, SRI Network Information Center, June, 1988.\n"
-- title: Authors' Addresses
-  contents:
-  - "Authors' Addresses\n   Jeffrey Mogul\n   Digital Equipment Corporation Western\
-    \ Research Laboratory\n   100 Hamilton Avenue\n   Palo Alto, CA  94301\n   Phone:\
-    \ (415) 853-6643\n   EMail: mogul@decwrl.dec.com\n   Steve Deering\n   Xerox Palo\
-    \ Alto Research Center\n   3333 Coyote Hill Road\n   Palo Alto, CA  94304\n  \
-    \ Phone: (415) 494-4839\n   EMail: deering@xerox.com\n"
+  title: '[10]  Michael Reilly.  Private Communication.'
+- contents:
+  - "[11]  Sun Microsystems, Inc.  RPC: Remote Procedure Call Protocol.  RFC\n      1057,
+    SRI Network Information Center, June, 1988.\n"
+  title: '[11]  Sun Microsystems, Inc.  RPC: Remote Procedure Call Protocol.  RFC'
+- contents:
+  - "Authors' Addresses\n   Jeffrey Mogul\n   Digital Equipment Corporation Western
+    Research Laboratory\n   100 Hamilton Avenue\n   Palo Alto, CA  94301\n   Phone:
+    (415) 853-6643\n   EMail: mogul@decwrl.dec.com\n   Steve Deering\n   Xerox Palo
+    Alto Research Center\n   3333 Coyote Hill Road\n   Palo Alto, CA  94304\n   Phone:
+    (415) 494-4839\n   EMail: deering@xerox.com\n"
+  title: Authors' Addresses
