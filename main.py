@@ -63,7 +63,7 @@ def preprocess(n: int) -> List[str]:
             page.append(line)
         if page:
             pages.append(page)
-    pages = [page[3:-3] for page in pages]
+    pages = [page[2:-3] for page in pages]
     pages[0] = ignore_trivial_line(pages[0])
     text = [line for each_page in pages for line in each_page if line.strip() != '']
     return text
@@ -202,10 +202,13 @@ if __name__ == '__main__':
     #     with Pool(4) as p:
     #         for _ in p.imap_unordered(lines, range(start, N)):
     #             t.update(1)
-    # x = 791
-    # concat_contents(
-    #     x,
-    #     '__initial_text__',
-    #     '1.1.  Motivation',
-    # )
+    x = 1001
+    # text = preprocess_old(x)
+    # rfc = RFC(x, get_sections_l0(text))
+    # rfc.dump()
+    concat_contents(
+        x,
+        '15.6.  ADAPTER STATUS TRANSACTIONS',
+        '16.  NetBIOS SESSION SERVICE',
+    )
     main(x)
