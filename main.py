@@ -87,7 +87,7 @@ def preprocess_old(n: int) -> List[str]:
             page.append(line)
         if page:
             pages.append(page)
-    pages = [page[3:-3] for page in pages]
+    pages = [page[5:-3] for page in pages]
     pages[0] = ignore_trivial_line(pages[0])
     text = [line for each_page in pages for line in each_page if line.strip() != '']
     return text
@@ -180,7 +180,7 @@ def main(start, end):
                 # rfc = RFC(i, get_sections_l0(text))
                 # rfc.dump()
                 print(i)
-                for section in rfc.sections: print(section['title'])
+                # for section in rfc.sections: print(section['title'])
                 print_sec(create_tree(rfc.sections))
                 print()
         except FileNotFoundError:
@@ -255,10 +255,10 @@ if __name__ == '__main__':
     #     with Pool(4) as p:
     #         for _ in p.imap_unordered(lines, range(start, N)):
     #             t.update(1)
-    x = 4000
-    # concat_contents(
-    #     x,
-    #     '4.3.1.  IEEE 802.1Q',
-    #     '5.  Intellectual Property'
-    # )
+    x = 3981
+    concat_contents(
+        x,
+        'A.1.  Example of S-NAPTR with IRIS',
+        'A.2.  Using S-NAPTR for Cohabitations',
+    )
     main(3000, x)
