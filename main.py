@@ -142,7 +142,7 @@ def main():
                 RFCStatus.DRAFT_STANDARD
             } and not rfc.info['obsoleted_by']:
                 print(rfc.n)
-                remove_footer(rfc.sections)
+                remove_footer(rfc.n)
                 print()
         except FileNotFoundError:
             continue
@@ -196,6 +196,7 @@ def remove_footer(x: int):
     sections = []
     for section in rfc.sections:
         if re.match(f'RFC {x}     ', section['title']):
+            print(section['title'])
             continue
         sections.append(section)
     r = RFC(x, sections)
