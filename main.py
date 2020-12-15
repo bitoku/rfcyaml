@@ -123,30 +123,29 @@ def get_sections_l1(text:List[str]) -> List[RFCSection]:
     return [RFCSection(title='__initial_text__', contents=[''.join(text)])]
 
 
+def create_tree(sections: List[RFCSection]):
+    for section in sections:
+        m = re.match(r'(\d+(\.\d+)*)\.?', section['title'])
+        if not m:
+            print(section['title'])
+
+
 def main():
     bad = []
     ratios = []
-    for i in range(3000, 9000):
+    for i in range(1, 1000):
         try:
             rfc = RFC(i)
-            ratio = len(rfc.sections) / len(rfc.get_text_all().split('\n'))
             if rfc.info['status'] in {
                 RFCStatus.PROPOSED_STANDARD,
                 RFCStatus.INTERNET_STANDARD,
                 RFCStatus.DRAFT_STANDARD
             } and not rfc.info['obsoleted_by']:
-                # if len(rfc.sections) == 1:
-                #     text = preprocess(i)
-                #     r = RFC(i, extract_sections(i, text))
-                #     r.dump()
-                if ratio > 0.15:
-                    print(i)
-                ratios.append(ratio)
+                print(rfc.n)
+                remove_footer(rfc.sections)
+                print()
         except FileNotFoundError:
             continue
-    print(bad)
-    plt.hist(ratios)
-    plt.show()
 
 
 def lines(n):
@@ -175,6 +174,34 @@ def lines(n):
         print(n)
 
 
+def concat_contents(x: int):
+    rfc = RFC(x)
+    sections = []
+    stop = False
+    for section in rfc.sections:
+        if section['title'] == '7.  IANA Considerations':
+            stop = False
+        if not stop:
+            sections.append(section)
+        else:
+            sections[-1]['contents'] += section['contents']
+        if section['title'] == '6.2.  Ed448 Examples':
+            stop = True
+    r = RFC(x, sections)
+    r.dump()
+
+
+def remove_footer(x: int):
+    rfc = RFC(x)
+    sections = []
+    for section in rfc.sections:
+        if re.match(f'RFC {x}     ', section['title']):
+            continue
+        sections.append(section)
+    r = RFC(x, sections)
+    r.dump()
+
+
 if __name__ == '__main__':
     # N = 9000
     # start = 5600
@@ -182,37 +209,4 @@ if __name__ == '__main__':
     #     with Pool(4) as p:
     #         for _ in p.imap_unordered(lines, range(start, N)):
     #             t.update(1)
-
-    # main()
-
-    # 5035
-    # 5396
-    # 5722
-    # 5871
-    # 5892
-    # 6035
-    # 6351
-    # 6818
-    # 7147
-    # 7468
-    # 7936
-    # 8080
-
-    x = 4916
-    rfc = RFC(x)
-    sections = []
-    stop = False
-    for section in rfc.sections:
-        if section['title'] == '6.  IANA Considerations':
-            stop = False
-        if not stop:
-            sections.append(section)
-        else:
-            sections[-1]['contents'] += section['contents']
-        if section['title'] == '5.2.  Sending Revised Connected Identity during a Call':
-            stop = True
-    r = RFC(x, sections)
-    r.dump()
-
-
-
+    main()
