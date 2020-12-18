@@ -63,7 +63,7 @@ def preprocess(n: int) -> List[str]:
             page.append(line)
         if page:
             pages.append(page)
-    pages = [page[2:-3] for page in pages]
+    pages = [page[6:-3] for page in pages]
     pages[0] = ignore_trivial_line(pages[0])
     text = [line for each_page in pages for line in each_page if line.strip() != '']
     return text
@@ -116,6 +116,30 @@ def get_sections_l1(text:List[str]) -> List[RFCSection]:
     return [RFCSection(title='__initial_text__', contents=[''.join(text)])]
 
 
+def section_parse(s: str) -> Optional[List[int]]:
+    m = re.match(r'(\d+(\.\d+)*)\.?', s)
+    current_section_number: Optional[List[int]] = None
+    if m:
+        current_section_number = list(map(lambda x: int(x), m.group(1).split('.')))
+    # if not current_section_number:
+    #     m = re.match(r'([A-Z](\.\d+)+)\.?', s)
+    #     if m:
+    #         current_section_number = list(map(lambda x: intalpha(x), m.group(1).split('.')))
+    # if not current_section_number:
+    #     m = re.match(r'Appendix ([A-Z])', s)
+    #     if m:
+    #         current_section_number = [intalpha(m.group(1))]
+    return current_section_number
+
+
+def intalpha(x: str) -> int:
+    if x.isnumeric():
+        return int(x)
+    if len(x) > 1:
+        raise NotImplementedError
+    return ord(x) - ord('A') + 100
+
+
 def create_tree(sections: List[RFCSection]) -> List[RFCSection]:
     new_sections: List[RFCSection] = []
     stack: List[RFCSection] = []
@@ -123,12 +147,15 @@ def create_tree(sections: List[RFCSection]) -> List[RFCSection]:
     latest_section: Optional[RFCSection] = None
     temp_sections: List[RFCSection] = []
     for section in sections:
-        m = re.match(r'(\d+(\.\d+)*)\.?', section['title'])
-        if not m:
+        current_section_number: Optional[List[int]] = section_parse(section['title'])
+        if not current_section_number:
+            m = re.match(r'Appendix ([A-Z])', section['title'])
+            if m:
+                current_section_number = [intalpha(m.group(1))]
+        if not current_section_number:
             temp_sections.append(section)
             continue
         # 番号付きセクションである場合
-        current_section_number: List[int] = list(map(lambda x: int(x), m.group(1).split('.')))
         if not is_successive_section(latest_section_number, current_section_number):
             # 連番でない場合
             raise Exception('section is not successive')
@@ -150,6 +177,12 @@ def create_tree(sections: List[RFCSection]) -> List[RFCSection]:
         stack.append(section)
         latest_section_number = current_section_number
         latest_section = section
+    while len(stack) > 0:
+        sec = stack.pop()
+        if len(stack) == 0:
+            new_sections.append(sec)
+        else:
+            stack[-1]['contents'].append(sec)
     if temp_sections:
         new_sections += temp_sections
     return new_sections
@@ -167,22 +200,45 @@ def is_successive_section(latest, current) -> bool:
     return is_successive_section(latest[1:], current[1:])
 
 
+def check_dup(sections: List[RFCSection]):
+    a = set()
+    for section in sections:
+        if section['title'] in a:
+            return True
+        a.add(section['title'])
+    return False
+
+
 def main(start, end):
     for i in range(start, end+1):
         try:
             rfc = RFC(i)
+            sections = rfc.sections
             if rfc.info['status'] in {
                 RFCStatus.PROPOSED_STANDARD,
                 RFCStatus.INTERNET_STANDARD,
                 RFCStatus.DRAFT_STANDARD
             } and not rfc.info['obsoleted_by']:
-                # text = preprocess_old(i)
-                # rfc = RFC(i, get_sections_l0(text))
+                # text = preprocess(i)
+                # sections = extract_sections(i, text)
+                # rfc = RFC(i, sections)
                 # rfc.dump()
-                print(i)
-                # for section in rfc.sections: print(section['title'])
-                print_sec(create_tree(rfc.sections))
-                print()
+
+                # print(i)
+                # for section in sections:
+                #     if re.search(r'[=\-+|{}]', section['title']):
+                #         print(i, section['title'])
+                try:
+                    new_sections = create_tree(sections)
+                except:
+                    raise Exception(f'RFC{i} tree error')
+                if check_dup(new_sections):
+                    raise Exception(f'RFC{i} duplicate found')
+
+                # for section in new_sections:
+                #     if re.search(r'[=|{}<>;]', section['title']):
+                #         print(i, section['title'])
+                print_sec(new_sections)
         except FileNotFoundError:
             continue
 
@@ -255,10 +311,11 @@ if __name__ == '__main__':
     #     with Pool(4) as p:
     #         for _ in p.imap_unordered(lines, range(start, N)):
     #             t.update(1)
-    x = 4642
+    x = 7796
     # concat_contents(
     #     x,
-    #     'Full Copyright Statement',
-    #     'Intellectual Property',
+    #     '__initial_text__',
+    #     '1.  Introduction',
     # )
-    main(4000, x)
+    # main(x, 9000)
+    main(x, x)
