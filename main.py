@@ -121,14 +121,22 @@ def section_parse(s: str) -> Optional[List[int]]:
     current_section_number: Optional[List[int]] = None
     if m:
         current_section_number = list(map(lambda x: int(x), m.group(1).split('.')))
-    # if not current_section_number:
-    #     m = re.match(r'([A-Z](\.\d+)+)\.?', s)
-    #     if m:
-    #         current_section_number = list(map(lambda x: intalpha(x), m.group(1).split('.')))
-    # if not current_section_number:
-    #     m = re.match(r'Appendix ([A-Z])', s)
-    #     if m:
-    #         current_section_number = [intalpha(m.group(1))]
+    if not current_section_number:
+        m = re.match(r'([A-Z](\.\d+)+)\.?', s)
+        if m:
+            current_section_number = list(map(lambda x: intalpha(x), m.group(1).split('.')))
+    if not current_section_number:
+        m = re.match(r'Appendix ([A-Z])', s)
+        if m:
+            current_section_number = [intalpha(m.group(1))]
+    if not current_section_number:
+        m = re.match(r'Appendix', s)
+        if m:
+            current_section_number = [100]
+    if not current_section_number:
+        m = re.match(r'Annex ([A-Z])', s)
+        if m:
+            current_section_number = [intalpha(m.group(1))]
     return current_section_number
 
 
@@ -148,10 +156,6 @@ def create_tree(sections: List[RFCSection]) -> List[RFCSection]:
     temp_sections: List[RFCSection] = []
     for section in sections:
         current_section_number: Optional[List[int]] = section_parse(section['title'])
-        if not current_section_number:
-            m = re.match(r'Appendix ([A-Z])', section['title'])
-            if m:
-                current_section_number = [intalpha(m.group(1))]
         if not current_section_number:
             temp_sections.append(section)
             continue
@@ -224,7 +228,7 @@ def main(start, end):
                 # rfc = RFC(i, sections)
                 # rfc.dump()
 
-                # print(i)
+                print(i)
                 # for section in sections:
                 #     if re.search(r'[=\-+|{}]', section['title']):
                 #         print(i, section['title'])
@@ -234,10 +238,6 @@ def main(start, end):
                     raise Exception(f'RFC{i} tree error')
                 if check_dup(new_sections):
                     raise Exception(f'RFC{i} duplicate found')
-
-                # for section in new_sections:
-                #     if re.search(r'[=|{}<>;]', section['title']):
-                #         print(i, section['title'])
                 print_sec(new_sections)
         except FileNotFoundError:
             continue
@@ -311,11 +311,11 @@ if __name__ == '__main__':
     #     with Pool(4) as p:
     #         for _ in p.imap_unordered(lines, range(start, N)):
     #             t.update(1)
-    x = 7796
+    x = 1
     # concat_contents(
     #     x,
     #     '__initial_text__',
     #     '1.  Introduction',
     # )
-    # main(x, 9000)
-    main(x, x)
+    main(x, 9000)
+    # main(x, x)
