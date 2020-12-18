@@ -1,973 +1,959 @@
-- title: __initial_text__
-  contents:
+- contents:
   - '                  IPsec Channels: Connection Latching
 
     '
-- title: Abstract
-  contents:
-  - "Abstract\n   This document specifies, abstractly, how to interface applications\n\
-    \   and transport protocols with IPsec so as to create \"channels\" by\n   latching\
-    \ \"connections\" (packet flows) to certain IPsec Security\n   Association (SA)\
-    \ parameters for the lifetime of the connections.\n   Connection latching is layered\
-    \ on top of IPsec and does not modify\n   the underlying IPsec architecture.\n\
-    \   Connection latching can be used to protect applications against\n   accidentally\
-    \ exposing live packet flows to unintended peers, whether\n   as the result of\
-    \ a reconfiguration of IPsec or as the result of using\n   weak peer identity\
-    \ to peer address associations.  Weak association of\n   peer ID and peer addresses\
-    \ is at the core of Better Than Nothing\n   Security (BTNS); thus, connection\
-    \ latching can add a significant\n   measure of protection to BTNS IPsec nodes.\n\
-    \   Finally, the availability of IPsec channels will make it possible to\n   use\
-    \ channel binding to IPsec channels.\n"
-- title: Status of This Memo
-  contents:
-  - "Status of This Memo\n   This document specifies an Internet standards track protocol\
-    \ for the\n   Internet community, and requests discussion and suggestions for\n\
-    \   improvements.  Please refer to the current edition of the \"Internet\n   Official\
-    \ Protocol Standards\" (STD 1) for the standardization state\n   and status of\
-    \ this protocol.  Distribution of this memo is unlimited.\n"
-- title: Copyright Notice
-  contents:
-  - "Copyright Notice\n   Copyright (c) 2009 IETF Trust and the persons identified\
-    \ as the\n   document authors.  All rights reserved.\n   This document is subject\
-    \ to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n\
-    \   (http://trustee.ietf.org/license-info) in effect on the date of\n   publication\
-    \ of this document.  Please review these documents\n   carefully, as they describe\
-    \ your rights and restrictions with respect\n   to this document.  Code Components\
-    \ extracted from this document must\n   include Simplified BSD License text as\
-    \ described in Section 4.e of\n   the Trust Legal Provisions and are provided\
-    \ without warranty as\n   described in the BSD License.\n"
-- title: Table of Contents
-  contents:
-  - "Table of Contents\n   1. Introduction ....................................................3\n\
-    \      1.1. Conventions Used in This Document ..........................4\n  \
-    \ 2. Connection Latching .............................................4\n    \
-    \  2.1. Latching of Quality-of-Protection Parameters ...............8\n      2.2.\
-    \ Connection Latch State Machine .............................9\n      2.3. Normative\
-    \ Model: ULP Interfaces to the Key Manager ........12\n           2.3.1. Race\
-    \ Conditions and Corner Cases ...................17\n           2.3.2. Example\
-    \ ............................................18\n      2.4. Informative Model:\
-    \ Local Packet Tagging ...................19\n      2.5. Non-Native Mode IPsec\
-    \ .....................................21\n      2.6. Implementation Note Regarding\
-    \ Peer IDs ....................22\n   3. Optional Features ..............................................22\n\
-    \      3.1. Optional Protection .......................................22\n  \
-    \ 4. Simultaneous Latch Establishment ...............................23\n   5.\
-    \ Connection Latching to IPsec for Various ULPs ..................23\n      5.1.\
-    \ Connection Latching to IPsec for TCP ......................24\n      5.2. Connection\
-    \ Latching to IPsec for UDP with\n           Simulated Connections .....................................24\n\
-    \      5.3. Connection Latching to IPsec for UDP with\n           Datagram-Tagging\
-    \ APIs .....................................25\n      5.4. Connection Latching\
-    \ to IPsec for SCTP .....................25\n      5.5. Handling of BROKEN State\
-    \ for TCP and SCTP .................26\n   6. Security Considerations ........................................27\n\
-    \      6.1. Impact on IPsec ...........................................27\n  \
-    \    6.2. Impact on IPsec of Optional Features ......................28\n    \
-    \  6.3. Security Considerations for Applications ..................28\n      6.4.\
-    \ Channel Binding and IPsec APIs ............................29\n      6.5. Denial-of-Service\
-    \ Attacks .................................29\n   7. Acknowledgements ...............................................30\n\
-    \   8. References .....................................................30\n  \
-    \    8.1. Normative References ......................................30\n    \
-    \  8.2. Informative References ....................................30\n"
-- title: 1.  Introduction
-  contents:
-  - "1.  Introduction\n   IPsec protects packets with little or no regard for stateful\
-    \ packet\n   flows associated with upper-layer protocols (ULPs).  This exposes\n\
-    \   applications that rely on IPsec for session protection to risks\n   associated\
-    \ with changing IPsec configurations, configurations that\n   allow multiple peers\
-    \ access to the same addresses, and/or weak\n   association of peer IDs and their\
-    \ addresses.  The latter can occur as\n   a result of \"wildcard\" matching in\
-    \ the IPsec Peer Authorization\n   Database (PAD), particularly when Better Than\
-    \ Nothing Security (BTNS)\n   [RFC5387] is used.\n   Applications that wish to\
-    \ use IPsec may have to ensure that local\n   policy on the various end-points\
-    \ is configured appropriately\n   [RFC5406] [USING-IPSEC].  There are no standard\
-    \ Application\n   Programming Interfaces (APIs) to do this (though there are non-\n\
-    \   standard APIs, such as [IP_SEC_OPT.man]) -- a major consequence of\n   which,\
-    \ for example, is that applications must still use hostnames\n   (and, e.g., the\
-    \ Domain Name System [RFC1034]) and IP addresses in\n   existing APIs and must\
-    \ depend on an IPsec configuration that they may\n   not be able to verify.  In\
-    \ addition to specifying aspects of required\n   Security Policy Database (SPD)\
-    \ configuration, application\n   specifications must also address PAD/SPD configuration\
-    \ to strongly\n   bind individual addresses to individual IPsec identities and\n\
-    \   credentials (certificates, public keys, etc.).\n   IPsec is, then, quite cumbersome\
-    \ for use by applications.  To address\n   this, we need APIs to IPsec.  Not merely\
-    \ APIs for configuring IPsec,\n   but also APIs that are similar to the existing\
-    \ IP APIs (e.g., \"BSD\n   Sockets\"), so that typical applications making use\
-    \ of UDP [RFC0768],\n   TCP [RFC0793], and Stream Control Transmission Protocol\
-    \ (SCTP)\n   [RFC4960] can make use of IPsec with minimal changes.\n   This document\
-    \ describes the foundation for IPsec APIs that UDP and\n   TCP applications can\
-    \ use: a way to bind the traffic flows for, e.g.,\n   TCP connections to security\
-    \ properties desired by the application.\n   We call these \"connection latches\"\
-    \ (and, in some contexts, \"IPsec\n   channels\").  The methods outlined below\
-    \ achieve this by interfacing\n   ULPs and applications to IPsec.\n   If widely\
-    \ adopted, connection latching could make application use of\n   IPsec much simpler,\
-    \ at least for certain classes of applications.\n   Connection latching, as specified\
-    \ herein, is primarily about watching\n   updates to the SPD and Security Association\
-    \ Database (SAD) to detect\n   changes that are adverse to an application's requirements\
-    \ for any\n   given packet flow, and to react accordingly (such as by synchronously\n\
-    \   alerting the ULP and application before packets can be sent or\n   received\
-    \ under the new policy).  Under no circumstance are IPsec\n   policy databases\
-    \ to be modified by connection latching in any way\n   that can persist beyond\
-    \ the lifetime of the related packet flows, nor\n   reboots.  Under no circumstance\
-    \ is the PAD to be modified at all by\n   connection latching.  If all optional\
-    \ features of connection latching\n   are excluded, then connection latching can\
-    \ be implemented as a\n   monitor of SPD and SAD changes that intrudes in their\
-    \ workings no\n   more than is needed to provide synchronous alerts to ULPs and\n\
-    \   applications.\n   We assume the reader is familiar with the IPsec architecture\n\
-    \   [RFC4301] and Internet Key Exchange Protocol version 2 (IKEv2)\n   [RFC4306].\n\
-    \   Note: the terms \"connection latch\" and \"IPsec channel\" are used\n   interchangeably\
-    \ below.  The latter term relates to \"channel binding\"\n   [RFC5056].  Connection\
-    \ latching is suitable for use in channel\n   binding applications, or will be,\
-    \ at any rate, when the channel\n   bindings for IPsec channels are defined (the\
-    \ specification of IPsec\n   channel bindings is out of scope for this document).\n\
-    \   Note: where this document mentions IPsec peer \"ID\" it refers to the\n  \
-    \ Internet Key Exchange (IKE) peer ID (e.g., the ID derived from a\n   peer's\
-    \ cert, as well as the cert), not the peer's IP address.\n"
-- title: 1.1.  Conventions Used in This Document
-  contents:
-  - "1.1.  Conventions Used in This Document\n   The key words \"MUST\", \"MUST NOT\"\
-    , \"REQUIRED\", \"SHALL\", \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\"\
-    , \"MAY\", and \"OPTIONAL\" in this\n   document are to be interpreted as described\
-    \ in [RFC2119].\n   Abstract function names are all capitalized and denoted by\
-    \ a pair of\n   parentheses.  In their descriptions, the arguments appear within\
-    \ the\n   parentheses, with optional arguments surrounded by square brackets.\n\
-    \   Return values, if any, are indicated by following the function\n   argument\
-    \ list with \"->\" and a description of the return value.  For\n   example, \"\
-    FOO(3-tuple, [message])\" would be a function named \"FOO\"\n   with two arguments,\
-    \ one of them optional, and returning nothing,\n   whereas \"FOOBAR(handle) ->\
-    \ state\" would be a function with a single,\n   required argument that returns\
-    \ a value.  The values' types are\n   described in the surrounding text.\n"
-- title: 2.  Connection Latching
-  contents:
-  - "2.  Connection Latching\n   An \"IPsec channel\" is a packet flow associated\
-    \ with a ULP control\n   block, such as a TCP connection, where all the packets\
-    \ are protected\n   by IPsec SAs such that:\n   o  the peer's identity is the\
-    \ same for the lifetime of the packet\n      flow;\n   o  the quality of IPsec\
-    \ protection used for the packet flow's\n      individual packets is the same\
-    \ for all of them for the lifetime of\n      the packet flow.\n   An IPsec channel\
-    \ is created when the associated packet flow is\n   created.  This can be the\
-    \ result of a local operation (e.g., a\n   connect()) that causes the initial\
-    \ outgoing packet for that flow to\n   be sent, or it can be the result of receiving\
-    \ the first/initiating\n   packet for that flow (e.g., a TCP SYN packet).\n  \
-    \ An IPsec channel is destroyed when the associated packet flow ends.\n   An IPsec\
-    \ channel can also be \"broken\" when the connection latch\n   cannot be maintained\
-    \ for some reason (see below), in which case the\n   ULP and application are informed.\n\
-    \   IPsec channels are created by \"latching\" various parameters listed\n   below\
-    \ to a ULP connection when the connections are created.  The\n   REQUIRED set\
-    \ of parameters bound in IPsec channels is:\n   o  Type of protection: confidentiality\
-    \ and/or integrity protection;\n   o  Transport mode versus tunnel mode;\n   o\
-    \  Quality of protection (QoP): cryptographic algorithm suites, key\n      lengths,\
-    \ and replay protection (see Section 2.1);\n   o  Local identity: the local ID\
-    \ asserted to the peer, as per the\n      IPsec processing model [RFC4301] and\
-    \ BTNS [RFC5386];\n   o  Peer identity: the peer's asserted and authorized IDs,\
-    \ as per the\n      IPsec processing model [RFC4301] and BTNS [RFC5386].\n   The\
-    \ SAs that protect a given IPsec channel's packets may change over\n   time in\
-    \ that they may expire and be replaced with equivalent SAs, or\n   they may be\
-    \ re-keyed.  The set of SAs that protect an IPsec channel's\n   packets need not\
-    \ be related by anything other than the fact that they\n   must be congruent to\
-    \ the channel (i.e., the SAs' parameters must\n   match those that are latched\
-    \ into the channel).  In particular, it is\n   desirable that IPsec channels survive\
-    \ the expiration of IKE_SAs and\n   child SAs because operational considerations\
-    \ of the various key\n   exchange protocols then cannot affect the design and\
-    \ features of\n   connection latching.\n   When a situation arises in which the\
-    \ SPD is modified, or an SA is\n   added to the SAD, such that the new policy\
-    \ and/or SA are not\n   congruent to an established channel (see previous paragraph),\
-    \ then we\n   consider this a conflict.  Conflict resolution is addressed below.\n\
-    \   Requirements and recommendations:\n   o  If an IPsec channel is desired, then\
-    \ packets for a given\n      connection MUST NOT be sent until the channel is\
-    \ established.\n   o  If an IPsec channel is desired, then inbound packets for\
-    \ a given\n      connection MUST NOT be accepted until the channel is established.\n\
-    \      That is, inbound packets for a given connection arriving prior to\n   \
-    \   the establishment of the corresponding IPsec channel must be\n      dropped\
-    \ or the channel establishment must fail.\n   o  Once an IPsec channel is established,\
-    \ packets for the latched\n      connection MUST NOT be sent unprotected nor protected\
-    \ by an SA\n      that does not match the latched parameters.\n   o  Once an IPsec\
-    \ channel is established, packets for the latched\n      connection MUST NOT be\
-    \ accepted unprotected nor protected by an SA\n      that does not match the latched\
-    \ parameters.  That is, such packets\n      must either be dropped or cause the\
-    \ channel to be terminated and\n      the application to be informed before data\
-    \ from such a packet can\n      be delivered to the application.\n   o  Implementations\
-    \ SHOULD provide programming interfaces for\n      inquiring the values of the\
-    \ parameters latched in a connection.\n   o  Implementations that provide such\
-    \ programming interfaces MUST make\n      available to applications all relevant\
-    \ and available information\n      about a peer's ID, including authentication\
-    \ information.  This\n      includes the peer certificate, when one is used, and\
-    \ the trust\n      anchor to which it was validated (but not necessarily the whole\n\
-    \      certificate validation chain).\n   o  Implementations that provide such\
-    \ programming interfaces SHOULD\n      make available to applications any information\
-    \ about local and/or\n      remote public and private IP addresses, in the case\
-    \ of NAT-\n      traversal.\n   o  Implementations that provide such programming\
-    \ interfaces SHOULD\n      make available to applications the inner and outer\
-    \ local and peer\n      addresses whenever the latched connection uses tunnel-mode\
-    \ SAs.\n   o  Implementations SHOULD provide programming interfaces for setting\n\
-    \      the values of the parameters to be latched in a connection that\n     \
-    \ will be initiated or accepted, but these interfaces MUST limit\n      what values\
-    \ applications may request according to system policy\n      (i.e., the IPsec\
-    \ PAD and SPD) and the application's local\n      privileges.\n      (Typical\
-    \ system policy may not allow applications any choices\n      here.  Policy extensions\
-    \ allowing for optional protection are\n      described in Section 3.1.)\n   o\
-    \  Implementations SHOULD create IPsec channels automatically by\n      default\
-    \ when the application does not explicitly request an IPsec\n      channel.  Implementations\
-    \ MAY provide a way to disable automatic\n      creation of connection latches.\n\
-    \   o  The parameters latched in an IPsec channel MUST remain unchanged\n    \
-    \  once the channel is established.\n   o  Timeouts while establishing child SAs\
-    \ with parameters that match\n      those latched into an IPsec channel MUST be\
-    \ treated as packet loss\n      (as happens, for example, when a network partitions);\
-    \ normal ULP\n      and/or application timeout handling and retransmission\n \
-    \     considerations apply.\n   o  Implementations that have a restartable key\
-    \ management process (or\n      \"daemon\") MUST arrange for existing latched\
-    \ connections to either\n      be broken and disconnected, or for them to survive\
-    \ the restart of\n      key exchange processes.  (This is implied by the above\n\
-    \      requirements.)  For example, if such an implementation relies on\n    \
-    \  keeping some aspects of connection latch state in the restartable\n      key\
-    \ management process (e.g., values that potentially have large\n      representations,\
-    \ such as BTNS peer IDs), then either such state\n      must be restored on restart\
-    \ of such a process, or outstanding\n      connection latches must be transitioned\
-    \ to the CLOSED state.\n   o  Dynamic IPsec policy (see Section 3.1) related to\
-    \ connection\n      latches, if any, MUST be torn down when latched connections\
-    \ are\n      torn down, and MUST NOT survive reboots.\n   o  When IKE dead-peer\
-    \ detection (DPD) concludes that the remote peer\n      is dead or has rebooted,\
-    \ then the system SHOULD consider all\n      connection latches with that peer\
-    \ to be irremediably broken.\n   We describe two models, one of them normative,\
-    \ of IPsec channels for\n   native IPsec implementations.  The normative model\
-    \ is based on\n   abstract programming interfaces in the form of function calls\
-    \ between\n   ULPs and the key management component of IPsec (basically, the SAD,\n\
-    \   augmented with a Latch Database (LD)).  The second model is based on\n   abstract\
-    \ programming interfaces between ULPs and the IPsec\n   (Encapsulating Security\
-    \ Payload / Authentication Header (ESP/AH))\n   layer in the form of meta-data\
-    \ tagging of packets within the IP\n   stack.\n   The two models given below are\
-    \ not, however, entirely equivalent.\n   One model cannot be implemented with\
-    \ Network Interface cards (NICs)\n   that offload ESP/AH but that do not tag incoming\
-    \ packets passed to\n   the host processor with SA information, nor allow the\
-    \ host processor\n   to so tag outgoing packets.  That same model can be easily\
-    \ extended\n   to support connection latching with unconnected datagram \"sockets\"\
-    ,\n   while the other model is rigidly tied to a notion of \"connections\"\n \
-    \  and cannot be so extended.  There may be other minor differences\n   between\
-    \ the two models.  Rather than seek to establish equivalency\n   for some set\
-    \ of security guarantees, we instead choose one model to\n   be the normative\
-    \ one.\n   We also provide a model for non-native implementations, such as bump-\n\
-    \   in-the-stack (BITS) and Security Gateway (SG) implementations.  The\n   connection\
-    \ latching model for non-native implementations is not full-\n   featured as it\
-    \ depends on estimating packet flow state, which may not\n   always be possible.\
-    \  Nor can non-native IPsec implementations be\n   expected to provide APIs related\
-    \ to connection latching\n   (implementations that do could be said to be native).\
-    \  As such, this\n   third model is not suitable for channel binding applications\n\
-    \   [RFC5056].\n"
-- title: 2.1.  Latching of Quality-of-Protection Parameters
-  contents:
-  - "2.1.  Latching of Quality-of-Protection Parameters\n   In IPsec, the assumption\
-    \ of IKE initiator/responder roles is non-\n   deterministic.  That is, sometimes\
-    \ an IKE SA and child SAs will be\n   initiated by the \"client\" (e.g., the caller\
-    \ of the connect() BSD\n   sockets function) and sometimes by the \"server\" (e.g.,\
-    \ the caller of\n   the accept() BSD Sockets function).  This means that the negotiation\n\
-    \   of quality of protection is also non-deterministic unless one of the\n   peers\
-    \ offers a single cryptographic suite in the IKE negotiation.\n   When creating\
-    \ narrow child SAs with traffic selectors matching the\n   connection latch's\
-    \ 5-tuple, it is possible to constrain the IKE\n   Quality-of-Protection negotiation\
-    \ to a single cryptographic suite.\n   Therefore, implementations SHOULD provide\
-    \ an API for requesting the\n   use of such child SAs.  Implementors SHOULD consider\
-    \ an application\n   request for a specific QoP to imply a request for narrow\
-    \ child SAs.\n   When using SAs with traffic selectors encompassing more than\
-    \ just a\n   single flow, then the system may only be able to latch a set of\n\
-    \   cryptographic suites, rather than a single cryptographic suite.  In\n   such\
-    \ a case, an implementation MUST report the QoP being used as\n   indeterminate.\n"
-- title: 2.2.  Connection Latch State Machine
-  contents:
-  - "2.2.  Connection Latch State Machine\n   Connection latches can exist in any\
-    \ of the following five states:\n   o  LISTENER\n   o  ESTABLISHED\n   o  BROKEN\
-    \ (there exist SAs that conflict with the given connection\n      latch, conflicting\
-    \ SPD changes have been made, or DPD has been\n      triggered and the peer is\
-    \ considered dead or restarted)\n   o  CLOSED (by the ULP, the application or\
-    \ administratively)\n   and always have an associated owner, or holder, such as\
-    \ a ULP\n   transmission control block (TCB).\n   A connection latch can be born\
-    \ in the LISTENER state, which can\n   transition only to the CLOSED state.  The\
-    \ LISTENER state corresponds\n   to LISTEN state of TCP (and other ULPs) and is\
-    \ associated with IP\n   3-tuples, and can give rise to new connection latches\
-    \ in the\n   ESTABLISHED state.\n   A connection latch can also be born in the\
-    \ ESTABLISHED and BROKEN\n   states, either through the direct initiative of a\
-    \ ULP or when an\n   event occurs that causes a LISTENER latch to create a new\
-    \ latch (in\n   either ESTABLISHED or BROKEN states).  These states represent\
-    \ an\n   active connection latch for a traffic flow's 5-tuple.  Connection\n \
-    \  latches in these two states can transition to the other of the two\n   states,\
-    \ as well as to the CLOSED state.\n   Connection latches remain in the CLOSED\
-    \ state until their owners are\n   informed except where the owner caused the\
-    \ transition, in which case\n   this state is fleeting.  Transitions from ESTABLISHED\
-    \ or BROKEN\n   states to the CLOSED state should typically be initiated by latch\n\
-    \   owners, but implementations SHOULD provide administrative interfaces\n   through\
-    \ which to close active latches.\n   Connection latches transition to the BROKEN\
-    \ state when there exist\n   SAs in the SAD whose traffic selectors encompass\
-    \ the 5-tuple bound by\n   the latch, and whose peer and/or parameters conflict\
-    \ with those bound\n   by the latch.  Transitions to the BROKEN state also take\
-    \ place when\n   SPD changes occur that would cause the latched connection's packets\n\
-    \   to be sent or received with different protection parameters than\n   those\
-    \ that were latched.  Transitions to the BROKEN state are also\n   allowed when\
-    \ IKEv2 DPD concludes that the remote peer is dead or has\n   rebooted.  Transitions\
-    \ to the BROKEN state always cause the\n   associated owner to be informed.  Connection\
-    \ latches in the BROKEN\n   state transition back to ESTABLISHED when all SA and/or\
-    \ SPD conflicts\n   are cleared.\n   Most state transitions are the result of\
-    \ local actions of the latch\n   owners (ULPs).  The only exceptions are: birth\
-    \ into the ESTABLISHED\n   state from latches in the LISTENER state, transitions\
-    \ to the BROKEN\n   state, transitions from the BROKEN state to ESTABLISHED, and\n\
-    \   administrative transitions to the CLOSED state.  (Additionally, see\n   the\
-    \ implementation note about restartable key management processes in\n   Section\
-    \ 2.)\n   The state diagram below makes use of conventions described in\n   Section\
-    \ 1.1 and state transition events described in Section 2.3.\n      <CREATE_LISTENER_LATCH(3-tuple,\
-    \ ...)>\n                     :\n                     v    <CREATE_CONNECTION_LATCH(5-tuple,\
-    \ ...)>\n                /--------\\           :   :\n         +------|LISTENER|......\
-    \     :   :\n         |      \\--------/     :     :   :   +--------------------+\n\
-    \         |        :            :     :   :   |Legend:             |\n       \
-    \  |        :            :     :   :   | dotted lines denote|\n         |  <conn.\
-    \ trigger event>    :   :   |    latch creation  |\n         |      (e.g., TCP\
-    \ SYN :     :   :   |                    |\n         |       received,     : \
-    \    :   :   | solid lines denote |\n         |       connect()     :     :  \
-    \ :   |    state transition|\n         |       called, ...)  v     v   :   | \
-    \                   |\n         |        :        /-----------\\ :   | semi-solid\
-    \ lines   |\n         |        :        |ESTABLISHED| :   |    denote async  \
-    \  |\n         |    <conflict>   \\-----------/ :   |    notification    |\n \
-    \        |        :         ^       |    :   +--------------------+\n        \
-    \ |        :         |      <conflict\n         |        :    <conflict    or\
-    \ DPD>\n         |        :     cleared>    |    :\n         |        :      \
-    \   |       |    :\n         |        :         |       v    v\n         |   \
-    \     :      /----------------\\\n         |        :.....>|     BROKEN     |.-.-.-.-.->\
-    \ <ALERT()>\n         |               \\----------------/\n         |        \
-    \               |\n      <RELEASE_LATCH()>   <RELEASE_LATCH()>\n         |   \
-    \                    |\n         |                       v\n         |       \
-    \             /------\\\n         +------------------->|CLOSED|\n            \
-    \                  \\------/\n                Figure 1: Connection Latching State\
-    \ Machine\n   The details of the transitions depend on the model of connection\n\
-    \   latching followed by any given implementation.  See the following\n   sections.\n"
-- title: '2.3.  Normative Model: ULP Interfaces to the Key Manager'
-  contents:
-  - "2.3.  Normative Model: ULP Interfaces to the Key Manager\n   This section describes\
-    \ the NORMATIVE model of connection latching.\n   In this section, we describe\
-    \ connection latching in terms of a\n   function-call interface between ULPs and\
-    \ the \"key manager\" component\n   of a native IPsec implementation.  Abstract\
-    \ interfaces for creating,\n   inquiring about, and releasing IPsec channels are\
-    \ described.\n   This model adds a service to the IPsec key manager (i.e., the\n\
-    \   component that manages the SAD and interfaces with separate\n   implementations\
-    \ of, or directly implements, key exchange protocols):\n   management of connection\
-    \ latches.  There is also a new IPsec\n   database, the Latch Database (LD), that\
-    \ contains all connection latch\n   objects.  The LD does not persist across system\
-    \ reboots.\n   The traditional IPsec processing model allows the concurrent\n\
-    \   existence of SAs with different peers but overlapping traffic\n   selectors.\
-    \  Such behavior, in this model, directly violates the\n   requirements for connection\
-    \ latching (see Section 2).  We address\n   this problem by requiring that connection\
-    \ latches be broken (and\n   holders informed) when such conflicts arise.\n  \
-    \ The following INFORMATIVE figure illustrates this model and API in\n   terms\
-    \ that are familiar to many implementors, though not applicable\n   to all:\n\
-    \      +--------------------------------------------+\n      |               \
-    \        +--------------+     |\n      |                       |Administrator\
-    \ |     |\n      |                       |apps          |     |\n      |     \
-    \                  +--------------+     |\n      |                           \
-    \ ^      ^        |\n      |                            |      |        | user\
-    \ mode\n      |                            v      v        |\n      | +--------------+\
-    \      +-------++--------+  |\n      | |App           |      |IKEv2  ||      \
-    \  |  |\n      | |              |      | +---+ || +----+ |  |\n      | |     \
-    \         |      | |PAD| || |SPD | |  |\n      | |              |      | +---+\
-    \ || +--^-+ |  |\n      | +--------------+      +-+-----++----+---+  |\n     \
-    \ |   ^                     |           |      |\n      +---|---------------------|-----------|------+\
-    \  user/kernel mode\n      |   |syscalls             |  PF_KEY   |      |  interface\n\
-    \      |   |                     | [RFC2367] |      |\n      +---|---------------------|-----------|------+\n\
-    \      |   v                     |           |      |\n      |+-------+   +------------|-----------|-----+|\n\
-    \      ||ULP    |   | IPsec   key|manager    |     ||\n      |+-------+   |  \
-    \          |  +--------v----+||\n      | ^  ^       |            |  | Logical\
-    \ SPD |||\n      | |  |       |            |  +-----------^-+||\n      | |  |\
-    \       |            +-------+      |  ||  kernel mode\n      | |  |       | \
-    \                   |      |  ||\n      | |  |       | +----------+    +--v--+\
-    \   |  ||\n      | |  +-------->| Latch DB |<-->| SAD |   |  ||\n      | |   \
-    \       | +----------+    +--^--+   |  ||\n      | |          +--------------------|------|--+|\n\
-    \      +-|-------------------------------v------v---+\n      | | IPsec Layer \
-    \ (ESP/AH)                    |\n      | |                                   \
-    \       |\n      +-v------------------------------------------+\n      |   IP\
-    \ Layer                                 |\n      +--------------------------------------------+\n\
-    \         Figure 2: Informative Implementation Architecture Diagram\n   The ULP\
-    \ interfaces to the IPsec LD are as follows:\n   o  CREATE_LISTENER_LATCH(3-tuple,\
-    \ [type and quality-of-protection\n      parameters]) -> latch handle | error\n\
-    \         If there is no conflicting connection latch object in the\n        \
-    \ LISTENER state for the given 3-tuple (local address, protocol,\n         and\
-    \ local port number), and local policy permits it, then this\n         operation\
-    \ atomically creates a connection latch object in the\n         LISTENER state\
-    \ for the given 3-tuple.\n         When a child SA is created that matches a listener\
-    \ latch's\n         3-tuple, but not any ESTABLISHED connection latch's 5-tuple\n\
-    \         (local address, remote address, protocol, local port number,\n     \
-    \    and remote port number), then the key manager creates a new\n         connection\
-    \ latch object in the ESTABLISHED state.  The key\n         manager MUST inform\
-    \ the holder of the listener latch of\n         connection latches created as\
-    \ a result of the listener latch;\n         see the \"ALERT()\" interface below.\n\
-    \   o  CREATE_CONNECTION_LATCH(5-tuple, [type and quality-of-protection\n    \
-    \  parameters], [peer ID], [local ID]) -> latch handle | error\n         If a)\
-    \ the requested latch does not exist (or exists, but is in\n         the CLOSED\
-    \ state), b) all the latch parameters are provided, or\n         if suitable SAs\
-    \ exist in the SAD from which to derive them, and\n         c) if there are no\
-    \ conflicts with the SPD and SAD, then this\n         creates a connection latch\
-    \ in the ESTABLISHED state.  If the\n         latch parameters are not provided\
-    \ and no suitable SAs exist in\n         the SAD from which to derive those parameters,\
-    \ then the key\n         manager MUST initiate child SAs, and if need be, IKE_SA,\
-    \ from\n         which to derive those parameters.\n         The key manager MAY\
-    \ delay the child SA setup and return\n         immediately after the policy check,\
-    \ knowing that the ULP that\n         requested the latch will subsequently output\
-    \ a packet that will\n         trigger the SA establishment.  Such an implementation\
-    \ may\n         require an additional, fleeting state in the connection latch\n\
-    \         state machine, a \"LARVAL\" state, so to speak, that is not\n      \
-    \   described herein.\n         If the connection latch ultimately cannot be established,\n\
-    \         either because of conflicts or because no SAs can be\n         established\
-    \ with the peer at the destination address, then an\n         error is returned\
-    \ to the ULP.  (If the key manager delayed SA\n         establishment, and SA\
-    \ establishment ultimately fails, then the\n         key manager has to inform\
-    \ the ULP, possibly asynchronously.\n         This is one of several details that\
-    \ implementors who use a\n         LARVAL state must take care of.)\n   o  RELEASE_LATCH(latch\
-    \ object handle)\n         Changes the state of the given connection latch to\
-    \ CLOSED; the\n         connection latch is then deleted.\n         The key manager\
-    \ MAY delete any existing child SAs that match\n         the given latch if it\
-    \ had been in the ESTABLISHED states.  If\n         the key manager does delete\
-    \ such SAs, then it SHOULD inform the\n         peer with an informational Delete\
-    \ payload (see IKEv2\n         [RFC4306]).\n   o  FIND_LATCH(5-tuple) -> latch\
-    \ handle | error\n         Given a 5-tuple returns a latch handle (or an error).\n\
-    \   o  INQUIRE_LATCH(latch object handle) -> {latch state, latched\n      parameters}\
-    \ | error\n         Returns all available information about the given latch,\n\
-    \         including its current state (or an error).\n   The IPsec LD interface\
-    \ to the ULP is as follows:\n   o  ALERT(latch object handle, 5-tuple, new state,\
-    \ [reason])\n         Alerts a ULP as to an asynchronous state change for the\
-    \ given\n         connection latch and, optionally, provides a reason for the\n\
-    \         change.\n      This interface is to be provided by each ULP to the key\
-    \ manager.\n      The specific details of how this interface is provided are\n\
-    \      implementation details, thus not specified here (for example, this\n  \
-    \    could be a \"callback\" function or \"closure\" registered as part of\n \
-    \     the CREATE_LISTENER_LATCH() interface, or it could be provided\n      when\
-    \ the ULP is loaded onto the running system via a registration\n      interface\
-    \ provided by the key manager).\n   Needless to say, the LD is updated whenever\
-    \ a connection latch object\n   is created, deleted, or broken.\n   The API described\
-    \ above is a new service of the IPsec key manager.\n   In particular, the IPsec\
-    \ key manager MUST prevent conflicts amongst\n   latches, and it MUST prevent\
-    \ conflicts between any latch and existing\n   or proposed child SAs as follows:\n\
-    \   o  Non-listener connection latches MUST NOT be created if there exist\n  \
-    \    conflicting SAs in the SAD at the time the connection latch is\n      requested\
-    \ or would be created (from a listener latch).  A child SA\n      conflicts with\
-    \ another, in view of a latch, if and only if: a) its\n      traffic selectors\
-    \ and the conflicting SA's match the given\n      latch's, and b) its peer, type-of-protection,\
-    \ or quality-of-\n      protection parameters differ from the conflicting SA.\n\
-    \   o  Child SA proposals that would conflict with an extant connection\n    \
-    \  latch and whose traffic selectors can be narrowed to avoid the\n      conflict\
-    \ SHOULD be narrowed (see Section 2.9 of [RFC4306]);\n      otherwise, the latch\
-    \ MUST be transitioned to the BROKEN state.\n   o  Where child SA proposals that\
-    \ would conflict with an extant\n      connection latch cannot be narrowed to\
-    \ avoid the conflict, the key\n      manager MUST break the connection latch and\
-    \ inform the holder\n      (i.e., the ULP) prior to accepting the conflicting\
-    \ SAs.\n   Finally, the key manager MUST protect latched connections against SPD\n\
-    \   changes that would change the quality of protection afforded to a\n   latched\
-    \ connection's traffic, or which would bypass it.  When such a\n   configuration\
-    \ change takes place, the key manager MUST respond in\n   either of the following\
-    \ ways.  The REQUIRED to implement behavior is\n   to transition into the BROKEN\
-    \ state all connection latches that\n   conflict with the given SPD change.  An\
-    \ OPTIONAL behavior is to\n   logically update the SPD as if a PROTECT entry had\
-    \ been added at the\n   head of the SPD-S with traffic selectors matching only\
-    \ the latched\n   connection's 5-tuple, and with processing information taken\
-    \ from the\n   connection latch.  Such updates of the SPD MUST NOT survive system\n\
-    \   crashes or reboots.\n   ULPs create latched connections by interfacing with\
-    \ IPsec as follows:\n   o  For listening end-points, the ULP will request a connection\
-    \ latch\n      listener object for the ULP listener's 3-tuple.  Any latching\n\
-    \      parameters requested by the application MUST be passed along.\n   o  When\
-    \ the ULP receives a packet initiating a connection for a\n      5-tuple matching\
-    \ a 3-tuple listener latch, then the ULP will ask\n      the key manager whether\
-    \ a 5-tuple connection latch was created.\n      If not, then the ULP will either\
-    \ reject the new connection or\n      accept it and inform the application that\
-    \ the new connection is\n      not latched.\n   o  When initiating a connection,\
-    \ the ULP will request a connection\n      latch object for the connection's 5-tuple.\
-    \  Any latching\n      parameters requested by the application MUST be passed\
-    \ along.  If\n      no latch can be created, then the ULP MUST either return an\
-    \ error\n      to the application or continue with the new connection and inform\n\
-    \      the application that the new connection is not latched.\n   o  When a connection\
-    \ is torn down and no further packets are expected\n      for it, then the ULP\
-    \ MUST request that the connection latch object\n      be destroyed.\n   o  When\
-    \ tearing down a listener, the ULP MUST request that the\n      connection latch\
-    \ listener object be destroyed.\n   o  When a ULP listener rejects connections,\
-    \ the ULP will request the\n      destruction of any connection latch objects\
-    \ that may have been\n      created as a result of the peer's attempt to open\
-    \ the connection.\n   o  When the key manager informs a ULP that a connection\
-    \ latch has\n      transitioned to the BROKEN state, then the ULP MUST stop sending\n\
-    \      packets and MUST drop all subsequent incoming packets for the\n      affected\
-    \ connection until it transitions back to ESTABLISHED.\n      Connection-oriented\
-    \ ULPs SHOULD act as though the connection is\n      experiencing packet loss.\n\
-    \   o  When the key manager informs a ULP that a connection latch has\n      been\
-    \ administratively transitioned to the CLOSED state, then\n      connection-oriented\
-    \ ULPs MUST act as though the connection has\n      been reset by the peer.  Implementations\
-    \ of ULPs that are not\n      connection-oriented, and which have no API by which\
-    \ to simulate a\n      reset, MUST drop all inbound packets for that connection\
-    \ and MUST\n      NOT send any further packets -- the application is expected\
-    \ to\n      detect timeouts and act accordingly.\n   The main benefit of this\
-    \ model of connection latching is that it\n   accommodates IPsec implementations\
-    \ where ESP/AH handling is\n   implemented in hardware (for all or a subset of\
-    \ the host's SAD), even\n   where the hardware does not support tagging inbound\
-    \ packets with the\n   indexes of SAD entries corresponding to the SAs that protected\
-    \ them.\n"
-- title: 2.3.1.  Race Conditions and Corner Cases
-  contents:
-  - "2.3.1.  Race Conditions and Corner Cases\n   ULPs MUST drop inbound packets and\
-    \ stop sending packets immediately\n   upon receipt of a connection latch break\
-    \ message.  Otherwise, the ULP\n   will not be able to distinguish inbound packets\
-    \ that were protected\n   consistently with the connection's latch from inbound\
-    \ packets that\n   were not.  This may include dropping inbound packets that were\n\
-    \   protected by a suitable SA; dropping such packets is no different,\n   from\
-    \ the ULP's point of view, than packet loss elsewhere on the\n   network at the\
-    \ IP layer or below -- harmless, from a security point\n   of view as the connection\
-    \ fails safe, but it can result in\n   retransmits.\n   Another race condition\
-    \ is as follows.  A PROTECTed TCP SYN packet may\n   be received and decapsulated,\
-    \ but the SA that protected it could have\n   expired before the key manager creates\
-    \ the connection latch that\n   would be created by that packet.  In this case,\
-    \ the key manager will\n   have to initiate new child SAs so as to determine what\
-    \ the sender's\n   peer ID is so it can be included in the connection latch. \
-    \ Here,\n   there is no guarantee that the peer ID for the new SAs will be the\n\
-    \   same as those of the peer that sent the TCP SYN packet.  This race\n   condition\
-    \ is harmless: TCP will send a SYN+ACK to the wrong peer,\n   which will then\
-    \ respond with a RST -- the connection latch will\n   reflect the new peer however,\
-    \ so if the new peer is malicious it will\n   not be able to appear to be the\
-    \ old peer.  Therefore, this race\n   condition is harmless.\n"
-- title: 2.3.2.  Example
-  contents:
-  - "2.3.2.  Example\n   Consider several systems with a very simple PAD containing\
-    \ a single\n   entry like so:\n                                              \
-    \ Child SA\n      Rule Remote ID                          IDs allowed  SPD Search\
-    \ by\n      ---- ---------                          -----------  -------------\n\
-    \      1   <any valid to trust anchor X> 192.0.2/24      by-IP\n             \
-    \              Figure 3: Example PAD\n   And a simple SPD like so:\n      Rule\
-    \ Local             Remote            Next  Action\n            TS           \
-    \     TS               Proto\n      ---- -----             ------            -----\
-    \ ----------------\n       1   192.0.2/24:ANY    192.0.2/24:1-5000 TCP   PROTECT(ESP,...)\n\
-    \       1   192.0.2/24:1-5000 192.0.2/24:ANY    TCP   PROTECT(ESP,...)\n     \
-    \  1   ANY         ANY         ANY   BYPASS\n                        Figure 4:\
-    \ [SG-A] SPD Table\n   Effectively this says: for TCP ports 1-5000 in our network,\
-    \ allow\n   only peers that have credentials issued by CA X and PROTECT that\n\
-    \   traffic with ESP, otherwise, bypass all other traffic.\n   Now let's consider\
-    \ two hosts, A and B, in this network that wish to\n   communicate using port\
-    \ 4000, and a third host, C, that is also in the\n   same network and wishes to\
-    \ attack A and/or B.  All three hosts have\n   credentials and certificates issued\
-    \ by CA X.  Let's also imagine that\n   A is connected to its network via a wireless\
-    \ link and is dynamically\n   addressed.\n   B is listening on port 4000.  A initiates\
-    \ a connection from port\n   32800 to B on port 4000.\n   We'll assume no IPsec\
-    \ APIs, but that TCP creates latches where\n   possible.\n   We'll consider three\
-    \ cases: a) A and B both support connection\n   latching, b) only A does, c) only\
-    \ B does.  For the purposes of this\n   example, the SAD is empty on all three\
-    \ hosts when A initiates its TCP\n   connection to B on port 4000.\n   When an\
-    \ application running on A initiates a TCP connection to B on\n   port 4000, A\
-    \ will begin by creating a connection latch.  Since the\n   SAD is empty, A will\
-    \ initiate an IKEv2 exchange to create an IKE_SA\n   with B and a pair of child\
-    \ SAs for the 5-tuple {TCP, A, 32800, B,\n   4000}, then a new latch will be created\
-    \ in ESTABLISHED state.\n   Sometime later, TCP will send a SYN packet protected\
-    \ by the A-to-B\n   child SA, per the SPD.\n   When an application running on\
-    \ B creates a TCP listener \"socket\" on\n   port 4000, B will create a LISTENER\
-    \ connection latch for the 3-tuple\n   {TCP, B, 4000}.  When B receives A's TCP\
-    \ SYN packet, it will then\n   create a connection latch for {TCP, B, 4000, A,\
-    \ 32800}.  Since, by\n   this point, child SAs have been created whose traffic\
-    \ selectors\n   encompass this 5-tuple and there are no other conflicting SAs\
-    \ in the\n   SAD, this connection latch will be created in the ESTABLISHED state.\n\
-    \   If C attempts to mount a man-in-the-middle attack on A (i.e.,\n   pretends\
-    \ to have B's address(es)) any time after A created its\n   connection latch,\
-    \ then C's SAs with A will cause the connection latch\n   to break, and the TCP\
-    \ connection to be reset (since we assume no APIs\n   by which TCP could notify\
-    \ the application of the connection latch\n   break).  If C attempts to impersonate\
-    \ A to B, then the same thing\n   will happen on B.\n   If A does not support\
-    \ connection latching, then C will be able to\n   impersonate B to A at any time.\
-    \  Without having seen the cleartext of\n   traffic between A and B, C will be\
-    \ limited by the TCP sequence\n   numbers to attacks such as RST attacks.  Similarly,\
-    \ if B does not\n   support connection latching, then C will be able to impersonate\
-    \ A to\n   B.\n"
-- title: '2.4.  Informative Model: Local Packet Tagging'
-  contents:
-  - "2.4.  Informative Model: Local Packet Tagging\n   In this section, we describe\
-    \ connection latching in terms of\n   interfaces between ULPs and IPsec based\
-    \ on tagging packets as they go\n   up and down the IP stack.\n   This section\
-    \ is INFORMATIVE.\n   In this model, the ULPs maintain connection latch objects\
-    \ and state,\n   rather than the IPsec key manager, as well as effectively caching\
-    \ a\n   subset of the decorrelated SPD in ULP TCBs.  Tagging packets, as they\n\
-    \   move up and down the stack, with SA identifiers then allows the ULPs\n   to\
-    \ enforce connection latching semantics.  These tags, of course,\n   don't appear\
-    \ on the wire.\n   The interface between the ULPs and IPsec interface is as follows:\n\
-    \   o  The IPsec layer tags all inbound protected packets addressed to\n     \
-    \ the host with the index of the SAD entry corresponding to the SA\n      that\
-    \ protected the packet.\n   o  The IPsec layer understands two types of tags on\
-    \ outbound packets:\n      *  a tag specifying a set of latched parameters (peer\
-    \ ID, quality\n         of protection, etc.) that the IPsec layer will use to\
-    \ find or\n         acquire an appropriate SA for protecting the outbound packet\n\
-    \         (else IPsec will inform the ULP and drop the packet);\n      *  a tag\
-    \ requesting feedback about the SA used to protect the\n         outgoing packet,\
-    \ if any.\n   ULPs create latched connections by interfacing with IPsec as follows:\n\
-    \   o  When the ULP passes a connection's initiating packet to IP, the\n     \
-    \ ULP requests feedback about the SA used to protect the outgoing\n      packet,\
-    \ if any, and may specify latching parameters requested by\n      the application.\
-    \  If the packet is protected by IPsec, then the\n      ULP records certain parameters\
-    \ of the SA used to protect it in the\n      connection's TCB.\n   o  When a ULP\
-    \ receives a connection's initiating packet, it processes\n      the IPsec tag\
-    \ of the packet, and it records in the connection's\n      TCB the parameters\
-    \ of the SA that should be latched.\n   Once SA parameters are recorded in a connection's\
-    \ TCB, the ULP\n   enforces the connection's latch, or binding, to these parameters\
-    \ as\n   follows:\n   o  The ULP processes the IPsec tag of all inbound packets\
-    \ for a given\n      connection and checks that the SAs used to protect input\
-    \ packets\n      match the connection latches recorded in the TCBs.  Packets that\n\
-    \      are not so protected are dropped (this corresponds to\n      transitioning\
-    \ the connection latch to the BROKEN state until the\n      next acceptable packet\
-    \ arrives, but in this model, this transition\n      is imaginary) or cause the\
-    \ ULP to break the connection latch and\n      inform the application.\n   o \
-    \ The ULP always requests that outgoing packets be protected by SAs\n      that\
-    \ match the latched connection by appropriately tagging\n      outbound packets.\n\
-    \   By effectively caching a subset of the decorrelated SPD in ULP TCBs\n   and\
-    \ through its packet tagging nature, this method of connection\n   latching can\
-    \ also optimize processing of the SPD by obviating the\n   need to search it,\
-    \ both, on input and output, for packets intended\n   for the host or originated\
-    \ by the host.  This makes implementation of\n   the OPTIONAL \"logical SPD\"\
-    \ updates described in Sections 2.3 and 3.1\n   an incidental side effect of this\
-    \ approach.\n   This model of connection latching may not be workable with ESP/AH\n\
-    \   offload hardware that does not support the packet tagging scheme\n   described\
-    \ above.\n   Note that this model has no explicit BROKEN connection latch state.\n\
-    \   Extending the ULP/IPsec packet-tagging interface to the application\n   for\
-    \ use with connection-less datagram transports should enable\n   applications\
-    \ to use such transports and implement connection latching\n   at the application\
-    \ layer.\n"
-- title: 2.5.  Non-Native Mode IPsec
-  contents:
-  - "2.5.  Non-Native Mode IPsec\n   This section is INFORMATIVE.\n   Non-native IPsec\
-    \ implementations, primarily BITS and SG, can\n   implement connection latching,\
-    \ too.  One major distinction between\n   native IPsec and BITS, bump-in-the-wire\
-    \ (BITW), or SG IPsec is the\n   lack of APIs for applications at the end-points\
-    \ in the case of the\n   latter.  As a result, there can be no uses of the latch\
-    \ management\n   interfaces as described in Section 2.3: not at the ULP end-points.\n\
-    \   Therefore, BITS/BITW/SG implementations must discern ULP connection\n   state\
-    \ from packet inspection (which many firewalls can do) and\n   emulate calls to\
-    \ the key manager accordingly.\n   When a connection latch is broken, a BITS/BITW/SG\
-    \ implementation may\n   have to fake a connection reset by sending appropriate\
-    \ packets (e.g.,\n   TCP RST packets), for the affected connections.\n   As with\
-    \ all stateful middleboxes, this scheme suffers from the\n   inability of the\
-    \ middlebox to interact with the applications.  For\n   example, connection death\
-    \ may be difficult to ascertain.  Nor can\n   channel binding applications work\
-    \ with channels maintained by proxy\n   without being able to communicate (securely)\
-    \ about it with the\n   middlebox.\n"
-- title: 2.6.  Implementation Note Regarding Peer IDs
-  contents:
-  - "2.6.  Implementation Note Regarding Peer IDs\n   One of the recommendations for\
-    \ connection latching implementors is to\n   make peer CERT payloads (certificates)\
-    \ available to the applications.\n   Additionally, raw public keys are likely\
-    \ to be used in the\n   construction of channel bindings for IPsec channels (see\
-    \ [IPSEC-CB]),\n   and they must be available, in any case, in order to implement\
-    \ leap-\n   of-faith at the application layer (see [RFC5386] and [RFC5387]).\n\
-    \   Certificates and raw public keys are large bit strings, too large to\n   be\
-    \ reasonably kept in kernel-mode implementations of connection\n   latching (which\
-    \ will likely be the typical case).  Such\n   implementations should intern peer\
-    \ IDs in a user-mode database and\n   use small integers to refer to them from\
-    \ the kernel-mode SAD and LD.\n   Corruption of such a database is akin to corruption\
-    \ of the SAD/LD; in\n   the event of corruption, the implementation MUST act as\
-    \ though all\n   ESTABLISHED and BROKEN connection latches are administratively\n\
-    \   transitioned to the CLOSED state.  Implementations without IPsec APIs\n  \
-    \ MAY hash peer IDs and use the hash to refer to them, preferably using\n   a\
-    \ strong hash algorithm.\n"
-- title: 3.  Optional Features
-  contents:
-  - "3.  Optional Features\n   At its bare minimum, connection latching is a passive\
-    \ layer atop\n   IPsec that warns ULPs of SPD and SAD changes that are incompatible\n\
-    \   with the SPD/SAD state that was applicable to a connection when it\n   was\
-    \ established.\n   There are some optional features, such as (abstract) APIs.\
-    \  Some of\n   these features make connection latching a somewhat more active\n\
-    \   feature.  Specifically, the optional logical SPD updates described in\n  \
-    \ Section 2.3 and the optional protection/bypass feature described in\n   the\
-    \ following sub-section.\n"
-- title: 3.1.  Optional Protection
-  contents:
-  - "3.1.  Optional Protection\n   Given IPsec APIs, an application could request\
-    \ that a connection's\n   packets be protected where they would otherwise be bypassed;\
-    \ that is,\n   applications could override BYPASS policy.  Locally privileged\n\
-    \   applications could request that their connections' packets be\n   bypassed\
-    \ rather than protected; that is, privileged applications\n   could override PROTECT\
-    \ policy.  We call this \"optional protection\".\n   Both native IPsec models\
-    \ of connection latching can be extended to\n   support optional protection. \
-    \ With the model described in\n   Section 2.4, optional protection comes naturally:\
-    \ the IPsec layer\n   need only check that the protection requested for outbound\
-    \ packets\n   meets or exceeds (as determined by local or system policy) the\n\
-    \   quality of protection, if any, required by the SPD.  In the case of\n   the\
-    \ model described in Section 2.3, enforcement of minimum protection\n   requirements\
-    \ would be done by the IPsec key manager via the\n   connection latch state machine.\n\
-    \   When an application requests, and local policy permits, either\n   additional\
-    \ protection or bypassing protection, then the SPD MUST be\n   logically updated\
-    \ such that there exists a suitable SPD entry\n   protecting or bypassing the\
-    \ exact 5-tuple recorded by the\n   corresponding connection latch.  Such logical\
-    \ SPD updates MUST be\n   made at connection latch creation time, and MUST be\
-    \ made atomically\n   (see the note about race conditions in Section 2.3).  Such\
-    \ updates of\n   the SPD MUST NOT survive system crashes or reboots.\n"
-- title: 4.  Simultaneous Latch Establishment
-  contents:
-  - "4.  Simultaneous Latch Establishment\n   Some connection-oriented ULPs, specifically\
-    \ TCP, support simultaneous\n   connections (where two clients connect to each\
-    \ other, using the same\n   5-tuple, at the same time).  Connection latching supports\n\
-    \   simultaneous latching as well, provided that the key exchange\n   protocol\
-    \ does not make it impossible.\n   Consider two applications doing a simultaneous\
-    \ TCP connect to each\n   other and requesting an IPsec channel.  If they request\
-    \ the same\n   connection latching parameters, then the connection and channel\n\
-    \   should be established as usual.  Even if the key exchange protocol in\n  \
-    \ use doesn't support simultaneous IKE_SA and/or child SA\n   establishment, provided\
-    \ one peer's attempt to create the necessary\n   child SAs succeeds, then the\
-    \ other peer should be able to notice the\n   new SAs immediately upon failure\
-    \ of its attempts to create the same.\n   If, however, the two peer applications\
-    \ were to request different\n   connection latching parameters, then the connection\
-    \ latch must fail\n   on one end or on both ends.\n"
-- title: 5.  Connection Latching to IPsec for Various ULPs
-  contents:
-  - "5.  Connection Latching to IPsec for Various ULPs\n   The following sub-sections\
-    \ describe connection latching for each of\n   three transport protocols.  Note\
-    \ that for TCP and UDP, there is\n   nothing in the following sections that should\
-    \ not already be obvious\n   from the remainder of this document.  The section\
-    \ on SCTP, however,\n   specifies details related to SCTP multi-homing, that may\
-    \ not be as\n   obvious.\n"
-- title: 5.1.  Connection Latching to IPsec for TCP
-  contents:
-  - "5.1.  Connection Latching to IPsec for TCP\n   IPsec connection latch creation/release\
-    \ for TCP [RFC0793] connections\n   is triggered when:\n   o  a TCP listener end-point\
-    \ is created (e.g., when the BSD Sockets\n      listen() function is called on\
-    \ a socket).  This should cause the\n      creation of a LISTENER connection latch.\n\
-    \   o  a TCP SYN packet is received on an IP address and port number for\n   \
-    \   which there is a listener.  This should cause the creation of an\n      ESTABLISHED\
-    \ or BROKEN connection latch.\n   o  a TCP SYN packet is sent (e.g., as the result\
-    \ of a call to the BSD\n      Sockets connect() function).  This should cause\
-    \ the creation of an\n      ESTABLISHED or BROKEN connection latch.\n   o  any\
-    \ state transition of a TCP connection to the CLOSED state will\n      cause a\
-    \ corresponding transition for any associated connection\n      latch to the CLOSED\
-    \ state as well.\n   See Section 5.5 for how to handle latch transitions to the\
-    \ BROKEN\n   state.\n"
-- title: 5.2.  Connection Latching to IPsec for UDP with Simulated Connections
-  contents:
-  - "5.2.  Connection Latching to IPsec for UDP with Simulated Connections\n   UDP\
-    \ [RFC0768] is a connection-less transport protocol.  However, some\n   networking\
-    \ APIs (e.g., the BSD Sockets API) allow for emulation of\n   UDP connections.\
-    \  In this case, connection latching can be supported\n   using either model given\
-    \ above.  We ignore, in this section, the fact\n   that the connection latching\
-    \ model described in Section 2.4 can\n   support per-datagram latching by extending\
-    \ its packet tagging\n   interfaces to the application.\n   IPsec connection latch\
-    \ creation/release for UDP connections is\n   triggered when:\n   o  an application\
-    \ creates a UDP \"connection\".  This should cause the\n      creation of an ESTABLISHED\
-    \ or BROKEN connection latch.\n   o  an application destroys a UDP \"connection\"\
-    .  This should cause the\n      creation of an ESTABLISHED or BROKEN connection\
-    \ latch.\n   When a connection latch transitions to the BROKEN state and the\n\
-    \   application requested (or system policy dictates it) that the\n   connection\
-    \ be broken, then UDP should inform the application, if\n   there is a way to\
-    \ do so, or else it should wait, allowing the\n   application-layer keepalive/timeout\
-    \ strategy, if any, to time out the\n   connection.\n   What constitutes an appropriate\
-    \ action in the face of administrative\n   transitions of connection latches to\
-    \ the CLOSED state depends on\n   whether the implementation's \"connected\" UDP\
-    \ sockets API provides a\n   way for the socket to return an error indicating\
-    \ that it has been\n   closed.\n"
-- title: 5.3.  Connection Latching to IPsec for UDP with Datagram-Tagging APIs
-  contents:
-  - "5.3.  Connection Latching to IPsec for UDP with Datagram-Tagging APIs\n   Implementations\
-    \ based on either model of connection latching can\n   provide applications with\
-    \ datagram-tagging APIs based on those\n   described in Section 2.4.  Implementations\
-    \ UDP with of the normative\n   model of IPsec connection latching have to confirm,\
-    \ on output, that\n   the application provided 5-tuple agrees with the application-provided\n\
-    \   connection latch; on input, UDP can derive the tag by searching for a\n  \
-    \ connection latch matching incoming datagram's 5-tuple.\n"
-- title: 5.4.  Connection Latching to IPsec for SCTP
-  contents:
-  - "5.4.  Connection Latching to IPsec for SCTP\n   SCTP [RFC4960], a connection-oriented\
-    \ protocol is similar, in some\n   ways, to TCP.  The salient difference, with\
-    \ respect to connection\n   latching, between SCTP and TCP is that SCTP allows\
-    \ each end-point to\n   be identified by a set of IP addresses, though, like TCP,\
-    \ each end-\n   point of an SCTP connection (or, rather, SCTP association) can\
-    \ only\n   have one port number.\n   We can represent the multiplicity of SCTP\
-    \ association end-point\n   addresses as a multiplicity of 5-tuples, each of which\
-    \ with its own\n   connection latch.  Alternatively, we can extend the connection\
-    \ latch\n   object to support a multiplicity of addresses for each end-point.\n\
-    \   The first approach is used throughout this document; therefore, we\n   will\
-    \ assume that representation.\n   Of course, this approach results in N x M connection\
-    \ latches for any\n   SCTP associations (where one end-point has N addresses and\
-    \ the other\n   has M); whereas the alternative requires one connection latch\
-    \ per\n   SCTP association (with N + M addresses).  Implementors may choose\n\
-    \   either approach.\n   IPsec connection latch creation/release for SCTP connections\
-    \ is\n   triggered when:\n   o  an SCTP listener end-point is created (e.g., when\
-    \ the SCTP sockets\n      listen() function is called on a socket).  This should\
-    \ cause the\n      creation of a LISTENER connection latch for each address of\
-    \ the\n      listener.\n   o  an SCTP INIT chunk is received on an IP address\
-    \ and port number\n      for which there is a listener.  This should cause the\
-    \ creation of\n      one or more ESTABLISHED or BROKEN connection latches, one\
-    \ for each\n      distinct 5-tuple given the client and server's addresses.\n\
-    \   o  an SCTP INIT chunk is sent (e.g., as the result of a call to the\n    \
-    \  SCTP sockets connect() function).  This should cause the creation\n      of\
-    \ one or more ESTABLISHED or BROKEN connection latches.\n   o  an SCTP Address\
-    \ Configuration Change Chunk (ASCONF) [RFC5061]\n      adding an end-point IP\
-    \ address is sent or received.  This should\n      cause the creation of one or\
-    \ more ESTABLISHED or BROKEN connection\n      latches.\n   o  any state transition\
-    \ of an SCTP association to the CLOSED state\n      will cause a corresponding\
-    \ transition for any associated\n      connection latches to the CLOSED state\
-    \ as well.\n   o  an SCTP ASCONF chunk [RFC5061] deleting an end-point IP address\
-    \ is\n      sent or received.  This should cause one or more associated\n    \
-    \  connection latches to be CLOSED.\n   See Section 5.5 for how to handle latch\
-    \ transitions to the BROKEN\n   state.\n"
-- title: 5.5.  Handling of BROKEN State for TCP and SCTP
-  contents:
-  - "5.5.  Handling of BROKEN State for TCP and SCTP\n   There are several ways to\
-    \ handle connection latch transitions to the\n   BROKEN state in the case of connection-oriented\
-    \ ULPs like TCP or\n   SCTP:\n   a.  Wait for a possible future transition back\
-    \ to the ESTABLISHED\n       state, until which time the ULP will not move data\
-    \ between the\n       two end-points of the connection.  ULP and application timeout\n\
-    \       mechanisms will, of course, be triggered in the event of too\n       lengthy\
-    \ a stay in the BROKEN state.  SCTP can detect these\n       timeouts and initiate\
-    \ failover, in the case of multi-homed\n       associations.\n   b.  Act as though\
-    \ the connection has been reset (RST message\n       received, in TCP, or ABORT\
-    \ message received, in SCTP).\n   c.  Act as though an ICMP destination unreachable\
-    \ message had been\n       received (in SCTP such messages can trigger path failover\
-    \ in the\n       case of multi-homed associations).\n   Implementations SHOULD\
-    \ provide APIs that allow applications either 1)\n   to be informed (asynchronously\
-    \ or otherwise) of latch breaks so that\n   they may choose a disposition, and/or\
-    \ 2) to select a specific\n   disposition a priori (before a latch break happens).\
-    \  The options for\n   disposition are wait, close, or proceed with path failover.\n\
-    \   Implementations MUST provide a default disposition in the event of a\n   connection\
-    \ latch break.  Though (a) is clearly the purist default, we\n   RECOMMEND (b)\
-    \ for TCP and SCTP associations where only a single path\n   remains (one 5-tuple),\
-    \ and (c) for multi-homed SCTP associations.\n   The rationale for this recommendation\
-    \ is as follows: a conflicting SA\n   most likely indicates that the original\
-    \ peer is gone and has been\n   replaced by another, and it's not likely that\
-    \ the original peer will\n   return; thus, failing faster seems reasonable.\n\
-    \   Note that our recommended default behavior does not create off-path\n   reset\
-    \ denial-of-service (DoS) attacks.  To break a connection latch,\n   an attacker\
-    \ would first have to successfully establish an SA, with\n   one of the connection's\
-    \ end-points, that conflicts with the\n   connection latch and that requires multiple\
-    \ messages to be exchanged\n   between that end-point and the attacker.  Unless\
-    \ the attacker's\n   chosen victim end-point allows the attacker to claim IP address\n\
-    \   ranges for its SAs, then the attacker would have to actually take\n   over\
-    \ the other end-point's addresses, which rules out off-path\n   attacks.\n"
-- title: 6.  Security Considerations
-  contents:
+  title: __initial_text__
+- contents:
+  - "Abstract\n   This document specifies, abstractly, how to interface applications\n
+    \  and transport protocols with IPsec so as to create \"channels\" by\n   latching
+    \"connections\" (packet flows) to certain IPsec Security\n   Association (SA)
+    parameters for the lifetime of the connections.\n   Connection latching is layered
+    on top of IPsec and does not modify\n   the underlying IPsec architecture.\n   Connection
+    latching can be used to protect applications against\n   accidentally exposing
+    live packet flows to unintended peers, whether\n   as the result of a reconfiguration
+    of IPsec or as the result of using\n   weak peer identity to peer address associations.
+    \ Weak association of\n   peer ID and peer addresses is at the core of Better
+    Than Nothing\n   Security (BTNS); thus, connection latching can add a significant\n
+    \  measure of protection to BTNS IPsec nodes.\n   Finally, the availability of
+    IPsec channels will make it possible to\n   use channel binding to IPsec channels.\n"
+  title: Abstract
+- contents:
+  - "Status of This Memo\n   This document specifies an Internet standards track protocol
+    for the\n   Internet community, and requests discussion and suggestions for\n
+    \  improvements.  Please refer to the current edition of the \"Internet\n   Official
+    Protocol Standards\" (STD 1) for the standardization state\n   and status of this
+    protocol.  Distribution of this memo is unlimited.\n"
+  title: Status of This Memo
+- contents:
+  - "Copyright Notice\n   Copyright (c) 2009 IETF Trust and the persons identified
+    as the\n   document authors.  All rights reserved.\n   This document is subject
+    to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n
+    \  (http://trustee.ietf.org/license-info) in effect on the date of\n   publication
+    of this document.  Please review these documents\n   carefully, as they describe
+    your rights and restrictions with respect\n   to this document.  Code Components
+    extracted from this document must\n   include Simplified BSD License text as described
+    in Section 4.e of\n   the Trust Legal Provisions and are provided without warranty
+    as\n   described in the BSD License.\n"
+  title: Copyright Notice
+- contents:
+  - "Table of Contents\n   1. Introduction ....................................................3\n
+    \     1.1. Conventions Used in This Document ..........................4\n   2.
+    Connection Latching .............................................4\n      2.1.
+    Latching of Quality-of-Protection Parameters ...............8\n      2.2. Connection
+    Latch State Machine .............................9\n      2.3. Normative Model:
+    ULP Interfaces to the Key Manager ........12\n           2.3.1. Race Conditions
+    and Corner Cases ...................17\n           2.3.2. Example ............................................18\n
+    \     2.4. Informative Model: Local Packet Tagging ...................19\n      2.5.
+    Non-Native Mode IPsec .....................................21\n      2.6. Implementation
+    Note Regarding Peer IDs ....................22\n   3. Optional Features ..............................................22\n
+    \     3.1. Optional Protection .......................................22\n   4.
+    Simultaneous Latch Establishment ...............................23\n   5. Connection
+    Latching to IPsec for Various ULPs ..................23\n      5.1. Connection
+    Latching to IPsec for TCP ......................24\n      5.2. Connection Latching
+    to IPsec for UDP with\n           Simulated Connections .....................................24\n
+    \     5.3. Connection Latching to IPsec for UDP with\n           Datagram-Tagging
+    APIs .....................................25\n      5.4. Connection Latching to
+    IPsec for SCTP .....................25\n      5.5. Handling of BROKEN State for
+    TCP and SCTP .................26\n   6. Security Considerations ........................................27\n
+    \     6.1. Impact on IPsec ...........................................27\n      6.2.
+    Impact on IPsec of Optional Features ......................28\n      6.3. Security
+    Considerations for Applications ..................28\n      6.4. Channel Binding
+    and IPsec APIs ............................29\n      6.5. Denial-of-Service Attacks
+    .................................29\n   7. Acknowledgements ...............................................30\n
+    \  8. References .....................................................30\n      8.1.
+    Normative References ......................................30\n      8.2. Informative
+    References ....................................30\n"
+  title: Table of Contents
+- contents:
+  - "1.  Introduction\n   IPsec protects packets with little or no regard for stateful
+    packet\n   flows associated with upper-layer protocols (ULPs).  This exposes\n
+    \  applications that rely on IPsec for session protection to risks\n   associated
+    with changing IPsec configurations, configurations that\n   allow multiple peers
+    access to the same addresses, and/or weak\n   association of peer IDs and their
+    addresses.  The latter can occur as\n   a result of \"wildcard\" matching in the
+    IPsec Peer Authorization\n   Database (PAD), particularly when Better Than Nothing
+    Security (BTNS)\n   [RFC5387] is used.\n   Applications that wish to use IPsec
+    may have to ensure that local\n   policy on the various end-points is configured
+    appropriately\n   [RFC5406] [USING-IPSEC].  There are no standard Application\n
+    \  Programming Interfaces (APIs) to do this (though there are non-\n   standard
+    APIs, such as [IP_SEC_OPT.man]) -- a major consequence of\n   which, for example,
+    is that applications must still use hostnames\n   (and, e.g., the Domain Name
+    System [RFC1034]) and IP addresses in\n   existing APIs and must depend on an
+    IPsec configuration that they may\n   not be able to verify.  In addition to specifying
+    aspects of required\n   Security Policy Database (SPD) configuration, application\n
+    \  specifications must also address PAD/SPD configuration to strongly\n   bind
+    individual addresses to individual IPsec identities and\n   credentials (certificates,
+    public keys, etc.).\n   IPsec is, then, quite cumbersome for use by applications.
+    \ To address\n   this, we need APIs to IPsec.  Not merely APIs for configuring
+    IPsec,\n   but also APIs that are similar to the existing IP APIs (e.g., \"BSD\n
+    \  Sockets\"), so that typical applications making use of UDP [RFC0768],\n   TCP
+    [RFC0793], and Stream Control Transmission Protocol (SCTP)\n   [RFC4960] can make
+    use of IPsec with minimal changes.\n   This document describes the foundation
+    for IPsec APIs that UDP and\n   TCP applications can use: a way to bind the traffic
+    flows for, e.g.,\n   TCP connections to security properties desired by the application.\n
+    \  We call these \"connection latches\" (and, in some contexts, \"IPsec\n   channels\").
+    \ The methods outlined below achieve this by interfacing\n   ULPs and applications
+    to IPsec.\n   If widely adopted, connection latching could make application use
+    of\n   IPsec much simpler, at least for certain classes of applications.\n   Connection
+    latching, as specified herein, is primarily about watching\n   updates to the
+    SPD and Security Association Database (SAD) to detect\n   changes that are adverse
+    to an application's requirements for any\n   given packet flow, and to react accordingly
+    (such as by synchronously\n   alerting the ULP and application before packets
+    can be sent or\n   received under the new policy).  Under no circumstance are
+    IPsec\n   policy databases to be modified by connection latching in any way\n
+    \  that can persist beyond the lifetime of the related packet flows, nor\n   reboots.
+    \ Under no circumstance is the PAD to be modified at all by\n   connection latching.
+    \ If all optional features of connection latching\n   are excluded, then connection
+    latching can be implemented as a\n   monitor of SPD and SAD changes that intrudes
+    in their workings no\n   more than is needed to provide synchronous alerts to
+    ULPs and\n   applications.\n   We assume the reader is familiar with the IPsec
+    architecture\n   [RFC4301] and Internet Key Exchange Protocol version 2 (IKEv2)\n
+    \  [RFC4306].\n   Note: the terms \"connection latch\" and \"IPsec channel\" are
+    used\n   interchangeably below.  The latter term relates to \"channel binding\"\n
+    \  [RFC5056].  Connection latching is suitable for use in channel\n   binding
+    applications, or will be, at any rate, when the channel\n   bindings for IPsec
+    channels are defined (the specification of IPsec\n   channel bindings is out of
+    scope for this document).\n   Note: where this document mentions IPsec peer \"ID\"
+    it refers to the\n   Internet Key Exchange (IKE) peer ID (e.g., the ID derived
+    from a\n   peer's cert, as well as the cert), not the peer's IP address.\n"
+  - contents:
+    - "1.1.  Conventions Used in This Document\n   The key words \"MUST\", \"MUST
+      NOT\", \"REQUIRED\", \"SHALL\", \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\",
+      \"RECOMMENDED\", \"MAY\", and \"OPTIONAL\" in this\n   document are to be interpreted
+      as described in [RFC2119].\n   Abstract function names are all capitalized and
+      denoted by a pair of\n   parentheses.  In their descriptions, the arguments
+      appear within the\n   parentheses, with optional arguments surrounded by square
+      brackets.\n   Return values, if any, are indicated by following the function\n
+      \  argument list with \"->\" and a description of the return value.  For\n   example,
+      \"FOO(3-tuple, [message])\" would be a function named \"FOO\"\n   with two arguments,
+      one of them optional, and returning nothing,\n   whereas \"FOOBAR(handle) ->
+      state\" would be a function with a single,\n   required argument that returns
+      a value.  The values' types are\n   described in the surrounding text.\n"
+    title: 1.1.  Conventions Used in This Document
+  title: 1.  Introduction
+- contents:
+  - "2.  Connection Latching\n   An \"IPsec channel\" is a packet flow associated
+    with a ULP control\n   block, such as a TCP connection, where all the packets
+    are protected\n   by IPsec SAs such that:\n   o  the peer's identity is the same
+    for the lifetime of the packet\n      flow;\n   o  the quality of IPsec protection
+    used for the packet flow's\n      individual packets is the same for all of them
+    for the lifetime of\n      the packet flow.\n   An IPsec channel is created when
+    the associated packet flow is\n   created.  This can be the result of a local
+    operation (e.g., a\n   connect()) that causes the initial outgoing packet for
+    that flow to\n   be sent, or it can be the result of receiving the first/initiating\n
+    \  packet for that flow (e.g., a TCP SYN packet).\n   An IPsec channel is destroyed
+    when the associated packet flow ends.\n   An IPsec channel can also be \"broken\"
+    when the connection latch\n   cannot be maintained for some reason (see below),
+    in which case the\n   ULP and application are informed.\n   IPsec channels are
+    created by \"latching\" various parameters listed\n   below to a ULP connection
+    when the connections are created.  The\n   REQUIRED set of parameters bound in
+    IPsec channels is:\n   o  Type of protection: confidentiality and/or integrity
+    protection;\n   o  Transport mode versus tunnel mode;\n   o  Quality of protection
+    (QoP): cryptographic algorithm suites, key\n      lengths, and replay protection
+    (see Section 2.1);\n   o  Local identity: the local ID asserted to the peer, as
+    per the\n      IPsec processing model [RFC4301] and BTNS [RFC5386];\n   o  Peer
+    identity: the peer's asserted and authorized IDs, as per the\n      IPsec processing
+    model [RFC4301] and BTNS [RFC5386].\n   The SAs that protect a given IPsec channel's
+    packets may change over\n   time in that they may expire and be replaced with
+    equivalent SAs, or\n   they may be re-keyed.  The set of SAs that protect an IPsec
+    channel's\n   packets need not be related by anything other than the fact that
+    they\n   must be congruent to the channel (i.e., the SAs' parameters must\n   match
+    those that are latched into the channel).  In particular, it is\n   desirable
+    that IPsec channels survive the expiration of IKE_SAs and\n   child SAs because
+    operational considerations of the various key\n   exchange protocols then cannot
+    affect the design and features of\n   connection latching.\n   When a situation
+    arises in which the SPD is modified, or an SA is\n   added to the SAD, such that
+    the new policy and/or SA are not\n   congruent to an established channel (see
+    previous paragraph), then we\n   consider this a conflict.  Conflict resolution
+    is addressed below.\n   Requirements and recommendations:\n   o  If an IPsec channel
+    is desired, then packets for a given\n      connection MUST NOT be sent until
+    the channel is established.\n   o  If an IPsec channel is desired, then inbound
+    packets for a given\n      connection MUST NOT be accepted until the channel is
+    established.\n      That is, inbound packets for a given connection arriving prior
+    to\n      the establishment of the corresponding IPsec channel must be\n      dropped
+    or the channel establishment must fail.\n   o  Once an IPsec channel is established,
+    packets for the latched\n      connection MUST NOT be sent unprotected nor protected
+    by an SA\n      that does not match the latched parameters.\n   o  Once an IPsec
+    channel is established, packets for the latched\n      connection MUST NOT be
+    accepted unprotected nor protected by an SA\n      that does not match the latched
+    parameters.  That is, such packets\n      must either be dropped or cause the
+    channel to be terminated and\n      the application to be informed before data
+    from such a packet can\n      be delivered to the application.\n   o  Implementations
+    SHOULD provide programming interfaces for\n      inquiring the values of the parameters
+    latched in a connection.\n   o  Implementations that provide such programming
+    interfaces MUST make\n      available to applications all relevant and available
+    information\n      about a peer's ID, including authentication information.  This\n
+    \     includes the peer certificate, when one is used, and the trust\n      anchor
+    to which it was validated (but not necessarily the whole\n      certificate validation
+    chain).\n   o  Implementations that provide such programming interfaces SHOULD\n
+    \     make available to applications any information about local and/or\n      remote
+    public and private IP addresses, in the case of NAT-\n      traversal.\n   o  Implementations
+    that provide such programming interfaces SHOULD\n      make available to applications
+    the inner and outer local and peer\n      addresses whenever the latched connection
+    uses tunnel-mode SAs.\n   o  Implementations SHOULD provide programming interfaces
+    for setting\n      the values of the parameters to be latched in a connection
+    that\n      will be initiated or accepted, but these interfaces MUST limit\n      what
+    values applications may request according to system policy\n      (i.e., the IPsec
+    PAD and SPD) and the application's local\n      privileges.\n      (Typical system
+    policy may not allow applications any choices\n      here.  Policy extensions
+    allowing for optional protection are\n      described in Section 3.1.)\n   o  Implementations
+    SHOULD create IPsec channels automatically by\n      default when the application
+    does not explicitly request an IPsec\n      channel.  Implementations MAY provide
+    a way to disable automatic\n      creation of connection latches.\n   o  The parameters
+    latched in an IPsec channel MUST remain unchanged\n      once the channel is established.\n
+    \  o  Timeouts while establishing child SAs with parameters that match\n      those
+    latched into an IPsec channel MUST be treated as packet loss\n      (as happens,
+    for example, when a network partitions); normal ULP\n      and/or application
+    timeout handling and retransmission\n      considerations apply.\n   o  Implementations
+    that have a restartable key management process (or\n      \"daemon\") MUST arrange
+    for existing latched connections to either\n      be broken and disconnected,
+    or for them to survive the restart of\n      key exchange processes.  (This is
+    implied by the above\n      requirements.)  For example, if such an implementation
+    relies on\n      keeping some aspects of connection latch state in the restartable\n
+    \     key management process (e.g., values that potentially have large\n      representations,
+    such as BTNS peer IDs), then either such state\n      must be restored on restart
+    of such a process, or outstanding\n      connection latches must be transitioned
+    to the CLOSED state.\n   o  Dynamic IPsec policy (see Section 3.1) related to
+    connection\n      latches, if any, MUST be torn down when latched connections
+    are\n      torn down, and MUST NOT survive reboots.\n   o  When IKE dead-peer
+    detection (DPD) concludes that the remote peer\n      is dead or has rebooted,
+    then the system SHOULD consider all\n      connection latches with that peer to
+    be irremediably broken.\n   We describe two models, one of them normative, of
+    IPsec channels for\n   native IPsec implementations.  The normative model is based
+    on\n   abstract programming interfaces in the form of function calls between\n
+    \  ULPs and the key management component of IPsec (basically, the SAD,\n   augmented
+    with a Latch Database (LD)).  The second model is based on\n   abstract programming
+    interfaces between ULPs and the IPsec\n   (Encapsulating Security Payload / Authentication
+    Header (ESP/AH))\n   layer in the form of meta-data tagging of packets within
+    the IP\n   stack.\n   The two models given below are not, however, entirely equivalent.\n
+    \  One model cannot be implemented with Network Interface cards (NICs)\n   that
+    offload ESP/AH but that do not tag incoming packets passed to\n   the host processor
+    with SA information, nor allow the host processor\n   to so tag outgoing packets.
+    \ That same model can be easily extended\n   to support connection latching with
+    unconnected datagram \"sockets\",\n   while the other model is rigidly tied to
+    a notion of \"connections\"\n   and cannot be so extended.  There may be other
+    minor differences\n   between the two models.  Rather than seek to establish equivalency\n
+    \  for some set of security guarantees, we instead choose one model to\n   be
+    the normative one.\n   We also provide a model for non-native implementations,
+    such as bump-\n   in-the-stack (BITS) and Security Gateway (SG) implementations.
+    \ The\n   connection latching model for non-native implementations is not full-\n
+    \  featured as it depends on estimating packet flow state, which may not\n   always
+    be possible.  Nor can non-native IPsec implementations be\n   expected to provide
+    APIs related to connection latching\n   (implementations that do could be said
+    to be native).  As such, this\n   third model is not suitable for channel binding
+    applications\n   [RFC5056].\n"
+  - contents:
+    - "2.1.  Latching of Quality-of-Protection Parameters\n   In IPsec, the assumption
+      of IKE initiator/responder roles is non-\n   deterministic.  That is, sometimes
+      an IKE SA and child SAs will be\n   initiated by the \"client\" (e.g., the caller
+      of the connect() BSD\n   sockets function) and sometimes by the \"server\" (e.g.,
+      the caller of\n   the accept() BSD Sockets function).  This means that the negotiation\n
+      \  of quality of protection is also non-deterministic unless one of the\n   peers
+      offers a single cryptographic suite in the IKE negotiation.\n   When creating
+      narrow child SAs with traffic selectors matching the\n   connection latch's
+      5-tuple, it is possible to constrain the IKE\n   Quality-of-Protection negotiation
+      to a single cryptographic suite.\n   Therefore, implementations SHOULD provide
+      an API for requesting the\n   use of such child SAs.  Implementors SHOULD consider
+      an application\n   request for a specific QoP to imply a request for narrow
+      child SAs.\n   When using SAs with traffic selectors encompassing more than
+      just a\n   single flow, then the system may only be able to latch a set of\n
+      \  cryptographic suites, rather than a single cryptographic suite.  In\n   such
+      a case, an implementation MUST report the QoP being used as\n   indeterminate.\n"
+    title: 2.1.  Latching of Quality-of-Protection Parameters
+  - contents:
+    - "2.2.  Connection Latch State Machine\n   Connection latches can exist in any
+      of the following five states:\n   o  LISTENER\n   o  ESTABLISHED\n   o  BROKEN
+      (there exist SAs that conflict with the given connection\n      latch, conflicting
+      SPD changes have been made, or DPD has been\n      triggered and the peer is
+      considered dead or restarted)\n   o  CLOSED (by the ULP, the application or
+      administratively)\n   and always have an associated owner, or holder, such as
+      a ULP\n   transmission control block (TCB).\n   A connection latch can be born
+      in the LISTENER state, which can\n   transition only to the CLOSED state.  The
+      LISTENER state corresponds\n   to LISTEN state of TCP (and other ULPs) and is
+      associated with IP\n   3-tuples, and can give rise to new connection latches
+      in the\n   ESTABLISHED state.\n   A connection latch can also be born in the
+      ESTABLISHED and BROKEN\n   states, either through the direct initiative of a
+      ULP or when an\n   event occurs that causes a LISTENER latch to create a new
+      latch (in\n   either ESTABLISHED or BROKEN states).  These states represent
+      an\n   active connection latch for a traffic flow's 5-tuple.  Connection\n   latches
+      in these two states can transition to the other of the two\n   states, as well
+      as to the CLOSED state.\n   Connection latches remain in the CLOSED state until
+      their owners are\n   informed except where the owner caused the transition,
+      in which case\n   this state is fleeting.  Transitions from ESTABLISHED or BROKEN\n
+      \  states to the CLOSED state should typically be initiated by latch\n   owners,
+      but implementations SHOULD provide administrative interfaces\n   through which
+      to close active latches.\n   Connection latches transition to the BROKEN state
+      when there exist\n   SAs in the SAD whose traffic selectors encompass the 5-tuple
+      bound by\n   the latch, and whose peer and/or parameters conflict with those
+      bound\n   by the latch.  Transitions to the BROKEN state also take place when\n
+      \  SPD changes occur that would cause the latched connection's packets\n   to
+      be sent or received with different protection parameters than\n   those that
+      were latched.  Transitions to the BROKEN state are also\n   allowed when IKEv2
+      DPD concludes that the remote peer is dead or has\n   rebooted.  Transitions
+      to the BROKEN state always cause the\n   associated owner to be informed.  Connection
+      latches in the BROKEN\n   state transition back to ESTABLISHED when all SA and/or
+      SPD conflicts\n   are cleared.\n   Most state transitions are the result of
+      local actions of the latch\n   owners (ULPs).  The only exceptions are: birth
+      into the ESTABLISHED\n   state from latches in the LISTENER state, transitions
+      to the BROKEN\n   state, transitions from the BROKEN state to ESTABLISHED, and\n
+      \  administrative transitions to the CLOSED state.  (Additionally, see\n   the
+      implementation note about restartable key management processes in\n   Section
+      2.)\n   The state diagram below makes use of conventions described in\n   Section
+      1.1 and state transition events described in Section 2.3.\n      <CREATE_LISTENER_LATCH(3-tuple,
+      ...)>\n                     :\n                     v    <CREATE_CONNECTION_LATCH(5-tuple,
+      ...)>\n                /--------\\           :   :\n         +------|LISTENER|......
+      \    :   :\n         |      \\--------/     :     :   :   +--------------------+\n
+      \        |        :            :     :   :   |Legend:             |\n         |
+      \       :            :     :   :   | dotted lines denote|\n         |  <conn.
+      trigger event>    :   :   |    latch creation  |\n         |      (e.g., TCP
+      SYN :     :   :   |                    |\n         |       received,     :     :
+      \  :   | solid lines denote |\n         |       connect()     :     :   :   |
+      \   state transition|\n         |       called, ...)  v     v   :   |                    |\n
+      \        |        :        /-----------\\ :   | semi-solid lines   |\n         |
+      \       :        |ESTABLISHED| :   |    denote async    |\n         |    <conflict>
+      \  \\-----------/ :   |    notification    |\n         |        :         ^
+      \      |    :   +--------------------+\n         |        :         |      <conflict\n
+      \        |        :    <conflict    or DPD>\n         |        :     cleared>
+      \   |    :\n         |        :         |       |    :\n         |        :
+      \        |       v    v\n         |        :      /----------------\\\n         |
+      \       :.....>|     BROKEN     |.-.-.-.-.-> <ALERT()>\n         |               \\----------------/\n
+      \        |                       |\n      <RELEASE_LATCH()>   <RELEASE_LATCH()>\n
+      \        |                       |\n         |                       v\n         |
+      \                   /------\\\n         +------------------->|CLOSED|\n                              \\------/\n
+      \               Figure 1: Connection Latching State Machine\n   The details
+      of the transitions depend on the model of connection\n   latching followed by
+      any given implementation.  See the following\n   sections.\n"
+    title: 2.2.  Connection Latch State Machine
+  - contents:
+    - "2.3.  Normative Model: ULP Interfaces to the Key Manager\n   This section describes
+      the NORMATIVE model of connection latching.\n   In this section, we describe
+      connection latching in terms of a\n   function-call interface between ULPs and
+      the \"key manager\" component\n   of a native IPsec implementation.  Abstract
+      interfaces for creating,\n   inquiring about, and releasing IPsec channels are
+      described.\n   This model adds a service to the IPsec key manager (i.e., the\n
+      \  component that manages the SAD and interfaces with separate\n   implementations
+      of, or directly implements, key exchange protocols):\n   management of connection
+      latches.  There is also a new IPsec\n   database, the Latch Database (LD), that
+      contains all connection latch\n   objects.  The LD does not persist across system
+      reboots.\n   The traditional IPsec processing model allows the concurrent\n
+      \  existence of SAs with different peers but overlapping traffic\n   selectors.
+      \ Such behavior, in this model, directly violates the\n   requirements for connection
+      latching (see Section 2).  We address\n   this problem by requiring that connection
+      latches be broken (and\n   holders informed) when such conflicts arise.\n   The
+      following INFORMATIVE figure illustrates this model and API in\n   terms that
+      are familiar to many implementors, though not applicable\n   to all:\n      +--------------------------------------------+\n
+      \     |                       +--------------+     |\n      |                       |Administrator
+      |     |\n      |                       |apps          |     |\n      |                       +--------------+
+      \    |\n      |                            ^      ^        |\n      |                            |
+      \     |        | user mode\n      |                            v      v        |\n
+      \     | +--------------+      +-------++--------+  |\n      | |App           |
+      \     |IKEv2  ||        |  |\n      | |              |      | +---+ || +----+
+      |  |\n      | |              |      | |PAD| || |SPD | |  |\n      | |              |
+      \     | +---+ || +--^-+ |  |\n      | +--------------+      +-+-----++----+---+
+      \ |\n      |   ^                     |           |      |\n      +---|---------------------|-----------|------+
+      \ user/kernel mode\n      |   |syscalls             |  PF_KEY   |      |  interface\n
+      \     |   |                     | [RFC2367] |      |\n      +---|---------------------|-----------|------+\n
+      \     |   v                     |           |      |\n      |+-------+   +------------|-----------|-----+|\n
+      \     ||ULP    |   | IPsec   key|manager    |     ||\n      |+-------+   |            |
+      \ +--------v----+||\n      | ^  ^       |            |  | Logical SPD |||\n
+      \     | |  |       |            |  +-----------^-+||\n      | |  |       |            +-------+
+      \     |  ||  kernel mode\n      | |  |       |                    |      |  ||\n
+      \     | |  |       | +----------+    +--v--+   |  ||\n      | |  +-------->|
+      Latch DB |<-->| SAD |   |  ||\n      | |          | +----------+    +--^--+
+      \  |  ||\n      | |          +--------------------|------|--+|\n      +-|-------------------------------v------v---+\n
+      \     | | IPsec Layer  (ESP/AH)                    |\n      | |                                          |\n
+      \     +-v------------------------------------------+\n      |   IP Layer                                 |\n
+      \     +--------------------------------------------+\n         Figure 2: Informative
+      Implementation Architecture Diagram\n   The ULP interfaces to the IPsec LD are
+      as follows:\n   o  CREATE_LISTENER_LATCH(3-tuple, [type and quality-of-protection\n
+      \     parameters]) -> latch handle | error\n         If there is no conflicting
+      connection latch object in the\n         LISTENER state for the given 3-tuple
+      (local address, protocol,\n         and local port number), and local policy
+      permits it, then this\n         operation atomically creates a connection latch
+      object in the\n         LISTENER state for the given 3-tuple.\n         When
+      a child SA is created that matches a listener latch's\n         3-tuple, but
+      not any ESTABLISHED connection latch's 5-tuple\n         (local address, remote
+      address, protocol, local port number,\n         and remote port number), then
+      the key manager creates a new\n         connection latch object in the ESTABLISHED
+      state.  The key\n         manager MUST inform the holder of the listener latch
+      of\n         connection latches created as a result of the listener latch;\n
+      \        see the \"ALERT()\" interface below.\n   o  CREATE_CONNECTION_LATCH(5-tuple,
+      [type and quality-of-protection\n      parameters], [peer ID], [local ID]) ->
+      latch handle | error\n         If a) the requested latch does not exist (or
+      exists, but is in\n         the CLOSED state), b) all the latch parameters are
+      provided, or\n         if suitable SAs exist in the SAD from which to derive
+      them, and\n         c) if there are no conflicts with the SPD and SAD, then
+      this\n         creates a connection latch in the ESTABLISHED state.  If the\n
+      \        latch parameters are not provided and no suitable SAs exist in\n         the
+      SAD from which to derive those parameters, then the key\n         manager MUST
+      initiate child SAs, and if need be, IKE_SA, from\n         which to derive those
+      parameters.\n         The key manager MAY delay the child SA setup and return\n
+      \        immediately after the policy check, knowing that the ULP that\n         requested
+      the latch will subsequently output a packet that will\n         trigger the
+      SA establishment.  Such an implementation may\n         require an additional,
+      fleeting state in the connection latch\n         state machine, a \"LARVAL\"
+      state, so to speak, that is not\n         described herein.\n         If the
+      connection latch ultimately cannot be established,\n         either because
+      of conflicts or because no SAs can be\n         established with the peer at
+      the destination address, then an\n         error is returned to the ULP.  (If
+      the key manager delayed SA\n         establishment, and SA establishment ultimately
+      fails, then the\n         key manager has to inform the ULP, possibly asynchronously.\n
+      \        This is one of several details that implementors who use a\n         LARVAL
+      state must take care of.)\n   o  RELEASE_LATCH(latch object handle)\n         Changes
+      the state of the given connection latch to CLOSED; the\n         connection
+      latch is then deleted.\n         The key manager MAY delete any existing child
+      SAs that match\n         the given latch if it had been in the ESTABLISHED states.
+      \ If\n         the key manager does delete such SAs, then it SHOULD inform the\n
+      \        peer with an informational Delete payload (see IKEv2\n         [RFC4306]).\n
+      \  o  FIND_LATCH(5-tuple) -> latch handle | error\n         Given a 5-tuple
+      returns a latch handle (or an error).\n   o  INQUIRE_LATCH(latch object handle)
+      -> {latch state, latched\n      parameters} | error\n         Returns all available
+      information about the given latch,\n         including its current state (or
+      an error).\n   The IPsec LD interface to the ULP is as follows:\n   o  ALERT(latch
+      object handle, 5-tuple, new state, [reason])\n         Alerts a ULP as to an
+      asynchronous state change for the given\n         connection latch and, optionally,
+      provides a reason for the\n         change.\n      This interface is to be provided
+      by each ULP to the key manager.\n      The specific details of how this interface
+      is provided are\n      implementation details, thus not specified here (for
+      example, this\n      could be a \"callback\" function or \"closure\" registered
+      as part of\n      the CREATE_LISTENER_LATCH() interface, or it could be provided\n
+      \     when the ULP is loaded onto the running system via a registration\n      interface
+      provided by the key manager).\n   Needless to say, the LD is updated whenever
+      a connection latch object\n   is created, deleted, or broken.\n   The API described
+      above is a new service of the IPsec key manager.\n   In particular, the IPsec
+      key manager MUST prevent conflicts amongst\n   latches, and it MUST prevent
+      conflicts between any latch and existing\n   or proposed child SAs as follows:\n
+      \  o  Non-listener connection latches MUST NOT be created if there exist\n      conflicting
+      SAs in the SAD at the time the connection latch is\n      requested or would
+      be created (from a listener latch).  A child SA\n      conflicts with another,
+      in view of a latch, if and only if: a) its\n      traffic selectors and the
+      conflicting SA's match the given\n      latch's, and b) its peer, type-of-protection,
+      or quality-of-\n      protection parameters differ from the conflicting SA.\n
+      \  o  Child SA proposals that would conflict with an extant connection\n      latch
+      and whose traffic selectors can be narrowed to avoid the\n      conflict SHOULD
+      be narrowed (see Section 2.9 of [RFC4306]);\n      otherwise, the latch MUST
+      be transitioned to the BROKEN state.\n   o  Where child SA proposals that would
+      conflict with an extant\n      connection latch cannot be narrowed to avoid
+      the conflict, the key\n      manager MUST break the connection latch and inform
+      the holder\n      (i.e., the ULP) prior to accepting the conflicting SAs.\n
+      \  Finally, the key manager MUST protect latched connections against SPD\n   changes
+      that would change the quality of protection afforded to a\n   latched connection's
+      traffic, or which would bypass it.  When such a\n   configuration change takes
+      place, the key manager MUST respond in\n   either of the following ways.  The
+      REQUIRED to implement behavior is\n   to transition into the BROKEN state all
+      connection latches that\n   conflict with the given SPD change.  An OPTIONAL
+      behavior is to\n   logically update the SPD as if a PROTECT entry had been added
+      at the\n   head of the SPD-S with traffic selectors matching only the latched\n
+      \  connection's 5-tuple, and with processing information taken from the\n   connection
+      latch.  Such updates of the SPD MUST NOT survive system\n   crashes or reboots.\n
+      \  ULPs create latched connections by interfacing with IPsec as follows:\n   o
+      \ For listening end-points, the ULP will request a connection latch\n      listener
+      object for the ULP listener's 3-tuple.  Any latching\n      parameters requested
+      by the application MUST be passed along.\n   o  When the ULP receives a packet
+      initiating a connection for a\n      5-tuple matching a 3-tuple listener latch,
+      then the ULP will ask\n      the key manager whether a 5-tuple connection latch
+      was created.\n      If not, then the ULP will either reject the new connection
+      or\n      accept it and inform the application that the new connection is\n
+      \     not latched.\n   o  When initiating a connection, the ULP will request
+      a connection\n      latch object for the connection's 5-tuple.  Any latching\n
+      \     parameters requested by the application MUST be passed along.  If\n      no
+      latch can be created, then the ULP MUST either return an error\n      to the
+      application or continue with the new connection and inform\n      the application
+      that the new connection is not latched.\n   o  When a connection is torn down
+      and no further packets are expected\n      for it, then the ULP MUST request
+      that the connection latch object\n      be destroyed.\n   o  When tearing down
+      a listener, the ULP MUST request that the\n      connection latch listener object
+      be destroyed.\n   o  When a ULP listener rejects connections, the ULP will request
+      the\n      destruction of any connection latch objects that may have been\n
+      \     created as a result of the peer's attempt to open the connection.\n   o
+      \ When the key manager informs a ULP that a connection latch has\n      transitioned
+      to the BROKEN state, then the ULP MUST stop sending\n      packets and MUST
+      drop all subsequent incoming packets for the\n      affected connection until
+      it transitions back to ESTABLISHED.\n      Connection-oriented ULPs SHOULD act
+      as though the connection is\n      experiencing packet loss.\n   o  When the
+      key manager informs a ULP that a connection latch has\n      been administratively
+      transitioned to the CLOSED state, then\n      connection-oriented ULPs MUST
+      act as though the connection has\n      been reset by the peer.  Implementations
+      of ULPs that are not\n      connection-oriented, and which have no API by which
+      to simulate a\n      reset, MUST drop all inbound packets for that connection
+      and MUST\n      NOT send any further packets -- the application is expected
+      to\n      detect timeouts and act accordingly.\n   The main benefit of this
+      model of connection latching is that it\n   accommodates IPsec implementations
+      where ESP/AH handling is\n   implemented in hardware (for all or a subset of
+      the host's SAD), even\n   where the hardware does not support tagging inbound
+      packets with the\n   indexes of SAD entries corresponding to the SAs that protected
+      them.\n"
+    - contents:
+      - "2.3.1.  Race Conditions and Corner Cases\n   ULPs MUST drop inbound packets
+        and stop sending packets immediately\n   upon receipt of a connection latch
+        break message.  Otherwise, the ULP\n   will not be able to distinguish inbound
+        packets that were protected\n   consistently with the connection's latch from
+        inbound packets that\n   were not.  This may include dropping inbound packets
+        that were\n   protected by a suitable SA; dropping such packets is no different,\n
+        \  from the ULP's point of view, than packet loss elsewhere on the\n   network
+        at the IP layer or below -- harmless, from a security point\n   of view as
+        the connection fails safe, but it can result in\n   retransmits.\n   Another
+        race condition is as follows.  A PROTECTed TCP SYN packet may\n   be received
+        and decapsulated, but the SA that protected it could have\n   expired before
+        the key manager creates the connection latch that\n   would be created by
+        that packet.  In this case, the key manager will\n   have to initiate new
+        child SAs so as to determine what the sender's\n   peer ID is so it can be
+        included in the connection latch.  Here,\n   there is no guarantee that the
+        peer ID for the new SAs will be the\n   same as those of the peer that sent
+        the TCP SYN packet.  This race\n   condition is harmless: TCP will send a
+        SYN+ACK to the wrong peer,\n   which will then respond with a RST -- the connection
+        latch will\n   reflect the new peer however, so if the new peer is malicious
+        it will\n   not be able to appear to be the old peer.  Therefore, this race\n
+        \  condition is harmless.\n"
+      title: 2.3.1.  Race Conditions and Corner Cases
+    - contents:
+      - "2.3.2.  Example\n   Consider several systems with a very simple PAD containing
+        a single\n   entry like so:\n                                               Child
+        SA\n      Rule Remote ID                          IDs allowed  SPD Search
+        by\n      ---- ---------                          -----------  -------------\n
+        \     1   <any valid to trust anchor X> 192.0.2/24      by-IP\n                           Figure
+        3: Example PAD\n   And a simple SPD like so:\n      Rule Local             Remote
+        \           Next  Action\n            TS                TS               Proto\n
+        \     ---- -----             ------            ----- ----------------\n       1
+        \  192.0.2/24:ANY    192.0.2/24:1-5000 TCP   PROTECT(ESP,...)\n       1   192.0.2/24:1-5000
+        192.0.2/24:ANY    TCP   PROTECT(ESP,...)\n       1   ANY         ANY         ANY
+        \  BYPASS\n                        Figure 4: [SG-A] SPD Table\n   Effectively
+        this says: for TCP ports 1-5000 in our network, allow\n   only peers that
+        have credentials issued by CA X and PROTECT that\n   traffic with ESP, otherwise,
+        bypass all other traffic.\n   Now let's consider two hosts, A and B, in this
+        network that wish to\n   communicate using port 4000, and a third host, C,
+        that is also in the\n   same network and wishes to attack A and/or B.  All
+        three hosts have\n   credentials and certificates issued by CA X.  Let's also
+        imagine that\n   A is connected to its network via a wireless link and is
+        dynamically\n   addressed.\n   B is listening on port 4000.  A initiates a
+        connection from port\n   32800 to B on port 4000.\n   We'll assume no IPsec
+        APIs, but that TCP creates latches where\n   possible.\n   We'll consider
+        three cases: a) A and B both support connection\n   latching, b) only A does,
+        c) only B does.  For the purposes of this\n   example, the SAD is empty on
+        all three hosts when A initiates its TCP\n   connection to B on port 4000.\n
+        \  When an application running on A initiates a TCP connection to B on\n   port
+        4000, A will begin by creating a connection latch.  Since the\n   SAD is empty,
+        A will initiate an IKEv2 exchange to create an IKE_SA\n   with B and a pair
+        of child SAs for the 5-tuple {TCP, A, 32800, B,\n   4000}, then a new latch
+        will be created in ESTABLISHED state.\n   Sometime later, TCP will send a
+        SYN packet protected by the A-to-B\n   child SA, per the SPD.\n   When an
+        application running on B creates a TCP listener \"socket\" on\n   port 4000,
+        B will create a LISTENER connection latch for the 3-tuple\n   {TCP, B, 4000}.
+        \ When B receives A's TCP SYN packet, it will then\n   create a connection
+        latch for {TCP, B, 4000, A, 32800}.  Since, by\n   this point, child SAs have
+        been created whose traffic selectors\n   encompass this 5-tuple and there
+        are no other conflicting SAs in the\n   SAD, this connection latch will be
+        created in the ESTABLISHED state.\n   If C attempts to mount a man-in-the-middle
+        attack on A (i.e.,\n   pretends to have B's address(es)) any time after A
+        created its\n   connection latch, then C's SAs with A will cause the connection
+        latch\n   to break, and the TCP connection to be reset (since we assume no
+        APIs\n   by which TCP could notify the application of the connection latch\n
+        \  break).  If C attempts to impersonate A to B, then the same thing\n   will
+        happen on B.\n   If A does not support connection latching, then C will be
+        able to\n   impersonate B to A at any time.  Without having seen the cleartext
+        of\n   traffic between A and B, C will be limited by the TCP sequence\n   numbers
+        to attacks such as RST attacks.  Similarly, if B does not\n   support connection
+        latching, then C will be able to impersonate A to\n   B.\n"
+      title: 2.3.2.  Example
+    title: '2.3.  Normative Model: ULP Interfaces to the Key Manager'
+  - contents:
+    - "2.4.  Informative Model: Local Packet Tagging\n   In this section, we describe
+      connection latching in terms of\n   interfaces between ULPs and IPsec based
+      on tagging packets as they go\n   up and down the IP stack.\n   This section
+      is INFORMATIVE.\n   In this model, the ULPs maintain connection latch objects
+      and state,\n   rather than the IPsec key manager, as well as effectively caching
+      a\n   subset of the decorrelated SPD in ULP TCBs.  Tagging packets, as they\n
+      \  move up and down the stack, with SA identifiers then allows the ULPs\n   to
+      enforce connection latching semantics.  These tags, of course,\n   don't appear
+      on the wire.\n   The interface between the ULPs and IPsec interface is as follows:\n
+      \  o  The IPsec layer tags all inbound protected packets addressed to\n      the
+      host with the index of the SAD entry corresponding to the SA\n      that protected
+      the packet.\n   o  The IPsec layer understands two types of tags on outbound
+      packets:\n      *  a tag specifying a set of latched parameters (peer ID, quality\n
+      \        of protection, etc.) that the IPsec layer will use to find or\n         acquire
+      an appropriate SA for protecting the outbound packet\n         (else IPsec will
+      inform the ULP and drop the packet);\n      *  a tag requesting feedback about
+      the SA used to protect the\n         outgoing packet, if any.\n   ULPs create
+      latched connections by interfacing with IPsec as follows:\n   o  When the ULP
+      passes a connection's initiating packet to IP, the\n      ULP requests feedback
+      about the SA used to protect the outgoing\n      packet, if any, and may specify
+      latching parameters requested by\n      the application.  If the packet is protected
+      by IPsec, then the\n      ULP records certain parameters of the SA used to protect
+      it in the\n      connection's TCB.\n   o  When a ULP receives a connection's
+      initiating packet, it processes\n      the IPsec tag of the packet, and it records
+      in the connection's\n      TCB the parameters of the SA that should be latched.\n
+      \  Once SA parameters are recorded in a connection's TCB, the ULP\n   enforces
+      the connection's latch, or binding, to these parameters as\n   follows:\n   o
+      \ The ULP processes the IPsec tag of all inbound packets for a given\n      connection
+      and checks that the SAs used to protect input packets\n      match the connection
+      latches recorded in the TCBs.  Packets that\n      are not so protected are
+      dropped (this corresponds to\n      transitioning the connection latch to the
+      BROKEN state until the\n      next acceptable packet arrives, but in this model,
+      this transition\n      is imaginary) or cause the ULP to break the connection
+      latch and\n      inform the application.\n   o  The ULP always requests that
+      outgoing packets be protected by SAs\n      that match the latched connection
+      by appropriately tagging\n      outbound packets.\n   By effectively caching
+      a subset of the decorrelated SPD in ULP TCBs\n   and through its packet tagging
+      nature, this method of connection\n   latching can also optimize processing
+      of the SPD by obviating the\n   need to search it, both, on input and output,
+      for packets intended\n   for the host or originated by the host.  This makes
+      implementation of\n   the OPTIONAL \"logical SPD\" updates described in Sections
+      2.3 and 3.1\n   an incidental side effect of this approach.\n   This model of
+      connection latching may not be workable with ESP/AH\n   offload hardware that
+      does not support the packet tagging scheme\n   described above.\n   Note that
+      this model has no explicit BROKEN connection latch state.\n   Extending the
+      ULP/IPsec packet-tagging interface to the application\n   for use with connection-less
+      datagram transports should enable\n   applications to use such transports and
+      implement connection latching\n   at the application layer.\n"
+    title: '2.4.  Informative Model: Local Packet Tagging'
+  - contents:
+    - "2.5.  Non-Native Mode IPsec\n   This section is INFORMATIVE.\n   Non-native
+      IPsec implementations, primarily BITS and SG, can\n   implement connection latching,
+      too.  One major distinction between\n   native IPsec and BITS, bump-in-the-wire
+      (BITW), or SG IPsec is the\n   lack of APIs for applications at the end-points
+      in the case of the\n   latter.  As a result, there can be no uses of the latch
+      management\n   interfaces as described in Section 2.3: not at the ULP end-points.\n
+      \  Therefore, BITS/BITW/SG implementations must discern ULP connection\n   state
+      from packet inspection (which many firewalls can do) and\n   emulate calls to
+      the key manager accordingly.\n   When a connection latch is broken, a BITS/BITW/SG
+      implementation may\n   have to fake a connection reset by sending appropriate
+      packets (e.g.,\n   TCP RST packets), for the affected connections.\n   As with
+      all stateful middleboxes, this scheme suffers from the\n   inability of the
+      middlebox to interact with the applications.  For\n   example, connection death
+      may be difficult to ascertain.  Nor can\n   channel binding applications work
+      with channels maintained by proxy\n   without being able to communicate (securely)
+      about it with the\n   middlebox.\n"
+    title: 2.5.  Non-Native Mode IPsec
+  - contents:
+    - "2.6.  Implementation Note Regarding Peer IDs\n   One of the recommendations
+      for connection latching implementors is to\n   make peer CERT payloads (certificates)
+      available to the applications.\n   Additionally, raw public keys are likely
+      to be used in the\n   construction of channel bindings for IPsec channels (see
+      [IPSEC-CB]),\n   and they must be available, in any case, in order to implement
+      leap-\n   of-faith at the application layer (see [RFC5386] and [RFC5387]).\n
+      \  Certificates and raw public keys are large bit strings, too large to\n   be
+      reasonably kept in kernel-mode implementations of connection\n   latching (which
+      will likely be the typical case).  Such\n   implementations should intern peer
+      IDs in a user-mode database and\n   use small integers to refer to them from
+      the kernel-mode SAD and LD.\n   Corruption of such a database is akin to corruption
+      of the SAD/LD; in\n   the event of corruption, the implementation MUST act as
+      though all\n   ESTABLISHED and BROKEN connection latches are administratively\n
+      \  transitioned to the CLOSED state.  Implementations without IPsec APIs\n   MAY
+      hash peer IDs and use the hash to refer to them, preferably using\n   a strong
+      hash algorithm.\n"
+    title: 2.6.  Implementation Note Regarding Peer IDs
+  title: 2.  Connection Latching
+- contents:
+  - "3.  Optional Features\n   At its bare minimum, connection latching is a passive
+    layer atop\n   IPsec that warns ULPs of SPD and SAD changes that are incompatible\n
+    \  with the SPD/SAD state that was applicable to a connection when it\n   was
+    established.\n   There are some optional features, such as (abstract) APIs.  Some
+    of\n   these features make connection latching a somewhat more active\n   feature.
+    \ Specifically, the optional logical SPD updates described in\n   Section 2.3
+    and the optional protection/bypass feature described in\n   the following sub-section.\n"
+  - contents:
+    - "3.1.  Optional Protection\n   Given IPsec APIs, an application could request
+      that a connection's\n   packets be protected where they would otherwise be bypassed;
+      that is,\n   applications could override BYPASS policy.  Locally privileged\n
+      \  applications could request that their connections' packets be\n   bypassed
+      rather than protected; that is, privileged applications\n   could override PROTECT
+      policy.  We call this \"optional protection\".\n   Both native IPsec models
+      of connection latching can be extended to\n   support optional protection.  With
+      the model described in\n   Section 2.4, optional protection comes naturally:
+      the IPsec layer\n   need only check that the protection requested for outbound
+      packets\n   meets or exceeds (as determined by local or system policy) the\n
+      \  quality of protection, if any, required by the SPD.  In the case of\n   the
+      model described in Section 2.3, enforcement of minimum protection\n   requirements
+      would be done by the IPsec key manager via the\n   connection latch state machine.\n
+      \  When an application requests, and local policy permits, either\n   additional
+      protection or bypassing protection, then the SPD MUST be\n   logically updated
+      such that there exists a suitable SPD entry\n   protecting or bypassing the
+      exact 5-tuple recorded by the\n   corresponding connection latch.  Such logical
+      SPD updates MUST be\n   made at connection latch creation time, and MUST be
+      made atomically\n   (see the note about race conditions in Section 2.3).  Such
+      updates of\n   the SPD MUST NOT survive system crashes or reboots.\n"
+    title: 3.1.  Optional Protection
+  title: 3.  Optional Features
+- contents:
+  - "4.  Simultaneous Latch Establishment\n   Some connection-oriented ULPs, specifically
+    TCP, support simultaneous\n   connections (where two clients connect to each other,
+    using the same\n   5-tuple, at the same time).  Connection latching supports\n
+    \  simultaneous latching as well, provided that the key exchange\n   protocol
+    does not make it impossible.\n   Consider two applications doing a simultaneous
+    TCP connect to each\n   other and requesting an IPsec channel.  If they request
+    the same\n   connection latching parameters, then the connection and channel\n
+    \  should be established as usual.  Even if the key exchange protocol in\n   use
+    doesn't support simultaneous IKE_SA and/or child SA\n   establishment, provided
+    one peer's attempt to create the necessary\n   child SAs succeeds, then the other
+    peer should be able to notice the\n   new SAs immediately upon failure of its
+    attempts to create the same.\n   If, however, the two peer applications were to
+    request different\n   connection latching parameters, then the connection latch
+    must fail\n   on one end or on both ends.\n"
+  title: 4.  Simultaneous Latch Establishment
+- contents:
+  - "5.  Connection Latching to IPsec for Various ULPs\n   The following sub-sections
+    describe connection latching for each of\n   three transport protocols.  Note
+    that for TCP and UDP, there is\n   nothing in the following sections that should
+    not already be obvious\n   from the remainder of this document.  The section on
+    SCTP, however,\n   specifies details related to SCTP multi-homing, that may not
+    be as\n   obvious.\n"
+  - contents:
+    - "5.1.  Connection Latching to IPsec for TCP\n   IPsec connection latch creation/release
+      for TCP [RFC0793] connections\n   is triggered when:\n   o  a TCP listener end-point
+      is created (e.g., when the BSD Sockets\n      listen() function is called on
+      a socket).  This should cause the\n      creation of a LISTENER connection latch.\n
+      \  o  a TCP SYN packet is received on an IP address and port number for\n      which
+      there is a listener.  This should cause the creation of an\n      ESTABLISHED
+      or BROKEN connection latch.\n   o  a TCP SYN packet is sent (e.g., as the result
+      of a call to the BSD\n      Sockets connect() function).  This should cause
+      the creation of an\n      ESTABLISHED or BROKEN connection latch.\n   o  any
+      state transition of a TCP connection to the CLOSED state will\n      cause a
+      corresponding transition for any associated connection\n      latch to the CLOSED
+      state as well.\n   See Section 5.5 for how to handle latch transitions to the
+      BROKEN\n   state.\n"
+    title: 5.1.  Connection Latching to IPsec for TCP
+  - contents:
+    - "5.2.  Connection Latching to IPsec for UDP with Simulated Connections\n   UDP
+      [RFC0768] is a connection-less transport protocol.  However, some\n   networking
+      APIs (e.g., the BSD Sockets API) allow for emulation of\n   UDP connections.
+      \ In this case, connection latching can be supported\n   using either model
+      given above.  We ignore, in this section, the fact\n   that the connection latching
+      model described in Section 2.4 can\n   support per-datagram latching by extending
+      its packet tagging\n   interfaces to the application.\n   IPsec connection latch
+      creation/release for UDP connections is\n   triggered when:\n   o  an application
+      creates a UDP \"connection\".  This should cause the\n      creation of an ESTABLISHED
+      or BROKEN connection latch.\n   o  an application destroys a UDP \"connection\".
+      \ This should cause the\n      creation of an ESTABLISHED or BROKEN connection
+      latch.\n   When a connection latch transitions to the BROKEN state and the\n
+      \  application requested (or system policy dictates it) that the\n   connection
+      be broken, then UDP should inform the application, if\n   there is a way to
+      do so, or else it should wait, allowing the\n   application-layer keepalive/timeout
+      strategy, if any, to time out the\n   connection.\n   What constitutes an appropriate
+      action in the face of administrative\n   transitions of connection latches to
+      the CLOSED state depends on\n   whether the implementation's \"connected\" UDP
+      sockets API provides a\n   way for the socket to return an error indicating
+      that it has been\n   closed.\n"
+    title: 5.2.  Connection Latching to IPsec for UDP with Simulated Connections
+  - contents:
+    - "5.3.  Connection Latching to IPsec for UDP with Datagram-Tagging APIs\n   Implementations
+      based on either model of connection latching can\n   provide applications with
+      datagram-tagging APIs based on those\n   described in Section 2.4.  Implementations
+      UDP with of the normative\n   model of IPsec connection latching have to confirm,
+      on output, that\n   the application provided 5-tuple agrees with the application-provided\n
+      \  connection latch; on input, UDP can derive the tag by searching for a\n   connection
+      latch matching incoming datagram's 5-tuple.\n"
+    title: 5.3.  Connection Latching to IPsec for UDP with Datagram-Tagging APIs
+  - contents:
+    - "5.4.  Connection Latching to IPsec for SCTP\n   SCTP [RFC4960], a connection-oriented
+      protocol is similar, in some\n   ways, to TCP.  The salient difference, with
+      respect to connection\n   latching, between SCTP and TCP is that SCTP allows
+      each end-point to\n   be identified by a set of IP addresses, though, like TCP,
+      each end-\n   point of an SCTP connection (or, rather, SCTP association) can
+      only\n   have one port number.\n   We can represent the multiplicity of SCTP
+      association end-point\n   addresses as a multiplicity of 5-tuples, each of which
+      with its own\n   connection latch.  Alternatively, we can extend the connection
+      latch\n   object to support a multiplicity of addresses for each end-point.\n
+      \  The first approach is used throughout this document; therefore, we\n   will
+      assume that representation.\n   Of course, this approach results in N x M connection
+      latches for any\n   SCTP associations (where one end-point has N addresses and
+      the other\n   has M); whereas the alternative requires one connection latch
+      per\n   SCTP association (with N + M addresses).  Implementors may choose\n
+      \  either approach.\n   IPsec connection latch creation/release for SCTP connections
+      is\n   triggered when:\n   o  an SCTP listener end-point is created (e.g., when
+      the SCTP sockets\n      listen() function is called on a socket).  This should
+      cause the\n      creation of a LISTENER connection latch for each address of
+      the\n      listener.\n   o  an SCTP INIT chunk is received on an IP address
+      and port number\n      for which there is a listener.  This should cause the
+      creation of\n      one or more ESTABLISHED or BROKEN connection latches, one
+      for each\n      distinct 5-tuple given the client and server's addresses.\n
+      \  o  an SCTP INIT chunk is sent (e.g., as the result of a call to the\n      SCTP
+      sockets connect() function).  This should cause the creation\n      of one or
+      more ESTABLISHED or BROKEN connection latches.\n   o  an SCTP Address Configuration
+      Change Chunk (ASCONF) [RFC5061]\n      adding an end-point IP address is sent
+      or received.  This should\n      cause the creation of one or more ESTABLISHED
+      or BROKEN connection\n      latches.\n   o  any state transition of an SCTP
+      association to the CLOSED state\n      will cause a corresponding transition
+      for any associated\n      connection latches to the CLOSED state as well.\n
+      \  o  an SCTP ASCONF chunk [RFC5061] deleting an end-point IP address is\n      sent
+      or received.  This should cause one or more associated\n      connection latches
+      to be CLOSED.\n   See Section 5.5 for how to handle latch transitions to the
+      BROKEN\n   state.\n"
+    title: 5.4.  Connection Latching to IPsec for SCTP
+  - contents:
+    - "5.5.  Handling of BROKEN State for TCP and SCTP\n   There are several ways
+      to handle connection latch transitions to the\n   BROKEN state in the case of
+      connection-oriented ULPs like TCP or\n   SCTP:\n   a.  Wait for a possible future
+      transition back to the ESTABLISHED\n       state, until which time the ULP will
+      not move data between the\n       two end-points of the connection.  ULP and
+      application timeout\n       mechanisms will, of course, be triggered in the
+      event of too\n       lengthy a stay in the BROKEN state.  SCTP can detect these\n
+      \      timeouts and initiate failover, in the case of multi-homed\n       associations.\n
+      \  b.  Act as though the connection has been reset (RST message\n       received,
+      in TCP, or ABORT message received, in SCTP).\n   c.  Act as though an ICMP destination
+      unreachable message had been\n       received (in SCTP such messages can trigger
+      path failover in the\n       case of multi-homed associations).\n   Implementations
+      SHOULD provide APIs that allow applications either 1)\n   to be informed (asynchronously
+      or otherwise) of latch breaks so that\n   they may choose a disposition, and/or
+      2) to select a specific\n   disposition a priori (before a latch break happens).
+      \ The options for\n   disposition are wait, close, or proceed with path failover.\n
+      \  Implementations MUST provide a default disposition in the event of a\n   connection
+      latch break.  Though (a) is clearly the purist default, we\n   RECOMMEND (b)
+      for TCP and SCTP associations where only a single path\n   remains (one 5-tuple),
+      and (c) for multi-homed SCTP associations.\n   The rationale for this recommendation
+      is as follows: a conflicting SA\n   most likely indicates that the original
+      peer is gone and has been\n   replaced by another, and it's not likely that
+      the original peer will\n   return; thus, failing faster seems reasonable.\n
+      \  Note that our recommended default behavior does not create off-path\n   reset
+      denial-of-service (DoS) attacks.  To break a connection latch,\n   an attacker
+      would first have to successfully establish an SA, with\n   one of the connection's
+      end-points, that conflicts with the\n   connection latch and that requires multiple
+      messages to be exchanged\n   between that end-point and the attacker.  Unless
+      the attacker's\n   chosen victim end-point allows the attacker to claim IP address\n
+      \  ranges for its SAs, then the attacker would have to actually take\n   over
+      the other end-point's addresses, which rules out off-path\n   attacks.\n"
+    title: 5.5.  Handling of BROKEN State for TCP and SCTP
+  title: 5.  Connection Latching to IPsec for Various ULPs
+- contents:
   - '6.  Security Considerations
 
     '
-- title: 6.1.  Impact on IPsec
-  contents:
-  - "6.1.  Impact on IPsec\n   Connection latching effectively adds a mechanism for\
-    \ dealing with the\n   existence, in the SAD, of multiple non-equivalent child\
-    \ SAs with\n   overlapping traffic selectors.  This mechanism consists of, at\n\
-    \   minimum, a local notification of transport protocols (and, through\n   them,\
-    \ applications) of the existence of such a conflict that affects\n   a transport\
-    \ layer's connections.  Affected transports are also\n   notified when the conflict\
-    \ is cleared.  The transports must drop\n   inbound packets, and must not send\
-    \ outbound packets for connections\n   that are affected by a conflict.  In this\
-    \ minimal form, connection\n   latching is a passive, local feature layered atop\
-    \ IPsec.\n   We achieve this by adding a new type of IPsec database, the Latch\n\
-    \   Database (LD), containing objects that represent a transport\n   protocol's\
-    \ interest in protecting a given packet flow from such\n   conflicts.  The LD\
-    \ is managed in conjunction with updates to the SAD\n   and the SPD, so that updates\
-    \ to either that conflict with established\n   connection latches can be detected.\
-    \  For some IPsec implementations,\n   this may imply significant changes to their\
-    \ internals.  However, two\n   different models of connection latching are given,\
-    \ and we hope that\n   most native IPsec implementors will find at least one model\
-    \ to be\n   simple enough to implement in their stack.\n   This notion of conflicting\
-    \ SAs and how to deal with the situation\n   does not modify the basic IPsec architecture\
-    \ -- the feature of IPsec\n   that allows such conflicts to arise remains, and\
-    \ it is up to the\n   transport protocols and applications to select whether and\
-    \ how to\n   respond to them.\n   There are, however, interesting corner cases\
-    \ in the normative model\n   of connection latching that implementors must be\
-    \ aware of.  The notes\n   in Section 2.3.1 are particularly relevant.\n"
-- title: 6.2.  Impact on IPsec of Optional Features
-  contents:
-  - "6.2.  Impact on IPsec of Optional Features\n   Section 3 describes optional features\
-    \ of connection latching where\n   the key manager takes on a somewhat more active,\
-    \ though still local,\n   role.  There are two such features: optional protect/bypass\
-    \ and\n   preservation of \"logical\" SPD entries to allow latched connections\
-    \ to\n   remain in the ESTABLISHED state in the face of adverse administrative\n\
-    \   SPD (but not SAD) changes.  These two features interact with\n   administrative\
-    \ interfaces to IPsec; administrators must be made aware\n   of these features,\
-    \ and they SHOULD be given a way to break\n   ESTABLISHED connection latches.\
-    \  Also, given recent trends toward\n   centralizing parts of IPsec policy, these\
-    \ two features can be said to\n   have non-local effects where they prevent distributed\
-    \ policy changes\n   from taking effect completely.\n"
-- title: 6.3.  Security Considerations for Applications
-  contents:
-  - "6.3.  Security Considerations for Applications\n   Connection latching is not\
-    \ negotiated.  It is therefore possible for\n   one end of a connection to be\
-    \ using connection latching while the\n   other does not; in which case, it's\
-    \ possible for policy changes local\n   to the non-latched end to cause packets\
-    \ to be sent unprotected.  The\n   end doing connection latching will reject unprotected\
-    \ packets, but if\n   they bear sensitive data, then the damage may already be\
-    \ done.\n   Therefore, applications SHOULD check that both ends of a connection\n\
-    \   are latched (such a check is implicit for applications that use\n   channel\
-    \ binding to IPsec).\n   Connection latching protects individual connections from\
-    \ weak peer\n   ID<->address binding, IPsec configuration changes, and from\n\
-    \   configurations that allow multiple peers to assert the same\n   addresses.\
-    \  But connection latching does not ensure that any two\n   connections with the\
-    \ same end-point addresses will have the same\n   latched peer IDs.  In other\
-    \ words, applications that use multiple\n   concurrent connections between two\
-    \ given nodes may not be protected\n   any more or less by use of IPsec connection\
-    \ latching than by use of\n   IPsec alone without connection latching.  Such multi-connection\n\
-    \   applications can, however, examine the latched SA parameters of each\n   connection\
-    \ to ensure that all concurrent connections with the same\n   end-point addresses\
-    \ also have the same end-point IPsec IDs.\n   Connection latching protects against\
-    \ TCP RST attacks.  It does not\n   help, however, if the original peer of a TCP\
-    \ connection is no longer\n   available (e.g., if an attacker has been able to\
-    \ interrupt the\n   network connection between the two peers).\n"
-- title: 6.4.  Channel Binding and IPsec APIs
-  contents:
-  - "6.4.  Channel Binding and IPsec APIs\n   IPsec channels are a prerequisite for\
-    \ channel binding [RFC5056] to\n   IPsec.  Connection latching provides such channels,\
-    \ but the channel\n   bindings for IPsec channels (latched connections) are not\
-    \ specified\n   herein -- that is a work in progress [IPSEC-CB].\n   Without IPsec\
-    \ APIs, connection latching provides marginal security\n   benefits over traditional\
-    \ IPsec.  Such APIs are not described herein;\n   see [ABSTRACT-API].\n"
-- title: 6.5.  Denial-of-Service Attacks
-  contents:
-  - "6.5.  Denial-of-Service Attacks\n   Connection latch state transitions to the\
-    \ BROKEN state can be\n   triggered by on-path attackers and any off-path attackers\
-    \ that can\n   attack routers or cause an end-point to accept an ICMP Redirect\n\
-    \   message.  Connection latching protects applications against on- and\n   off-path\
-    \ attackers in general, but not against on-path denial of\n   service specifically.\n\
-    \   Attackers can break latches if they can trigger DPD on one or both\n   end-points\
-    \ and if they cause packets to not move between two end-\n   points.  Such attacks\
-    \ generally require that the attacker be on-path;\n   therefore, we consider it\
-    \ acceptable to break latches when DPD\n   concludes that a peer is dead or rebooted.\n\
-    \   Attackers can also break latches if IPsec policy on a node allows the\n  \
-    \ attacker to use the IP address of a peer of that node.  Such\n   configurations\
-    \ are expected to be used in conjunction with BTNS in\n   general.  Such attacks\
-    \ generally require that the attacker be on-\n   path.\n"
-- title: 7.  Acknowledgements
-  contents:
-  - "7.  Acknowledgements\n   The author thanks Michael Richardson for all his help,\
-    \ as well as\n   Stephen Kent, Sam Hartman, Bill Sommerfeld, Dan McDonald, Daniel\n\
-    \   Migault, and many others who've participated in the BTNS WG or who've\n  \
-    \ answered questions about IPsec, connection latching implementations,\n   etc.\n"
-- title: 8.  References
-  contents:
+  - contents:
+    - "6.1.  Impact on IPsec\n   Connection latching effectively adds a mechanism
+      for dealing with the\n   existence, in the SAD, of multiple non-equivalent child
+      SAs with\n   overlapping traffic selectors.  This mechanism consists of, at\n
+      \  minimum, a local notification of transport protocols (and, through\n   them,
+      applications) of the existence of such a conflict that affects\n   a transport
+      layer's connections.  Affected transports are also\n   notified when the conflict
+      is cleared.  The transports must drop\n   inbound packets, and must not send
+      outbound packets for connections\n   that are affected by a conflict.  In this
+      minimal form, connection\n   latching is a passive, local feature layered atop
+      IPsec.\n   We achieve this by adding a new type of IPsec database, the Latch\n
+      \  Database (LD), containing objects that represent a transport\n   protocol's
+      interest in protecting a given packet flow from such\n   conflicts.  The LD
+      is managed in conjunction with updates to the SAD\n   and the SPD, so that updates
+      to either that conflict with established\n   connection latches can be detected.
+      \ For some IPsec implementations,\n   this may imply significant changes to
+      their internals.  However, two\n   different models of connection latching are
+      given, and we hope that\n   most native IPsec implementors will find at least
+      one model to be\n   simple enough to implement in their stack.\n   This notion
+      of conflicting SAs and how to deal with the situation\n   does not modify the
+      basic IPsec architecture -- the feature of IPsec\n   that allows such conflicts
+      to arise remains, and it is up to the\n   transport protocols and applications
+      to select whether and how to\n   respond to them.\n   There are, however, interesting
+      corner cases in the normative model\n   of connection latching that implementors
+      must be aware of.  The notes\n   in Section 2.3.1 are particularly relevant.\n"
+    title: 6.1.  Impact on IPsec
+  - contents:
+    - "6.2.  Impact on IPsec of Optional Features\n   Section 3 describes optional
+      features of connection latching where\n   the key manager takes on a somewhat
+      more active, though still local,\n   role.  There are two such features: optional
+      protect/bypass and\n   preservation of \"logical\" SPD entries to allow latched
+      connections to\n   remain in the ESTABLISHED state in the face of adverse administrative\n
+      \  SPD (but not SAD) changes.  These two features interact with\n   administrative
+      interfaces to IPsec; administrators must be made aware\n   of these features,
+      and they SHOULD be given a way to break\n   ESTABLISHED connection latches.
+      \ Also, given recent trends toward\n   centralizing parts of IPsec policy, these
+      two features can be said to\n   have non-local effects where they prevent distributed
+      policy changes\n   from taking effect completely.\n"
+    title: 6.2.  Impact on IPsec of Optional Features
+  - contents:
+    - "6.3.  Security Considerations for Applications\n   Connection latching is not
+      negotiated.  It is therefore possible for\n   one end of a connection to be
+      using connection latching while the\n   other does not; in which case, it's
+      possible for policy changes local\n   to the non-latched end to cause packets
+      to be sent unprotected.  The\n   end doing connection latching will reject unprotected
+      packets, but if\n   they bear sensitive data, then the damage may already be
+      done.\n   Therefore, applications SHOULD check that both ends of a connection\n
+      \  are latched (such a check is implicit for applications that use\n   channel
+      binding to IPsec).\n   Connection latching protects individual connections from
+      weak peer\n   ID<->address binding, IPsec configuration changes, and from\n
+      \  configurations that allow multiple peers to assert the same\n   addresses.
+      \ But connection latching does not ensure that any two\n   connections with
+      the same end-point addresses will have the same\n   latched peer IDs.  In other
+      words, applications that use multiple\n   concurrent connections between two
+      given nodes may not be protected\n   any more or less by use of IPsec connection
+      latching than by use of\n   IPsec alone without connection latching.  Such multi-connection\n
+      \  applications can, however, examine the latched SA parameters of each\n   connection
+      to ensure that all concurrent connections with the same\n   end-point addresses
+      also have the same end-point IPsec IDs.\n   Connection latching protects against
+      TCP RST attacks.  It does not\n   help, however, if the original peer of a TCP
+      connection is no longer\n   available (e.g., if an attacker has been able to
+      interrupt the\n   network connection between the two peers).\n"
+    title: 6.3.  Security Considerations for Applications
+  - contents:
+    - "6.4.  Channel Binding and IPsec APIs\n   IPsec channels are a prerequisite
+      for channel binding [RFC5056] to\n   IPsec.  Connection latching provides such
+      channels, but the channel\n   bindings for IPsec channels (latched connections)
+      are not specified\n   herein -- that is a work in progress [IPSEC-CB].\n   Without
+      IPsec APIs, connection latching provides marginal security\n   benefits over
+      traditional IPsec.  Such APIs are not described herein;\n   see [ABSTRACT-API].\n"
+    title: 6.4.  Channel Binding and IPsec APIs
+  - contents:
+    - "6.5.  Denial-of-Service Attacks\n   Connection latch state transitions to the
+      BROKEN state can be\n   triggered by on-path attackers and any off-path attackers
+      that can\n   attack routers or cause an end-point to accept an ICMP Redirect\n
+      \  message.  Connection latching protects applications against on- and\n   off-path
+      attackers in general, but not against on-path denial of\n   service specifically.\n
+      \  Attackers can break latches if they can trigger DPD on one or both\n   end-points
+      and if they cause packets to not move between two end-\n   points.  Such attacks
+      generally require that the attacker be on-path;\n   therefore, we consider it
+      acceptable to break latches when DPD\n   concludes that a peer is dead or rebooted.\n
+      \  Attackers can also break latches if IPsec policy on a node allows the\n   attacker
+      to use the IP address of a peer of that node.  Such\n   configurations are expected
+      to be used in conjunction with BTNS in\n   general.  Such attacks generally
+      require that the attacker be on-\n   path.\n"
+    title: 6.5.  Denial-of-Service Attacks
+  title: 6.  Security Considerations
+- contents:
+  - "7.  Acknowledgements\n   The author thanks Michael Richardson for all his help,
+    as well as\n   Stephen Kent, Sam Hartman, Bill Sommerfeld, Dan McDonald, Daniel\n
+    \  Migault, and many others who've participated in the BTNS WG or who've\n   answered
+    questions about IPsec, connection latching implementations,\n   etc.\n"
+  title: 7.  Acknowledgements
+- contents:
   - '8.  References
 
     '
-- title: 8.1.  Normative References
-  contents:
-  - "8.1.  Normative References\n   [RFC0768]         Postel, J., \"User Datagram\
-    \ Protocol\", STD 6,\n                     RFC 768, August 1980.\n   [RFC0793]\
-    \         Postel, J., \"Transmission Control Protocol\", STD 7,\n            \
-    \         RFC 793, September 1981.\n   [RFC2119]         Bradner, S., \"Key words\
-    \ for use in RFCs to Indicate\n                     Requirement Levels\", BCP\
-    \ 14, RFC 2119, March 1997.\n   [RFC4301]         Kent, S. and K. Seo, \"Security\
-    \ Architecture for the\n                     Internet Protocol\", RFC 4301, December\
-    \ 2005.\n   [RFC4306]         Kaufman, C., \"Internet Key Exchange (IKEv2)\n \
-    \                    Protocol\", RFC 4306, December 2005.\n   [RFC4960]      \
-    \   Stewart, R., \"Stream Control Transmission\n                     Protocol\"\
-    , RFC 4960, September 2007.\n   [RFC5061]         Stewart, R., Xie, Q., Tuexen,\
-    \ M., Maruyama, S., and\n                     M. Kozuka, \"Stream Control Transmission\
-    \ Protocol\n                     (SCTP) Dynamic Address Reconfiguration\", RFC\
-    \ 5061,\n                     September 2007.\n   [RFC5386]         Williams,\
-    \ N. and M. Richardson, \"Better-Than-\n                     Nothing Security:\
-    \ An Unauthenticated Mode of\n                     IPsec\", RFC 5386, November\
-    \ 2008.\n"
-- title: 8.2.  Informative References
-  contents:
-  - "8.2.  Informative References\n   [ABSTRACT-API]    Richardson, M., \"An abstract\
-    \ interface between\n                     applications and IPsec\", Work in Progress,\n\
-    \                     November 2008.\n   [IPSEC-CB]        Williams, N., \"End-Point\
-    \ Channel Bindings for IPsec\n                     Using IKEv2 and Public Keys\"\
-    , Work in Progress,\n                     April 2008.\n   [IP_SEC_OPT.man]  Sun\
-    \ Microsystems, Inc., \"ipsec(7P) man page,\n                     Solaris 10 Reference\
-    \ Manual Collection\".\n   [RFC1034]         Mockapetris, P., \"Domain names -\
-    \ concepts and\n                     facilities\", STD 13, RFC 1034, November\
-    \ 1987.\n   [RFC2367]         McDonald, D., Metz, C., and B. Phan, \"PF_KEY Key\n\
-    \                     Management API, Version 2\", RFC 2367, July 1998.\n   [RFC5056]\
-    \         Williams, N., \"On the Use of Channel Bindings to\n                \
-    \     Secure Channels\", RFC 5056, November 2007.\n   [RFC5387]         Touch,\
-    \ J., Black, D., and Y. Wang, \"Problem and\n                     Applicability\
-    \ Statement for Better-Than-Nothing\n                     Security (BTNS)\", RFC\
-    \ 5387, November 2008.\n   [RFC5406]         Bellovin, S., \"Guidelines for Specifying\
-    \ the Use of\n                     IPsec Version 2\", BCP 146, RFC 5406, February\
-    \ 2009.\n   [USING-IPSEC]     Dondeti, L. and V. Narayanan, \"Guidelines for using\n\
-    \                     IPsec and IKEv2\", Work in Progress, October 2006.\n"
-- title: Author's Address
-  contents:
-  - "Author's Address\n   Nicolas Williams\n   Sun Microsystems\n   5300 Riata Trace\
-    \ Ct\n   Austin, TX  78727\n   US\n   EMail: Nicolas.Williams@sun.com\n"
+  - contents:
+    - "8.1.  Normative References\n   [RFC0768]         Postel, J., \"User Datagram
+      Protocol\", STD 6,\n                     RFC 768, August 1980.\n   [RFC0793]
+      \        Postel, J., \"Transmission Control Protocol\", STD 7,\n                     RFC
+      793, September 1981.\n   [RFC2119]         Bradner, S., \"Key words for use
+      in RFCs to Indicate\n                     Requirement Levels\", BCP 14, RFC
+      2119, March 1997.\n   [RFC4301]         Kent, S. and K. Seo, \"Security Architecture
+      for the\n                     Internet Protocol\", RFC 4301, December 2005.\n
+      \  [RFC4306]         Kaufman, C., \"Internet Key Exchange (IKEv2)\n                     Protocol\",
+      RFC 4306, December 2005.\n   [RFC4960]         Stewart, R., \"Stream Control
+      Transmission\n                     Protocol\", RFC 4960, September 2007.\n   [RFC5061]
+      \        Stewart, R., Xie, Q., Tuexen, M., Maruyama, S., and\n                     M.
+      Kozuka, \"Stream Control Transmission Protocol\n                     (SCTP)
+      Dynamic Address Reconfiguration\", RFC 5061,\n                     September
+      2007.\n   [RFC5386]         Williams, N. and M. Richardson, \"Better-Than-\n
+      \                    Nothing Security: An Unauthenticated Mode of\n                     IPsec\",
+      RFC 5386, November 2008.\n"
+    title: 8.1.  Normative References
+  - contents:
+    - "8.2.  Informative References\n   [ABSTRACT-API]    Richardson, M., \"An abstract
+      interface between\n                     applications and IPsec\", Work in Progress,\n
+      \                    November 2008.\n   [IPSEC-CB]        Williams, N., \"End-Point
+      Channel Bindings for IPsec\n                     Using IKEv2 and Public Keys\",
+      Work in Progress,\n                     April 2008.\n   [IP_SEC_OPT.man]  Sun
+      Microsystems, Inc., \"ipsec(7P) man page,\n                     Solaris 10 Reference
+      Manual Collection\".\n   [RFC1034]         Mockapetris, P., \"Domain names -
+      concepts and\n                     facilities\", STD 13, RFC 1034, November
+      1987.\n   [RFC2367]         McDonald, D., Metz, C., and B. Phan, \"PF_KEY Key\n
+      \                    Management API, Version 2\", RFC 2367, July 1998.\n   [RFC5056]
+      \        Williams, N., \"On the Use of Channel Bindings to\n                     Secure
+      Channels\", RFC 5056, November 2007.\n   [RFC5387]         Touch, J., Black,
+      D., and Y. Wang, \"Problem and\n                     Applicability Statement
+      for Better-Than-Nothing\n                     Security (BTNS)\", RFC 5387, November
+      2008.\n   [RFC5406]         Bellovin, S., \"Guidelines for Specifying the Use
+      of\n                     IPsec Version 2\", BCP 146, RFC 5406, February 2009.\n
+      \  [USING-IPSEC]     Dondeti, L. and V. Narayanan, \"Guidelines for using\n
+      \                    IPsec and IKEv2\", Work in Progress, October 2006.\n"
+    title: 8.2.  Informative References
+  title: 8.  References
+- contents:
+  - "Author's Address\n   Nicolas Williams\n   Sun Microsystems\n   5300 Riata Trace
+    Ct\n   Austin, TX  78727\n   US\n   EMail: Nicolas.Williams@sun.com\n"
+  title: Author's Address

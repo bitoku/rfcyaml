@@ -1,525 +1,511 @@
-- title: __initial_text__
-  contents:
-  - "         Transparent Interconnection of Lots of Links (TRILL):\n            \
-    \   Centralized Replication for Active-Active\n        Broadcast, Unknown Unicast,\
-    \ and Multicast (BUM) Traffic\n"
-- title: Abstract
-  contents:
-  - "Abstract\n   In Transparent Interconnection of Lots of Links (TRILL) active-active\n\
-    \   access, a Reverse Path Forwarding (RPF) check failure issue may occur\n  \
-    \ when using the pseudo-nickname mechanism specified in RFC 7781.  This\n   document\
-    \ describes a solution to resolve this RPF check failure issue\n   through centralized\
-    \ replication.  All ingress Routing Bridges\n   (RBridges) send Broadcast, Unknown\
-    \ Unicast, and Multicast (BUM)\n   traffic to a centralized node with unicast\
-    \ TRILL encapsulation.  When\n   the centralized node receives the BUM traffic,\
-    \ it decapsulates the\n   packets and forwards them to their destination RBridges\
-    \ using a\n   distribution tree established per the TRILL base protocol (RFC 6325).\n\
-    \   To avoid RPF check failure on an RBridge sitting between the ingress\n   RBridge\
-    \ and the centralized replication node, some change in the RPF\n   calculation\
-    \ algorithm is required.  RPF checks on each RBridge MUST\n   be calculated as\
-    \ if the centralized node was the ingress RBridge,\n   instead of being calculated\
-    \ using the actual ingress RBridge.  This\n   document updates RFC 6325.\n"
-- title: Status of This Memo
-  contents:
-  - "Status of This Memo\n   This is an Internet Standards Track document.\n   This\
-    \ document is a product of the Internet Engineering Task Force\n   (IETF).  It\
-    \ represents the consensus of the IETF community.  It has\n   received public\
-    \ review and has been approved for publication by the\n   Internet Engineering\
-    \ Steering Group (IESG).  Further information on\n   Internet Standards is available\
-    \ in Section 2 of RFC 7841.\n   Information about the current status of this document,\
-    \ any errata,\n   and how to provide feedback on it may be obtained at\n   https://www.rfc-editor.org/info/rfc8361.\n"
-- title: Copyright Notice
-  contents:
-  - "Copyright Notice\n   Copyright (c) 2018 IETF Trust and the persons identified\
-    \ as the\n   document authors.  All rights reserved.\n   This document is subject\
-    \ to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n\
-    \   (https://trustee.ietf.org/license-info) in effect on the date of\n   publication\
-    \ of this document.  Please review these documents\n   carefully, as they describe\
-    \ your rights and restrictions with respect\n   to this document.  Code Components\
-    \ extracted from this document must\n   include Simplified BSD License text as\
-    \ described in Section 4.e of\n   the Trust Legal Provisions and are provided\
-    \ without warranty as\n   described in the Simplified BSD License.\n"
-- title: Table of Contents
-  contents:
-  - "Table of Contents\n   1. Introduction ....................................................2\n\
-    \   2. Conventions Used in This Document ...............................3\n  \
-    \ 3. Centralized Replication Solution Overview .......................4\n   4.\
-    \ Frame Duplication from Remote RBridge ...........................6\n   5. Local\
-    \ Forwarding Behavior on Ingress RBridge ....................6\n   6. Loop Prevention\
-    \ among RBridges in an Edge Group .................8\n   7. Centralized Replication\
-    \ Forwarding Process ......................9\n   8. BUM Traffic Load-Balancing\
-    \ among Multiple Centralized Nodes ....10\n   9. Coexisting with the CMT Solution\
-    \ (RFC 7783) ....................11\n   10. Network Upgrade Analysis ......................................12\n\
-    \   11. TRILL Protocol Extensions .....................................13\n  \
-    \    11.1. \"R\" and \"C\" Flag in the Nickname Flags APPsub-TLV ........13\n\
-    \   12. Security Considerations .......................................14\n  \
-    \ 13. IANA Considerations ...........................................14\n   14.\
-    \ References ....................................................15\n      14.1.\
-    \ Normative References .....................................15\n      14.2. Informative\
-    \ References ...................................16\n   Acknowledgments ...................................................17\n\
-    \   Authors' Addresses ................................................17\n"
-- title: 1.  Introduction
-  contents:
-  - "1.  Introduction\n   The IETF TRILL protocol [RFC6325] provides multipath data\
-    \ forwarding\n   that is loop free and per-hop based with minimum configuration.\n\
-    \   TRILL uses IS-IS [RFC6165] [RFC7176] as its control plane routing\n   protocol\
-    \ and defines a TRILL-specific header for user data.\n   Customer Equipment (CE)\
-    \ devices can be multihomed to a set of edge\n   RBridges forming an edge group\
-    \ where active-active service can be\n   provided.  In that case, all of the uplinks\
-    \ from a CE are handled via\n   a Local Active-Active Link Protocol (LAALP) [RFC7379]\
-    \ such as Multi-\n   Chassis Link Aggregation (MC-LAG) or Distributed Resilient\
-    \ Network\n   Interconnect (DRNI) [IEEE802.1AX].  An active-active flow-based\
-    \ load-\n   sharing mechanism can achieve better load-balancing and high\n   reliability.\
-    \  A CE device can be a Layer 3 (L3) end system by itself\n   or a bridge switch\
-    \ through which L3 end systems access the TRILL\n   campus.\n   In active-active\
-    \ access, the pseudo-nickname solution in [RFC7781]\n   can be used to avoid Media\
-    \ Access Control (MAC) flip-flop on remote\n   RBridges.  The basic idea is to\
-    \ use a virtual RBridge (RBv) with a\n   single pseudo-nickname to represent an\
-    \ edge group.  Any member\n   RBridge of that edge group uses this pseudo-nickname\
-    \ rather than its\n   own nickname as the ingress nickname when it injects TRILL\
-    \ data\n   frames to the TRILL campus.  The use of the nickname solves the\n \
-    \  address flip-flop issue by setting the nickname learned by a remote\n   RBridge\
-    \ to be the pseudo-nickname.  However, it introduces another\n   issue of incorrect\
-    \ packet dropping as follows: When a pseudo-nickname\n   is used by an edge RBridge\
-    \ as the ingress nickname to forward BUM\n   traffic, any RBridges (RBn) sitting\
-    \ between the ingress RBridge and\n   the distribution tree root will treat the\
-    \ traffic as if it were\n   ingressed from the RBv.  If the same distribution\
-    \ tree is used by\n   different edge RBridges of the same RBv, the traffic may\
-    \ arrive at\n   some RBn from different ports.  Then, the Reverse Path Forwarding\n\
-    \   (RPF) check required by TRILL [RFC6325] fails, and the BUM traffic\n   received\
-    \ on unexpected ports will be dropped by RBn.\n   This document specifies a centralized\
-    \ replication solution for BUM\n   traffic forwarding to resolve the issue of\
-    \ incorrect packet drop\n   caused by the RPF check failure in the virtual RBridge\
-    \ case.  The\n   basic idea is that all ingress RBridges send BUM traffic to a\n\
-    \   centralized node, which MUST be a distribution tree root, using\n   unicast\
-    \ TRILL encapsulation.  When the centralized node receives the\n   packets, it\
-    \ decapsulates and forwards them to their destination\n   RBridges using a distribution\
-    \ tree established as per the TRILL base\n   protocol.  This document updates\
-    \ [RFC6325]; per [RFC6325], multi-\n   destination traffic is ingressed to a multi-destination\
-    \ TRILL data\n   packet.  However, per this document, when using the centralized\n\
-    \   replication feature, multi-destination traffic is initially ingressed\n  \
-    \ to a unicast TRILL data packet.\n"
-- title: 2.  Conventions Used in This Document
-  contents:
-  - "2.  Conventions Used in This Document\n   The key words \"MUST\", \"MUST NOT\"\
-    , \"REQUIRED\", \"SHALL\", \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\"\
-    , \"NOT RECOMMENDED\", \"MAY\", and\n   \"OPTIONAL\" in this document are to be\
-    \ interpreted as described in BCP\n   14 [RFC2119] [RFC8174] when, and only when,\
-    \ they appear in all\n   capitals, as shown here.\n   The abbreviations and terminology\
-    \ in [RFC6325] are used herein with\n   the following additions:\n   BUM:    \
-    \       Broadcast, Unknown unicast, and Multicast\n   CE:            Customer\
-    \ Equipment (as in [RFC7783]), as relates to a\n                  device (end\
-    \ station or bridge).  The device can be\n                  either physical or\
-    \ virtual equipment.\n   Data Label:    VLAN or Fine-Grained Labeled (FGL) [RFC7172]\n\
-    \   DF:            Designated Forwarder [RFC7781]\n   FGL:           Fine-Grained\
-    \ Label [RFC7172]\n   LAALP:         Local Active-Active Link Protocol [RFC7379]\n\
-    \   MAC flip flop: A problem where the attachment point of a MAC address\n   \
-    \               appears to a remote switch to keep changing.  See\n          \
-    \        Section 3.3 of [RFC7379].\n   MC-LAG:        Multi-Chassis Link Aggregation\n\
-    \   RPF:           Reverse Path Forwarding\n"
-- title: 3.  Centralized Replication Solution Overview
-  contents:
-  - "3.  Centralized Replication Solution Overview\n   When an edge RBridge receives\
-    \ BUM traffic from a CE device, it uses\n   unicast TRILL encapsulation instead\
-    \ of multicast encapsulation to\n   send the packets to a centralized node.  The\
-    \ centralized node MUST be\n   a distribution tree root.  Distribution tree roots\
-    \ are normally\n   chosen to be high-capacity core RBridges with many high-bandwidth\n\
-    \   adjacencies.  This constraint makes it practical, as described below,\n  \
-    \ to support centralized replication with only software changes to\n   transit\
-    \ RBridges.\n   The TRILL header of the unicast TRILL encapsulation contains an\n\
-    \   \"ingress RBridge nickname\" field and an \"egress RBridge nickname\"\n  \
-    \ field [RFC6325].  If the ingress RBridge receives the BUM packet from\n   a\
-    \ port that is in an active-active edge group using [RFC7781], it\n   sets the\
-    \ ingress RBridge nickname to be the pseudo-nickname rather\n   than its own nickname\
-    \ to avoid MAC flip-flop (see Section 3.3 of\n   [RFC7379]) on remote RBridges.\
-    \  The egress RBridge nickname is set to\n   a special nickname of the centralized\
-    \ node that is used to\n   differentiate the centralized replication purpose unicast\
-    \ TRILL\n   encapsulation from a normal unicast TRILL encapsulation.  This\n \
-    \  special nickname is called an \"R-nickname\".\n   When the centralized RBridge\
-    \ receives a unicast TRILL-encapsulated\n   packet with its R-nickname as the\
-    \ egress nickname, it decapsulates\n   the packet.  Then, the centralized RBridge\
-    \ replicates and forwards\n   the BUM packet to the packet's destination RBridges\
-    \ using one of the\n   distribution trees established per the TRILL base protocol\
-    \ [RFC6325].\n   It MUST use a distribution tree whose tree root is the centralized\n\
-    \   RBridge itself.  (An RBridge may be the root of more than one tree.)\n   When\
-    \ the centralized RBridge forwards the BUM traffic, it simply\n   sends it on\
-    \ the distribution tree as if it were a locally ingressed\n   frame, except that\
-    \ the ingress nickname remains the same as that in\n   the packet it received\
-    \ to ensure that the MAC address learning by all\n   egress RBridges is bound\
-    \ to the pseudo-nickname.\n   When the replicated packet is forwarded by each\
-    \ RBridge along the\n   distribution tree starting from the centralized node,\
-    \ an RPF check is\n   performed per [RFC6325].  For any RBridge sitting between\
-    \ the ingress\n   RBridge and the centralized replication node, the incoming port\
-    \ of\n   such a BUM packet should be the centralized-node-facing port, as the\n\
-    \   multicast traffic always comes from the centralized node in this\n   solution.\
-    \  However, the RPF port as the result of distribution tree\n   calculation as\
-    \ specified in [RFC6325] will be the real ingress\n   RBridge-facing port, as\
-    \ it uses the edge group's virtual RBridge as\n   the ingress RBridge, so the\
-    \ RPF check will fail.\n   To solve this problem, some change in the RPF test\
-    \ is required.  In\n   this case, the RPF calculation on each RBridge should use\
-    \ the\n   centralized node as the ingress RBridge for each tree for which that\n\
-    \   node is the root instead of the real ingress virtual RBridge to\n   perform\
-    \ the calculation.  As a result, the RPF check will accept\n   traffic on the\
-    \ centralized-node-facing port of the RBridge for multi-\n   destination traffic.\
-    \  This prevents incorrect frame drops by the RPF\n   check.\n   The change in\
-    \ the actual RPF check on a received multi-destination\n   TRILL data packet is\
-    \ easy.  The RPF check from [RFC6325] is a check\n   to see if a triple of {ingress\
-    \ nickname, tree, receiving RBridge\n   port} is allowed.  (The tree is indicated\
-    \ by the nickname of its\n   root, which is stored in the TRILL Header \"egress\
-    \ nickname\" field.)\n   When determining the RPF check, if \"ingress nickname\"\
-    \ is using\n   centralized replication (indicated by a C-nickname, see Section\
-    \ 9),\n   then the check is based on distribution from the tree root.  If\n  \
-    \ \"ingress nickname\" is not using centralized replication, then the\n   check\
-    \ is based on distribution from the RBridge having the ingress\n   nickname.\n\
-    \   To differentiate the centralized replication unicast TRILL\n   encapsulation\
-    \ from normal unicast TRILL encapsulation, the R-nickname\n   is introduced for\
-    \ centralized replication.  When the centralized node\n   receives unicast TRILL\
-    \ encapsulation traffic with the egress nickname\n   R-nickname, it decapsulates\
-    \ the packet and then forwards the packet\n   to the destination RBridges through\
-    \ a distribution tree for which it\n   is the root by re-encapsulation as aforementioned.\
-    \  In TRILL,\n   RBridges can hold multiple nicknames, so the centralized RBridge\n\
-    \   simply obtains another nickname to use as the R-nickname.  The\n   centralized\
-    \ RBridge or RBridges should announce their R-nickname to\n   all TRILL campuses\
-    \ through the TRILL Link State PDU (LSP) extension\n   specified in Section 11.\n"
-- title: 4.  Frame Duplication from Remote RBridge
-  contents:
-  - "4.  Frame Duplication from Remote RBridge\n   Frame duplication may occur when\
-    \ a remote host sends a multi-\n   destination frame to a local CE that has an\
-    \ active-active connection\n   to the TRILL campus.  To avoid the local CE receiving\
-    \ multiple copies\n   from a remote RBridge, the Designated Forwarder (DF) mechanism\
-    \ is\n   supported for egress-direction multicast traffic.\n   The DF election\
-    \ mechanism [RFC7781] allows only one port of one\n   RBridge in an active-active\
-    \ group to forward multicast traffic from\n   the TRILL campus to the local access\
-    \ side for each VLAN.  The basic\n   idea of using DF is to elect one RBridge\
-    \ per VLAN from an edge group\n   to be responsible for egressing the BUM traffic.\
-    \  [RFC7781] describes\n   the DF election mechanism among member RBridges involved\
-    \ in an edge\n   group.\n   If the DF election mechanism is used for frame-duplication\n\
-    \   prevention, access ports on an RBridge are categorized as one of\n   three\
-    \ types: non-group, group DF port, and group non-DF port.  The\n   last two types\
-    \ can be called group ports.  Each of the group ports is\n   associated with a\
-    \ pseudo-nickname.  If consistent nickname allocation\n   to edge group RBridges\
-    \ is used, it is possible that the same pseudo-\n   nickname is associated with\
-    \ more than one port on a single RBridge.\n   A typical scenario is that CE1 is\
-    \ connected to RB1 and RB2 by LAALP1,\n   whereas CE2 is connected to RB1 and\
-    \ RB2 by LAALP2.  In order to\n   conserve the number of pseudo-nicknames used,\
-    \ member ports for both\n   LAALP1 and LAALP2 on RB1 and RB2 are all associated\
-    \ with the same\n   pseudo-nickname.\n"
-- title: 5.  Local Forwarding Behavior on Ingress RBridge
-  contents:
-  - "5.  Local Forwarding Behavior on Ingress RBridge\n   When an ingress RBridge\
-    \ (RB1) receives BUM traffic from a local\n   active-active connected CE (CE1)\
-    \ device, the traffic will be injected\n   into the TRILL campus with TRILL encapsulation;\
-    \ it will be replicated\n   and forwarded to all destination RBridges through\
-    \ central\n   replication, including the ingress RBridge itself, along a TRILL\n\
-    \   distribution tree.  To avoid the traffic looping back to the original\n  \
-    \ sender CE, an ingress nickname of the CE group's pseudo-nickname is\n   used\
-    \ for traffic filtering.\n   However, if there are two CEs, say CE1 and CE2, connecting\
-    \ to the\n   ingress RB1 and each associated with the same pseudo-nickname, RB1\n\
-    \   needs to locally replicate and forward to CE2, because another copy\n   of\
-    \ the BUM traffic between CE1 and CE2 through the TRILL campus will\n   be blocked\
-    \ by the traffic filtering.\n   If CE1 and CE2 are not associated with the same\
-    \ pseudo-nickname, the\n   copy of the BUM traffic between CE1 and CE2 through\
-    \ the TRILL campus\n   won't be blocked by the traffic filtering.  To avoid duplicated\n\
-    \   traffic on receiver CE, there cannot be local replicated BUM traffic\n   between\
-    \ these two CEs on ingress RB1.\n   In summary, to ensure correct BUM traffic\
-    \ forwarding behavior for\n   each CE, the local replication behavior on the ingress\
-    \ RBridge is as\n   follows:\n   1.  Replicate to the active-active group ports\
-    \ associated with the\n       same pseudo-nickname as that associated with the\
-    \ incoming port.\n   2.  Do not replicate to active-active group ports associated\
-    \ with\n       other pseudo-nicknames.\n   3.  Do not replicate to non-edge-group\
-    \ ports.\n   The above local forwarding behavior on the ingress RBridge of RB1\
-    \ can\n   be called \"centralized replication local forwarding behavior A\".\n\
-    \   If ingress RBridge RB1 itself is the centralized replication node,\n   BUM\
-    \ traffic injected by RB1 into the TRILL campus won't loop back to\n   RB1.  In\
-    \ this case, the local forwarding behavior is called\n   centralized replication\
-    \ local forwarding behavior B.  Behavior B on\n   RB1 is as follows:\n   1.  Local\
-    \ replication to the ports associated with the same pseudo-\n       nickname as\
-    \ that associated with the incoming port.\n   2.  Local replication to the group\
-    \ DF port associated with different\n       pseudo-nicknames.  Do not replicate\
-    \ to group non-DF ports\n       associated with different pseudo-nicknames.\n\
-    \   3.  Local replication to non-edge-group ports.\n"
-- title: 6.  Loop Prevention among RBridges in an Edge Group
-  contents:
-  - "6.  Loop Prevention among RBridges in an Edge Group\n   If a CE sends a BUM packet\
-    \ through a DF port to an ingress RBridge,\n   that RBridge will forward that\
-    \ packet to all or a subset of the other\n   RBridges that only have non-DF ports\
-    \ for that active-active group.\n   Because BUM traffic forwarding to non-DF ports\
-    \ isn't allowed, in this\n   case, the frame won't loop back to the CE.\n   If\
-    \ a CE sends a BUM packet through a non-DF port to an ingress\n   RBridge, say\
-    \ RB1, then RB1 will forward that packet to other RBridges\n   that have a DF\
-    \ port for that active-active group.  In this case, the\n   frame will loop back\
-    \ to the CE and the traffic split-horizon\n   filtering mechanism is used to avoid\
-    \ looping back among RBridges in\n   the edge group.\n   This split-horizon mechanism\
-    \ relies on the ingress nickname field in\n   the TRILL header to check if a packet's\
-    \ egress port belongs to the\n   same active-active group as the packet's incoming\
-    \ port to the TRILL\n   campus.\n   When the ingress RBridge receives BUM traffic\
-    \ from an active-active\n   connected CE device, the traffic will be sent through\
-    \ the TRILL\n   campus with TRILL encapsulation to a centralized RBridge.  There\
-    \ it\n   will be replicated and forwarded to its destination RBridges, which\n\
-    \   include the ingress RBridge itself, through a TRILL distribution\n   tree.\
-    \  If the same pseudo-nickname is used for two active-active\n   access CEs as\
-    \ the ingress nickname, an egress RBridge can use that\n   nickname to filter\
-    \ traffic forwarding to all local CEs.  In this\n   case, the traffic between\
-    \ these two CEs goes through the local\n   RBridge and another copy of the traffic\
-    \ from the TRILL campus is\n   filtered.  If different ingress nicknames are used\
-    \ for two connecting\n   CE devices, the access ports connecting to these two\
-    \ CEs should be\n   isolated from each other.  The BUM traffic between these two\
-    \ CEs\n   should go through the TRILL campus; otherwise, the destination CE\n\
-    \   connected to same RBridge with the sender CE will receive two copies\n   of\
-    \ the traffic.\n"
-- title: 7.  Centralized Replication Forwarding Process
-  contents:
-  - "7.  Centralized Replication Forwarding Process\n                            \
-    \ +-----------+\n                             |   (RB5)   |\n                \
-    \             +-----------+\n                                   |\n          \
-    \                   +-----------+\n                             |   (RB4)   |\n\
-    \                             +-----------+\n                              | \
-    \    |    |\n                      --------      |     --------\n            \
-    \         |              |             |\n                   +------+      +------+\
-    \      +------+\n                   |(RB1) |      |(RB2) |      | (RB3)|\n   \
-    \                +------+      +------+      +------+\n                     *\
-    \   |         *  |          * |  ^\n                     *   |         *  |  \
-    \        * |   ^\n                     *   ----------*-------------*--    ^\n\
-    \                     ***************************** |     ^\n                \
-    \     *                             |      ^\n              LAALP1 *         \
-    \             LAALP2 |       ^\n                 +------+                    +------+\
-    \    +------+\n                 |  CE1 |                    | CE2  |    | CE3\
-    \  |\n                 +------+                    +------+    +------+\n    \
-    \               Figure 1: TRILL Active-Active Access\n   Note: The asterisk line,\
-    \ hyphen & vertical bar line, and circumflex\n   line in this figure indicate\
-    \ the connection of the various CEs to the\n   various RBs.\n   Assuming the centralized\
-    \ replication solution is used in the example\n   network of above Figure 1: RB5\
-    \ is the distribution tree root and\n   centralized replication node; CE1 and\
-    \ CE2 are active-active accessed\n   to RB1, RB2, and RB3 through LAALP1 and LAALP2,\
-    \ respectively; and CE3\n   is single-homed to RB3.  The RBridge's own nicknames\
-    \ of RB1 to RB5\n   are nick1 to nick5, respectively.  RB1, RB2, and RB3 use the\
-    \ same\n   pseudo-nickname for LAALP1 and LAALP2; that pseudo-nickname is\n  \
-    \ P-nick.  The R-nickname on the centralized replication node of RB5 is\n   S-nick.\n\
-    \   The BUM traffic forwarding process from CE1 to CE2 and CE3 is as\n   follows:\n\
-    \   1.  CE1 sends BUM traffic to RB3.\n   2.  RB3 replicates and sends the BUM\
-    \ traffic to CE2 locally.  RB2\n       also sends the traffic to RB5 using unicast\
-    \ TRILL encapsulation.\n       In the TRILL Header, the ingress nickname is set\
-    \ as P-nick and\n       the egress nickname is set as S-nick.\n   3.  RB5 decapsulates\
-    \ the unicast TRILL data packet.  Then, it uses a\n       distribution tree for\
-    \ which it is the root to forward the packet\n       as a multi-destination TRILL\
-    \ data packet.  The egress nickname in\n       the multi-destination TRILL Header\
-    \ is the nick5 and the ingress\n       nickname is still P-nick.  If RB3 had sent\
-    \ the unicast to some\n       nickname that was not an R-nickname, the packet\
-    \ would not be\n       re-encapsulated.  If it is sent to an R-nickname that is\
-    \ not a\n       tree root, it either will not be forwarded at all or, if it is\n\
-    \       re-encapsulated and forwarded, will be subject to incorrect\n       pruning\
-    \ and will not be delivered to all of its intended\n       recipients.\n   4.\
-    \  RB4 receives multicast TRILL traffic from RB5.  The incoming\n       traffic\
-    \ port is the up port facing the distribution tree root.\n       RB4's RPF check\
-    \ will be correct based on the changed RPF port\n       calculation algorithm\
-    \ in this document.  After the RPF check is\n       performed, it forwards the\
-    \ traffic to all other egress RBridges\n       (RB1, RB2, and RB3).\n   5.  RB3\
-    \ receives multicast TRILL traffic from RB4.  It decapsulates\n       the multi-destination\
-    \ TRILL data packet.  Because the ingress\n       nickname of P-nick is equivalent\
-    \ to the nickname of local LAALPs\n       connecting to CE1 and CE2, RB3 doesn't\
-    \ forward the traffic to CE1\n       and CE2 to avoid a duplicated frame.  RB3\
-    \ only forwards the\n       packet to CE3.\n   6.  RB1 and RB2 receive multicast\
-    \ TRILL traffic from RB4.  The\n       forwarding process is similar to the process\
-    \ on RB3, i.e.,\n       because the ingress nickname of P-nick is equivalent to\
-    \ the\n       nickname of the local LAALPs connecting CE1 and CE2, they also\n\
-    \       don't forward the traffic to local CE1 and CE2.\n"
-- title: 8.  BUM Traffic Load-Balancing among Multiple Centralized Nodes
-  contents:
-  - "8.  BUM Traffic Load-Balancing among Multiple Centralized Nodes\n   To support\
-    \ unicast TRILL encapsulation BUM traffic load-balancing,\n   multiple centralized\
-    \ replication nodes can be deployed and the\n   traffic can be spread over these\
-    \ nodes based on data label (VLAN or\n   FGL).  Furthermore, if it was desirable\
-    \ for a centralized node to be\n   sent more of this BUM traffic, it could hold\
-    \ two or more R-nicknames.\n   The share of BUM traffic it would receive would\
-    \ be proportional to\n   the number of R-nicknames it held.\n   Assuming there\
-    \ are k different R-nicknames held by centralized nodes\n   in a TRILL campus,\
-    \ the VLAN-based (or FGL-based [RFC7172]) load-\n   balancing algorithm used by\
-    \ an ingress active-active access RBridge\n   is as follows:\n   1.  All R-nicknames\
-    \ are ordered and numbered from 0 to k-1 in\n       ascending order, treating\
-    \ the nicknames as unsigned 16-bit\n       integers.\n   2.  For data label ID\
-    \ m, choose the R-nickname whose index is given\n       by (m mod k) as egress\
-    \ nickname for BUM traffic unicast TRILL\n       encapsulation.\n   For example,\
-    \ there are three R-Nicknames (RNs).  The RNs will be\n   ordered RN0 to RN2.\
-    \  Assuming there are five VLANs from VLAN ID1 to\n   ID5 spreading among edge\
-    \ RBridges, the traffic in VLAN1 will go to\n   RN1, VLAN2 will go to RN2, and\
-    \ so on.\n   When an ingress RBridge participating in an active-active connection\n\
-    \   receives BUM traffic from a local CE, the RBridge decides which\n   R-nickname\
-    \ to send the traffic to based on the VLAN-based load-\n   spreading algorithm;\
-    \ thus, data-label-based load-balancing for the\n   BUM traffic can be achieved\
-    \ using multiple centralized nodes/multiple\n   R-nicknames.\n"
-- title: 9.  Coexisting with the CMT Solution (RFC 7783)
-  contents:
-  - "9.  Coexisting with the CMT Solution (RFC 7783)\n                    +------+\
-    \    +------+\n                    |(RB6) |    |(RB7) |\n                    +------+\
-    \    +------+\n      ------------------|-----------|----------------------\n \
-    \     |            |              |          |            |\n   +------+    +------+\
-    \       +------+    +------+     +------+\n   |(RB1) |    |(RB2) |       |(RB3)\
-    \ |    |(RB4) |     |(RB5) |\n   +------+    +------+       +------+    +------+\
-    \     +------+\n       |          |               |          |            |\n\
-    \       ------------               -------------------------\n             | \
-    \                              |\n         +------+                         +------+\n\
-    \         |  CE1 |                         |  CE2 |\n         +------+       \
-    \                  +------+\n       Figure 2: CMT and Centralized Replication\
-    \ Coexisting Scenario\n   Both the centralized replication solution and the Coordinated\n\
-    \   Multicast Trees (CMT) solution from [RFC7783] rely on using pseudo-\n   nicknames\
-    \ to avoid MAC flip-flop on remote RBridges.  These two\n   solutions can coexist\
-    \ in a single TRILL campus.  Each solution can be\n   selected by each active-active\
-    \ edge group of RBridges independently.\n   As illustrated in Figure 2, RB1 and\
-    \ RB2 use CMT for CE1's active-\n   active access; RB3, RB4, and RB5 use the centralized\
-    \ replication for\n   CE2's active-active access.\n   For the centralized replication\
-    \ solution, edge group RBridges MUST\n   announce the local pseudo-nickname using\
-    \ the Nickname Flags APPsub-\n   TLV with C flag set.  A nickname with the C flag\
-    \ set is called a\n   \"C-nickname\".  A transit RBridge will perform the centralized\n\
-    \   replication-specific RPF check algorithm if it receives TRILL data\n   packets\
-    \ with a C-nickname as the ingress nickname.\n   An edge group using CMT [RFC7783]\
-    \ MUST NOT set the C flag on the\n   pseudo-nickname it is using.  This is already\
-    \ mandatory behavior\n   because any RBridge originating a Nickname Flags APPsub-TLV\
-    \ is\n   required by [RFC7780] to set any flag bit it does not know about to\n\
-    \   zero.  If an edge RBridge using CMT [RFC7783] nevertheless set the\n   C-bit\
-    \ for an edge group pseudo-nickname, it is very likely that BUM\n   traffic encapsulated\
-    \ with that nickname as ingress would be\n   incorrectly pruned early in its distribution\
-    \ and would, thus, reach\n   few (possibly none) of its intended targets.  To\
-    \ avoid confusion, a\n   pseudo-nickname MUST NOT be shared between a centralized\
-    \ replication\n   edge group and a CMT-based edge group.\n"
-- title: 10.  Network Upgrade Analysis
-  contents:
-  - "10.  Network Upgrade Analysis\n   Centralized nodes will typically need software\
-    \ and hardware upgrades\n   to support centralized replication, which stitches\
-    \ together the TRILL\n   unicast traffic decapsulation process and the process\
-    \ of normal TRILL\n   multicast traffic forwarding along the distribution tree.\n\
-    \   Active-active connection edge RBridges will typically need software\n   and\
-    \ hardware upgrades to support unicast TRILL encapsulation for BUM\n   traffic;\
-    \ the process is similar to other head-end replication\n   processes.\n   Transit\
-    \ nodes typically need only a software upgrade to support the\n   changed RPF\
-    \ port calculation algorithm.\n"
-- title: 11.  TRILL Protocol Extensions
-  contents:
-  - "11.  TRILL Protocol Extensions\n   Two new flags, \"R\" and \"C\", are specified\
-    \ in the Nickname Flags\n   APPsub-TLV [RFC7780].  A nickname with the R flag\
-    \ set is called an\n   \"R-nickname\" and a nickname with the C flag set is called\
-    \ a\n   \"C-nickname\".  The R-nickname is a specialized nickname attached to\
-    \ a\n   centralized node to differentiate unicast TRILL-encapsulated BUM\n   traffic\
-    \ from normal unicast TRILL traffic.  The C-nickname flag is\n   set on the pseudo-nickname\
-    \ for each edge group that uses the\n   centralized replication.  A C-nickname\
-    \ is a specialized pseudo-\n   nickname for which transit RBridges perform a different\
-    \ RPF check\n   algorithm for TRILL data packets with the C-nickname in the ingress\n\
-    \   nickname field.\n   When active-active edge RBridges use centralized replication\
-    \ to\n   forward BUM traffic, the R-nickname is used as the egress nickname\n\
-    \   and the C-nickname is used as ingress nickname in the TRILL header\n   for\
-    \ the unicast TRILL encapsulation of BUM traffic.\n"
-- title: 11.1.  "R" and "C" Flag in the Nickname Flags APPsub-TLV
-  contents:
-  - "11.1.  \"R\" and \"C\" Flag in the Nickname Flags APPsub-TLV\n   If this APPsub-TLV\
-    \ is being advertised by an RBridge that does not\n   have the nickname appearing\
-    \ in the Nickname Flags APPsub-TLV, the R\n   and C flag bits in the APPsub-TLV\
-    \ MUST be treated as if they were\n   zero.  If an RBridge that is not a distribution\
-    \ tree root advertises\n   an R-nickname, that nickname MUST NOT be treated as\
-    \ an R-nickname but\n   rather as an ordinary nickname; that is, the R-nickname\
-    \ flag is\n   ignored for all purposes if the nickname is held by an RBridge that\n\
-    \   is not a tree root.\n              0  1  2  3  4  5  6  7  8  9 10 11 12 13\
-    \ 14 15\n             +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+\n    \
-    \         |   Nickname                                    |\n             +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+\n\
-    \             |IN|SE|R | C|    RESV                           |\n            \
-    \ +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+\n                        \
-    \     NICKFLAG RECORD\n   o  R = If the R flag is one, it indicates that the advertising\
-    \ TRILL\n      switch holding Nickname is a centralized replication node, and\n\
-    \      Nickname is used as egress nickname for edge group RBridges to\n      inject\
-    \ BUM traffic into the TRILL campus when the edge group\n      RBridges use this\
-    \ centralized replication solution for active-\n      active access.  If the R\
-    \ flag is zero, that nickname will not be\n      used for that purpose.\n   o\
-    \  C = If C flag is one, it indicates that the TRILL traffic with\n      this\
-    \ nickname as an ingress nickname requires the special RPF\n      check algorithm\
-    \ specified in Section 3.  If the C flag is zero,\n      that nickname will not\
-    \ be used for that purpose.\n   Due to errors or due to transient inconsistent\
-    \ LSPs when the link\n   state database is converging after a configuration change\
-    \ or the\n   like, it is possible for there to be inconsistent Nickname Flags\n\
-    \   APPsub-TLVs for the same nickname.  In this case, it is RECOMMENDED\n   that\
-    \ the nickname be treated as if the R / C flag were set if any\n   Nickname Flags\
-    \ APPsub-TLV for that nickname has the R / C flag set.\n"
-- title: 12.  Security Considerations
-  contents:
-  - "12.  Security Considerations\n   This document does not introduce any extra security\
-    \ risks.  A rogue\n   RBridge that is a tree root can attract traffic by advertising\
-    \ an\n   R-nickname.  However, this does not represent a substantial increase\n\
-    \   in risk as RBridges could cause problems in a number of other ways by\n  \
-    \ advertising low-cost adjacencies or making themselves the highest\n   priority\
-    \ tree root or the like.  In general, the protection against\n   an untrusted\
-    \ device acting as an RBridge and wrecking havoc is to use\n   IS-IS authentication\
-    \ [RFC5310] and configure and administer the TRILL\n   campus so that only trusted\
-    \ RBridges have the authentication key.\n   For general TRILL security considerations,\
-    \ see [RFC6325].  For\n   security considerations related to pseudo-nickname active-active,\
-    \ see\n   [RFC7781].\n"
-- title: 13.  IANA Considerations
-  contents:
-  - "13.  IANA Considerations\n   IANA has assigned two bits in the Nickname Flags\
-    \ APPsubTLV flags for\n   the R and C bits discussed in Section 11.1 and update\
-    \ the \"NickFlags\n   Bits\" subregistry of the \"Transparent Interconnection\
-    \ of Lots of\n   Links (TRILL) Parameters\" registry as follows:\n           \
-    \   Bit  Mnemonic   Description          Reference\n             ---  --------\
-    \  --------------------  -----------\n               2    R        Replication\
-    \ Nickname  [RFC8361]\n               3    C        Special RPF Check     [RFC8361]\n"
-- title: 14.  References
-  contents:
+- contents:
+  - "         Transparent Interconnection of Lots of Links (TRILL):\n               Centralized
+    Replication for Active-Active\n        Broadcast, Unknown Unicast, and Multicast
+    (BUM) Traffic\n"
+  title: __initial_text__
+- contents:
+  - "Abstract\n   In Transparent Interconnection of Lots of Links (TRILL) active-active\n
+    \  access, a Reverse Path Forwarding (RPF) check failure issue may occur\n   when
+    using the pseudo-nickname mechanism specified in RFC 7781.  This\n   document
+    describes a solution to resolve this RPF check failure issue\n   through centralized
+    replication.  All ingress Routing Bridges\n   (RBridges) send Broadcast, Unknown
+    Unicast, and Multicast (BUM)\n   traffic to a centralized node with unicast TRILL
+    encapsulation.  When\n   the centralized node receives the BUM traffic, it decapsulates
+    the\n   packets and forwards them to their destination RBridges using a\n   distribution
+    tree established per the TRILL base protocol (RFC 6325).\n   To avoid RPF check
+    failure on an RBridge sitting between the ingress\n   RBridge and the centralized
+    replication node, some change in the RPF\n   calculation algorithm is required.
+    \ RPF checks on each RBridge MUST\n   be calculated as if the centralized node
+    was the ingress RBridge,\n   instead of being calculated using the actual ingress
+    RBridge.  This\n   document updates RFC 6325.\n"
+  title: Abstract
+- contents:
+  - "Status of This Memo\n   This is an Internet Standards Track document.\n   This
+    document is a product of the Internet Engineering Task Force\n   (IETF).  It represents
+    the consensus of the IETF community.  It has\n   received public review and has
+    been approved for publication by the\n   Internet Engineering Steering Group (IESG).
+    \ Further information on\n   Internet Standards is available in Section 2 of RFC
+    7841.\n   Information about the current status of this document, any errata,\n
+    \  and how to provide feedback on it may be obtained at\n   https://www.rfc-editor.org/info/rfc8361.\n"
+  title: Status of This Memo
+- contents:
+  - "Copyright Notice\n   Copyright (c) 2018 IETF Trust and the persons identified
+    as the\n   document authors.  All rights reserved.\n   This document is subject
+    to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n
+    \  (https://trustee.ietf.org/license-info) in effect on the date of\n   publication
+    of this document.  Please review these documents\n   carefully, as they describe
+    your rights and restrictions with respect\n   to this document.  Code Components
+    extracted from this document must\n   include Simplified BSD License text as described
+    in Section 4.e of\n   the Trust Legal Provisions and are provided without warranty
+    as\n   described in the Simplified BSD License.\n"
+  title: Copyright Notice
+- contents:
+  - "Table of Contents\n   1. Introduction ....................................................2\n
+    \  2. Conventions Used in This Document ...............................3\n   3.
+    Centralized Replication Solution Overview .......................4\n   4. Frame
+    Duplication from Remote RBridge ...........................6\n   5. Local Forwarding
+    Behavior on Ingress RBridge ....................6\n   6. Loop Prevention among
+    RBridges in an Edge Group .................8\n   7. Centralized Replication Forwarding
+    Process ......................9\n   8. BUM Traffic Load-Balancing among Multiple
+    Centralized Nodes ....10\n   9. Coexisting with the CMT Solution (RFC 7783) ....................11\n
+    \  10. Network Upgrade Analysis ......................................12\n   11.
+    TRILL Protocol Extensions .....................................13\n      11.1.
+    \"R\" and \"C\" Flag in the Nickname Flags APPsub-TLV ........13\n   12. Security
+    Considerations .......................................14\n   13. IANA Considerations
+    ...........................................14\n   14. References ....................................................15\n
+    \     14.1. Normative References .....................................15\n      14.2.
+    Informative References ...................................16\n   Acknowledgments
+    ...................................................17\n   Authors' Addresses ................................................17\n"
+  title: Table of Contents
+- contents:
+  - "1.  Introduction\n   The IETF TRILL protocol [RFC6325] provides multipath data
+    forwarding\n   that is loop free and per-hop based with minimum configuration.\n
+    \  TRILL uses IS-IS [RFC6165] [RFC7176] as its control plane routing\n   protocol
+    and defines a TRILL-specific header for user data.\n   Customer Equipment (CE)
+    devices can be multihomed to a set of edge\n   RBridges forming an edge group
+    where active-active service can be\n   provided.  In that case, all of the uplinks
+    from a CE are handled via\n   a Local Active-Active Link Protocol (LAALP) [RFC7379]
+    such as Multi-\n   Chassis Link Aggregation (MC-LAG) or Distributed Resilient
+    Network\n   Interconnect (DRNI) [IEEE802.1AX].  An active-active flow-based load-\n
+    \  sharing mechanism can achieve better load-balancing and high\n   reliability.
+    \ A CE device can be a Layer 3 (L3) end system by itself\n   or a bridge switch
+    through which L3 end systems access the TRILL\n   campus.\n   In active-active
+    access, the pseudo-nickname solution in [RFC7781]\n   can be used to avoid Media
+    Access Control (MAC) flip-flop on remote\n   RBridges.  The basic idea is to use
+    a virtual RBridge (RBv) with a\n   single pseudo-nickname to represent an edge
+    group.  Any member\n   RBridge of that edge group uses this pseudo-nickname rather
+    than its\n   own nickname as the ingress nickname when it injects TRILL data\n
+    \  frames to the TRILL campus.  The use of the nickname solves the\n   address
+    flip-flop issue by setting the nickname learned by a remote\n   RBridge to be
+    the pseudo-nickname.  However, it introduces another\n   issue of incorrect packet
+    dropping as follows: When a pseudo-nickname\n   is used by an edge RBridge as
+    the ingress nickname to forward BUM\n   traffic, any RBridges (RBn) sitting between
+    the ingress RBridge and\n   the distribution tree root will treat the traffic
+    as if it were\n   ingressed from the RBv.  If the same distribution tree is used
+    by\n   different edge RBridges of the same RBv, the traffic may arrive at\n   some
+    RBn from different ports.  Then, the Reverse Path Forwarding\n   (RPF) check required
+    by TRILL [RFC6325] fails, and the BUM traffic\n   received on unexpected ports
+    will be dropped by RBn.\n   This document specifies a centralized replication
+    solution for BUM\n   traffic forwarding to resolve the issue of incorrect packet
+    drop\n   caused by the RPF check failure in the virtual RBridge case.  The\n   basic
+    idea is that all ingress RBridges send BUM traffic to a\n   centralized node,
+    which MUST be a distribution tree root, using\n   unicast TRILL encapsulation.
+    \ When the centralized node receives the\n   packets, it decapsulates and forwards
+    them to their destination\n   RBridges using a distribution tree established as
+    per the TRILL base\n   protocol.  This document updates [RFC6325]; per [RFC6325],
+    multi-\n   destination traffic is ingressed to a multi-destination TRILL data\n
+    \  packet.  However, per this document, when using the centralized\n   replication
+    feature, multi-destination traffic is initially ingressed\n   to a unicast TRILL
+    data packet.\n"
+  title: 1.  Introduction
+- contents:
+  - "2.  Conventions Used in This Document\n   The key words \"MUST\", \"MUST NOT\",
+    \"REQUIRED\", \"SHALL\", \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\",
+    \"NOT RECOMMENDED\", \"MAY\", and\n   \"OPTIONAL\" in this document are to be
+    interpreted as described in BCP\n   14 [RFC2119] [RFC8174] when, and only when,
+    they appear in all\n   capitals, as shown here.\n   The abbreviations and terminology
+    in [RFC6325] are used herein with\n   the following additions:\n   BUM:           Broadcast,
+    Unknown unicast, and Multicast\n   CE:            Customer Equipment (as in [RFC7783]),
+    as relates to a\n                  device (end station or bridge).  The device
+    can be\n                  either physical or virtual equipment.\n   Data Label:
+    \   VLAN or Fine-Grained Labeled (FGL) [RFC7172]\n   DF:            Designated
+    Forwarder [RFC7781]\n   FGL:           Fine-Grained Label [RFC7172]\n   LAALP:
+    \        Local Active-Active Link Protocol [RFC7379]\n   MAC flip flop: A problem
+    where the attachment point of a MAC address\n                  appears to a remote
+    switch to keep changing.  See\n                  Section 3.3 of [RFC7379].\n   MC-LAG:
+    \       Multi-Chassis Link Aggregation\n   RPF:           Reverse Path Forwarding\n"
+  title: 2.  Conventions Used in This Document
+- contents:
+  - "3.  Centralized Replication Solution Overview\n   When an edge RBridge receives
+    BUM traffic from a CE device, it uses\n   unicast TRILL encapsulation instead
+    of multicast encapsulation to\n   send the packets to a centralized node.  The
+    centralized node MUST be\n   a distribution tree root.  Distribution tree roots
+    are normally\n   chosen to be high-capacity core RBridges with many high-bandwidth\n
+    \  adjacencies.  This constraint makes it practical, as described below,\n   to
+    support centralized replication with only software changes to\n   transit RBridges.\n
+    \  The TRILL header of the unicast TRILL encapsulation contains an\n   \"ingress
+    RBridge nickname\" field and an \"egress RBridge nickname\"\n   field [RFC6325].
+    \ If the ingress RBridge receives the BUM packet from\n   a port that is in an
+    active-active edge group using [RFC7781], it\n   sets the ingress RBridge nickname
+    to be the pseudo-nickname rather\n   than its own nickname to avoid MAC flip-flop
+    (see Section 3.3 of\n   [RFC7379]) on remote RBridges.  The egress RBridge nickname
+    is set to\n   a special nickname of the centralized node that is used to\n   differentiate
+    the centralized replication purpose unicast TRILL\n   encapsulation from a normal
+    unicast TRILL encapsulation.  This\n   special nickname is called an \"R-nickname\".\n
+    \  When the centralized RBridge receives a unicast TRILL-encapsulated\n   packet
+    with its R-nickname as the egress nickname, it decapsulates\n   the packet.  Then,
+    the centralized RBridge replicates and forwards\n   the BUM packet to the packet's
+    destination RBridges using one of the\n   distribution trees established per the
+    TRILL base protocol [RFC6325].\n   It MUST use a distribution tree whose tree
+    root is the centralized\n   RBridge itself.  (An RBridge may be the root of more
+    than one tree.)\n   When the centralized RBridge forwards the BUM traffic, it
+    simply\n   sends it on the distribution tree as if it were a locally ingressed\n
+    \  frame, except that the ingress nickname remains the same as that in\n   the
+    packet it received to ensure that the MAC address learning by all\n   egress RBridges
+    is bound to the pseudo-nickname.\n   When the replicated packet is forwarded by
+    each RBridge along the\n   distribution tree starting from the centralized node,
+    an RPF check is\n   performed per [RFC6325].  For any RBridge sitting between
+    the ingress\n   RBridge and the centralized replication node, the incoming port
+    of\n   such a BUM packet should be the centralized-node-facing port, as the\n
+    \  multicast traffic always comes from the centralized node in this\n   solution.
+    \ However, the RPF port as the result of distribution tree\n   calculation as
+    specified in [RFC6325] will be the real ingress\n   RBridge-facing port, as it
+    uses the edge group's virtual RBridge as\n   the ingress RBridge, so the RPF check
+    will fail.\n   To solve this problem, some change in the RPF test is required.
+    \ In\n   this case, the RPF calculation on each RBridge should use the\n   centralized
+    node as the ingress RBridge for each tree for which that\n   node is the root
+    instead of the real ingress virtual RBridge to\n   perform the calculation.  As
+    a result, the RPF check will accept\n   traffic on the centralized-node-facing
+    port of the RBridge for multi-\n   destination traffic.  This prevents incorrect
+    frame drops by the RPF\n   check.\n   The change in the actual RPF check on a
+    received multi-destination\n   TRILL data packet is easy.  The RPF check from
+    [RFC6325] is a check\n   to see if a triple of {ingress nickname, tree, receiving
+    RBridge\n   port} is allowed.  (The tree is indicated by the nickname of its\n
+    \  root, which is stored in the TRILL Header \"egress nickname\" field.)\n   When
+    determining the RPF check, if \"ingress nickname\" is using\n   centralized replication
+    (indicated by a C-nickname, see Section 9),\n   then the check is based on distribution
+    from the tree root.  If\n   \"ingress nickname\" is not using centralized replication,
+    then the\n   check is based on distribution from the RBridge having the ingress\n
+    \  nickname.\n   To differentiate the centralized replication unicast TRILL\n
+    \  encapsulation from normal unicast TRILL encapsulation, the R-nickname\n   is
+    introduced for centralized replication.  When the centralized node\n   receives
+    unicast TRILL encapsulation traffic with the egress nickname\n   R-nickname, it
+    decapsulates the packet and then forwards the packet\n   to the destination RBridges
+    through a distribution tree for which it\n   is the root by re-encapsulation as
+    aforementioned.  In TRILL,\n   RBridges can hold multiple nicknames, so the centralized
+    RBridge\n   simply obtains another nickname to use as the R-nickname.  The\n   centralized
+    RBridge or RBridges should announce their R-nickname to\n   all TRILL campuses
+    through the TRILL Link State PDU (LSP) extension\n   specified in Section 11.\n"
+  title: 3.  Centralized Replication Solution Overview
+- contents:
+  - "4.  Frame Duplication from Remote RBridge\n   Frame duplication may occur when
+    a remote host sends a multi-\n   destination frame to a local CE that has an active-active
+    connection\n   to the TRILL campus.  To avoid the local CE receiving multiple
+    copies\n   from a remote RBridge, the Designated Forwarder (DF) mechanism is\n
+    \  supported for egress-direction multicast traffic.\n   The DF election mechanism
+    [RFC7781] allows only one port of one\n   RBridge in an active-active group to
+    forward multicast traffic from\n   the TRILL campus to the local access side for
+    each VLAN.  The basic\n   idea of using DF is to elect one RBridge per VLAN from
+    an edge group\n   to be responsible for egressing the BUM traffic.  [RFC7781]
+    describes\n   the DF election mechanism among member RBridges involved in an edge\n
+    \  group.\n   If the DF election mechanism is used for frame-duplication\n   prevention,
+    access ports on an RBridge are categorized as one of\n   three types: non-group,
+    group DF port, and group non-DF port.  The\n   last two types can be called group
+    ports.  Each of the group ports is\n   associated with a pseudo-nickname.  If
+    consistent nickname allocation\n   to edge group RBridges is used, it is possible
+    that the same pseudo-\n   nickname is associated with more than one port on a
+    single RBridge.\n   A typical scenario is that CE1 is connected to RB1 and RB2
+    by LAALP1,\n   whereas CE2 is connected to RB1 and RB2 by LAALP2.  In order to\n
+    \  conserve the number of pseudo-nicknames used, member ports for both\n   LAALP1
+    and LAALP2 on RB1 and RB2 are all associated with the same\n   pseudo-nickname.\n"
+  title: 4.  Frame Duplication from Remote RBridge
+- contents:
+  - "5.  Local Forwarding Behavior on Ingress RBridge\n   When an ingress RBridge
+    (RB1) receives BUM traffic from a local\n   active-active connected CE (CE1) device,
+    the traffic will be injected\n   into the TRILL campus with TRILL encapsulation;
+    it will be replicated\n   and forwarded to all destination RBridges through central\n
+    \  replication, including the ingress RBridge itself, along a TRILL\n   distribution
+    tree.  To avoid the traffic looping back to the original\n   sender CE, an ingress
+    nickname of the CE group's pseudo-nickname is\n   used for traffic filtering.\n
+    \  However, if there are two CEs, say CE1 and CE2, connecting to the\n   ingress
+    RB1 and each associated with the same pseudo-nickname, RB1\n   needs to locally
+    replicate and forward to CE2, because another copy\n   of the BUM traffic between
+    CE1 and CE2 through the TRILL campus will\n   be blocked by the traffic filtering.\n
+    \  If CE1 and CE2 are not associated with the same pseudo-nickname, the\n   copy
+    of the BUM traffic between CE1 and CE2 through the TRILL campus\n   won't be blocked
+    by the traffic filtering.  To avoid duplicated\n   traffic on receiver CE, there
+    cannot be local replicated BUM traffic\n   between these two CEs on ingress RB1.\n
+    \  In summary, to ensure correct BUM traffic forwarding behavior for\n   each
+    CE, the local replication behavior on the ingress RBridge is as\n   follows:\n
+    \  1.  Replicate to the active-active group ports associated with the\n       same
+    pseudo-nickname as that associated with the incoming port.\n   2.  Do not replicate
+    to active-active group ports associated with\n       other pseudo-nicknames.\n
+    \  3.  Do not replicate to non-edge-group ports.\n   The above local forwarding
+    behavior on the ingress RBridge of RB1 can\n   be called \"centralized replication
+    local forwarding behavior A\".\n   If ingress RBridge RB1 itself is the centralized
+    replication node,\n   BUM traffic injected by RB1 into the TRILL campus won't
+    loop back to\n   RB1.  In this case, the local forwarding behavior is called\n
+    \  centralized replication local forwarding behavior B.  Behavior B on\n   RB1
+    is as follows:\n   1.  Local replication to the ports associated with the same
+    pseudo-\n       nickname as that associated with the incoming port.\n   2.  Local
+    replication to the group DF port associated with different\n       pseudo-nicknames.
+    \ Do not replicate to group non-DF ports\n       associated with different pseudo-nicknames.\n
+    \  3.  Local replication to non-edge-group ports.\n"
+  title: 5.  Local Forwarding Behavior on Ingress RBridge
+- contents:
+  - "6.  Loop Prevention among RBridges in an Edge Group\n   If a CE sends a BUM packet
+    through a DF port to an ingress RBridge,\n   that RBridge will forward that packet
+    to all or a subset of the other\n   RBridges that only have non-DF ports for that
+    active-active group.\n   Because BUM traffic forwarding to non-DF ports isn't
+    allowed, in this\n   case, the frame won't loop back to the CE.\n   If a CE sends
+    a BUM packet through a non-DF port to an ingress\n   RBridge, say RB1, then RB1
+    will forward that packet to other RBridges\n   that have a DF port for that active-active
+    group.  In this case, the\n   frame will loop back to the CE and the traffic split-horizon\n
+    \  filtering mechanism is used to avoid looping back among RBridges in\n   the
+    edge group.\n   This split-horizon mechanism relies on the ingress nickname field
+    in\n   the TRILL header to check if a packet's egress port belongs to the\n   same
+    active-active group as the packet's incoming port to the TRILL\n   campus.\n   When
+    the ingress RBridge receives BUM traffic from an active-active\n   connected CE
+    device, the traffic will be sent through the TRILL\n   campus with TRILL encapsulation
+    to a centralized RBridge.  There it\n   will be replicated and forwarded to its
+    destination RBridges, which\n   include the ingress RBridge itself, through a
+    TRILL distribution\n   tree.  If the same pseudo-nickname is used for two active-active\n
+    \  access CEs as the ingress nickname, an egress RBridge can use that\n   nickname
+    to filter traffic forwarding to all local CEs.  In this\n   case, the traffic
+    between these two CEs goes through the local\n   RBridge and another copy of the
+    traffic from the TRILL campus is\n   filtered.  If different ingress nicknames
+    are used for two connecting\n   CE devices, the access ports connecting to these
+    two CEs should be\n   isolated from each other.  The BUM traffic between these
+    two CEs\n   should go through the TRILL campus; otherwise, the destination CE\n
+    \  connected to same RBridge with the sender CE will receive two copies\n   of
+    the traffic.\n"
+  title: 6.  Loop Prevention among RBridges in an Edge Group
+- contents:
+  - "7.  Centralized Replication Forwarding Process\n                             +-----------+\n
+    \                            |   (RB5)   |\n                             +-----------+\n
+    \                                  |\n                             +-----------+\n
+    \                            |   (RB4)   |\n                             +-----------+\n
+    \                             |     |    |\n                      --------      |
+    \    --------\n                     |              |             |\n                   +------+
+    \     +------+      +------+\n                   |(RB1) |      |(RB2) |      |
+    (RB3)|\n                   +------+      +------+      +------+\n                     *
+    \  |         *  |          * |  ^\n                     *   |         *  |          *
+    |   ^\n                     *   ----------*-------------*--    ^\n                     *****************************
+    |     ^\n                     *                             |      ^\n              LAALP1
+    *                      LAALP2 |       ^\n                 +------+                    +------+
+    \   +------+\n                 |  CE1 |                    | CE2  |    | CE3  |\n
+    \                +------+                    +------+    +------+\n                   Figure
+    1: TRILL Active-Active Access\n   Note: The asterisk line, hyphen & vertical bar
+    line, and circumflex\n   line in this figure indicate the connection of the various
+    CEs to the\n   various RBs.\n   Assuming the centralized replication solution
+    is used in the example\n   network of above Figure 1: RB5 is the distribution
+    tree root and\n   centralized replication node; CE1 and CE2 are active-active
+    accessed\n   to RB1, RB2, and RB3 through LAALP1 and LAALP2, respectively; and
+    CE3\n   is single-homed to RB3.  The RBridge's own nicknames of RB1 to RB5\n   are
+    nick1 to nick5, respectively.  RB1, RB2, and RB3 use the same\n   pseudo-nickname
+    for LAALP1 and LAALP2; that pseudo-nickname is\n   P-nick.  The R-nickname on
+    the centralized replication node of RB5 is\n   S-nick.\n   The BUM traffic forwarding
+    process from CE1 to CE2 and CE3 is as\n   follows:\n   1.  CE1 sends BUM traffic
+    to RB3.\n   2.  RB3 replicates and sends the BUM traffic to CE2 locally.  RB2\n
+    \      also sends the traffic to RB5 using unicast TRILL encapsulation.\n       In
+    the TRILL Header, the ingress nickname is set as P-nick and\n       the egress
+    nickname is set as S-nick.\n   3.  RB5 decapsulates the unicast TRILL data packet.
+    \ Then, it uses a\n       distribution tree for which it is the root to forward
+    the packet\n       as a multi-destination TRILL data packet.  The egress nickname
+    in\n       the multi-destination TRILL Header is the nick5 and the ingress\n       nickname
+    is still P-nick.  If RB3 had sent the unicast to some\n       nickname that was
+    not an R-nickname, the packet would not be\n       re-encapsulated.  If it is
+    sent to an R-nickname that is not a\n       tree root, it either will not be forwarded
+    at all or, if it is\n       re-encapsulated and forwarded, will be subject to
+    incorrect\n       pruning and will not be delivered to all of its intended\n       recipients.\n
+    \  4.  RB4 receives multicast TRILL traffic from RB5.  The incoming\n       traffic
+    port is the up port facing the distribution tree root.\n       RB4's RPF check
+    will be correct based on the changed RPF port\n       calculation algorithm in
+    this document.  After the RPF check is\n       performed, it forwards the traffic
+    to all other egress RBridges\n       (RB1, RB2, and RB3).\n   5.  RB3 receives
+    multicast TRILL traffic from RB4.  It decapsulates\n       the multi-destination
+    TRILL data packet.  Because the ingress\n       nickname of P-nick is equivalent
+    to the nickname of local LAALPs\n       connecting to CE1 and CE2, RB3 doesn't
+    forward the traffic to CE1\n       and CE2 to avoid a duplicated frame.  RB3 only
+    forwards the\n       packet to CE3.\n   6.  RB1 and RB2 receive multicast TRILL
+    traffic from RB4.  The\n       forwarding process is similar to the process on
+    RB3, i.e.,\n       because the ingress nickname of P-nick is equivalent to the\n
+    \      nickname of the local LAALPs connecting CE1 and CE2, they also\n       don't
+    forward the traffic to local CE1 and CE2.\n"
+  title: 7.  Centralized Replication Forwarding Process
+- contents:
+  - "8.  BUM Traffic Load-Balancing among Multiple Centralized Nodes\n   To support
+    unicast TRILL encapsulation BUM traffic load-balancing,\n   multiple centralized
+    replication nodes can be deployed and the\n   traffic can be spread over these
+    nodes based on data label (VLAN or\n   FGL).  Furthermore, if it was desirable
+    for a centralized node to be\n   sent more of this BUM traffic, it could hold
+    two or more R-nicknames.\n   The share of BUM traffic it would receive would be
+    proportional to\n   the number of R-nicknames it held.\n   Assuming there are
+    k different R-nicknames held by centralized nodes\n   in a TRILL campus, the VLAN-based
+    (or FGL-based [RFC7172]) load-\n   balancing algorithm used by an ingress active-active
+    access RBridge\n   is as follows:\n   1.  All R-nicknames are ordered and numbered
+    from 0 to k-1 in\n       ascending order, treating the nicknames as unsigned 16-bit\n
+    \      integers.\n   2.  For data label ID m, choose the R-nickname whose index
+    is given\n       by (m mod k) as egress nickname for BUM traffic unicast TRILL\n
+    \      encapsulation.\n   For example, there are three R-Nicknames (RNs).  The
+    RNs will be\n   ordered RN0 to RN2.  Assuming there are five VLANs from VLAN ID1
+    to\n   ID5 spreading among edge RBridges, the traffic in VLAN1 will go to\n   RN1,
+    VLAN2 will go to RN2, and so on.\n   When an ingress RBridge participating in
+    an active-active connection\n   receives BUM traffic from a local CE, the RBridge
+    decides which\n   R-nickname to send the traffic to based on the VLAN-based load-\n
+    \  spreading algorithm; thus, data-label-based load-balancing for the\n   BUM
+    traffic can be achieved using multiple centralized nodes/multiple\n   R-nicknames.\n"
+  title: 8.  BUM Traffic Load-Balancing among Multiple Centralized Nodes
+- contents:
+  - "9.  Coexisting with the CMT Solution (RFC 7783)\n                    +------+
+    \   +------+\n                    |(RB6) |    |(RB7) |\n                    +------+
+    \   +------+\n      ------------------|-----------|----------------------\n      |
+    \           |              |          |            |\n   +------+    +------+
+    \      +------+    +------+     +------+\n   |(RB1) |    |(RB2) |       |(RB3)
+    |    |(RB4) |     |(RB5) |\n   +------+    +------+       +------+    +------+
+    \    +------+\n       |          |               |          |            |\n       ------------
+    \              -------------------------\n             |                               |\n
+    \        +------+                         +------+\n         |  CE1 |                         |
+    \ CE2 |\n         +------+                         +------+\n       Figure 2:
+    CMT and Centralized Replication Coexisting Scenario\n   Both the centralized replication
+    solution and the Coordinated\n   Multicast Trees (CMT) solution from [RFC7783]
+    rely on using pseudo-\n   nicknames to avoid MAC flip-flop on remote RBridges.
+    \ These two\n   solutions can coexist in a single TRILL campus.  Each solution
+    can be\n   selected by each active-active edge group of RBridges independently.\n
+    \  As illustrated in Figure 2, RB1 and RB2 use CMT for CE1's active-\n   active
+    access; RB3, RB4, and RB5 use the centralized replication for\n   CE2's active-active
+    access.\n   For the centralized replication solution, edge group RBridges MUST\n
+    \  announce the local pseudo-nickname using the Nickname Flags APPsub-\n   TLV
+    with C flag set.  A nickname with the C flag set is called a\n   \"C-nickname\".
+    \ A transit RBridge will perform the centralized\n   replication-specific RPF
+    check algorithm if it receives TRILL data\n   packets with a C-nickname as the
+    ingress nickname.\n   An edge group using CMT [RFC7783] MUST NOT set the C flag
+    on the\n   pseudo-nickname it is using.  This is already mandatory behavior\n
+    \  because any RBridge originating a Nickname Flags APPsub-TLV is\n   required
+    by [RFC7780] to set any flag bit it does not know about to\n   zero.  If an edge
+    RBridge using CMT [RFC7783] nevertheless set the\n   C-bit for an edge group pseudo-nickname,
+    it is very likely that BUM\n   traffic encapsulated with that nickname as ingress
+    would be\n   incorrectly pruned early in its distribution and would, thus, reach\n
+    \  few (possibly none) of its intended targets.  To avoid confusion, a\n   pseudo-nickname
+    MUST NOT be shared between a centralized replication\n   edge group and a CMT-based
+    edge group.\n"
+  title: 9.  Coexisting with the CMT Solution (RFC 7783)
+- contents:
+  - "10.  Network Upgrade Analysis\n   Centralized nodes will typically need software
+    and hardware upgrades\n   to support centralized replication, which stitches together
+    the TRILL\n   unicast traffic decapsulation process and the process of normal
+    TRILL\n   multicast traffic forwarding along the distribution tree.\n   Active-active
+    connection edge RBridges will typically need software\n   and hardware upgrades
+    to support unicast TRILL encapsulation for BUM\n   traffic; the process is similar
+    to other head-end replication\n   processes.\n   Transit nodes typically need
+    only a software upgrade to support the\n   changed RPF port calculation algorithm.\n"
+  title: 10.  Network Upgrade Analysis
+- contents:
+  - "11.  TRILL Protocol Extensions\n   Two new flags, \"R\" and \"C\", are specified
+    in the Nickname Flags\n   APPsub-TLV [RFC7780].  A nickname with the R flag set
+    is called an\n   \"R-nickname\" and a nickname with the C flag set is called a\n
+    \  \"C-nickname\".  The R-nickname is a specialized nickname attached to a\n   centralized
+    node to differentiate unicast TRILL-encapsulated BUM\n   traffic from normal unicast
+    TRILL traffic.  The C-nickname flag is\n   set on the pseudo-nickname for each
+    edge group that uses the\n   centralized replication.  A C-nickname is a specialized
+    pseudo-\n   nickname for which transit RBridges perform a different RPF check\n
+    \  algorithm for TRILL data packets with the C-nickname in the ingress\n   nickname
+    field.\n   When active-active edge RBridges use centralized replication to\n   forward
+    BUM traffic, the R-nickname is used as the egress nickname\n   and the C-nickname
+    is used as ingress nickname in the TRILL header\n   for the unicast TRILL encapsulation
+    of BUM traffic.\n"
+  - contents:
+    - "11.1.  \"R\" and \"C\" Flag in the Nickname Flags APPsub-TLV\n   If this APPsub-TLV
+      is being advertised by an RBridge that does not\n   have the nickname appearing
+      in the Nickname Flags APPsub-TLV, the R\n   and C flag bits in the APPsub-TLV
+      MUST be treated as if they were\n   zero.  If an RBridge that is not a distribution
+      tree root advertises\n   an R-nickname, that nickname MUST NOT be treated as
+      an R-nickname but\n   rather as an ordinary nickname; that is, the R-nickname
+      flag is\n   ignored for all purposes if the nickname is held by an RBridge that\n
+      \  is not a tree root.\n              0  1  2  3  4  5  6  7  8  9 10 11 12
+      13 14 15\n             +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+\n             |
+      \  Nickname                                    |\n             +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+\n
+      \            |IN|SE|R | C|    RESV                           |\n             +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+\n
+      \                            NICKFLAG RECORD\n   o  R = If the R flag is one,
+      it indicates that the advertising TRILL\n      switch holding Nickname is a
+      centralized replication node, and\n      Nickname is used as egress nickname
+      for edge group RBridges to\n      inject BUM traffic into the TRILL campus when
+      the edge group\n      RBridges use this centralized replication solution for
+      active-\n      active access.  If the R flag is zero, that nickname will not
+      be\n      used for that purpose.\n   o  C = If C flag is one, it indicates that
+      the TRILL traffic with\n      this nickname as an ingress nickname requires
+      the special RPF\n      check algorithm specified in Section 3.  If the C flag
+      is zero,\n      that nickname will not be used for that purpose.\n   Due to
+      errors or due to transient inconsistent LSPs when the link\n   state database
+      is converging after a configuration change or the\n   like, it is possible for
+      there to be inconsistent Nickname Flags\n   APPsub-TLVs for the same nickname.
+      \ In this case, it is RECOMMENDED\n   that the nickname be treated as if the
+      R / C flag were set if any\n   Nickname Flags APPsub-TLV for that nickname has
+      the R / C flag set.\n"
+    title: 11.1.  "R" and "C" Flag in the Nickname Flags APPsub-TLV
+  title: 11.  TRILL Protocol Extensions
+- contents:
+  - "12.  Security Considerations\n   This document does not introduce any extra security
+    risks.  A rogue\n   RBridge that is a tree root can attract traffic by advertising
+    an\n   R-nickname.  However, this does not represent a substantial increase\n
+    \  in risk as RBridges could cause problems in a number of other ways by\n   advertising
+    low-cost adjacencies or making themselves the highest\n   priority tree root or
+    the like.  In general, the protection against\n   an untrusted device acting as
+    an RBridge and wrecking havoc is to use\n   IS-IS authentication [RFC5310] and
+    configure and administer the TRILL\n   campus so that only trusted RBridges have
+    the authentication key.\n   For general TRILL security considerations, see [RFC6325].
+    \ For\n   security considerations related to pseudo-nickname active-active, see\n
+    \  [RFC7781].\n"
+  title: 12.  Security Considerations
+- contents:
+  - "13.  IANA Considerations\n   IANA has assigned two bits in the Nickname Flags
+    APPsubTLV flags for\n   the R and C bits discussed in Section 11.1 and update
+    the \"NickFlags\n   Bits\" subregistry of the \"Transparent Interconnection of
+    Lots of\n   Links (TRILL) Parameters\" registry as follows:\n              Bit
+    \ Mnemonic   Description          Reference\n             ---  --------  --------------------
+    \ -----------\n               2    R        Replication Nickname  [RFC8361]\n
+    \              3    C        Special RPF Check     [RFC8361]\n"
+  title: 13.  IANA Considerations
+- contents:
   - '14.  References
 
     '
-- title: 14.1.  Normative References
-  contents:
-  - "14.1.  Normative References\n   [RFC2119]  Bradner, S., \"Key words for use in\
-    \ RFCs to Indicate\n              Requirement Levels\", BCP 14, RFC 2119,\n  \
-    \            DOI 10.17487/RFC2119, March 1997,\n              <https://www.rfc-editor.org/info/rfc2119>.\n\
-    \   [RFC5310]  Bhatia, M., Manral, V., Li, T., Atkinson, R., White, R.,\n    \
-    \          and M. Fanto, \"IS-IS Generic Cryptographic\n              Authentication\"\
-    , RFC 5310, DOI 10.17487/RFC5310, February\n              2009, <https://www.rfc-editor.org/info/rfc5310>.\n\
-    \   [RFC6165]  Banerjee, A. and D. Ward, \"Extensions to IS-IS for Layer-2\n \
-    \             Systems\", RFC 6165, DOI 10.17487/RFC6165, April 2011,\n       \
-    \       <https://www.rfc-editor.org/info/rfc6165>.\n   [RFC6325]  Perlman, R.,\
-    \ Eastlake 3rd, D., Dutt, D., Gai, S., and A.\n              Ghanwani, \"Routing\
-    \ Bridges (RBridges): Base Protocol\n              Specification\", RFC 6325,\
-    \ DOI 10.17487/RFC6325, July 2011,\n              <https://www.rfc-editor.org/info/rfc6325>.\n\
-    \   [RFC7172]  Eastlake 3rd, D., Zhang, M., Agarwal, P., Perlman, R., and\n  \
-    \            D. Dutt, \"Transparent Interconnection of Lots of Links\n       \
-    \       (TRILL): Fine-Grained Labeling\", RFC 7172,\n              DOI 10.17487/RFC7172,\
-    \ May 2014,\n              <https://www.rfc-editor.org/info/rfc7172>.\n   [RFC7176]\
-    \  Eastlake 3rd, D., Senevirathne, T., Ghanwani, A., Dutt,\n              D.,\
-    \ and A. Banerjee, \"Transparent Interconnection of Lots\n              of Links\
-    \ (TRILL) Use of IS-IS\", RFC 7176,\n              DOI 10.17487/RFC7176, May 2014,\n\
-    \              <https://www.rfc-editor.org/info/rfc7176>.\n   [RFC7780]  Eastlake\
-    \ 3rd, D., Zhang, M., Perlman, R., Banerjee, A.,\n              Ghanwani, A.,\
-    \ and S. Gupta, \"Transparent Interconnection\n              of Lots of Links\
-    \ (TRILL): Clarifications, Corrections, and\n              Updates\", RFC 7780,\
-    \ DOI 10.17487/RFC7780, February 2016,\n              <https://www.rfc-editor.org/info/rfc7780>.\n\
-    \   [RFC8174]  Leiba, B., \"Ambiguity of Uppercase vs Lowercase in RFC\n     \
-    \         2119 Key Words\", BCP 14, RFC 8174, DOI 10.17487/RFC8174,\n        \
-    \      May 2017, <https://www.rfc-editor.org/info/rfc8174>.\n"
-- title: 14.2.  Informative References
-  contents:
-  - "14.2.  Informative References\n   [RFC7781]  Zhai, H., Senevirathne, T., Perlman,\
-    \ R., Zhang, M., and Y.\n              Li, \"Transparent Interconnection of Lots\
-    \ of Links (TRILL):\n              Pseudo-Nickname for Active-Active Access\"\
-    , RFC 7781,\n              DOI 10.17487/RFC7781, February 2016,\n            \
-    \  <https://www.rfc-editor.org/info/rfc7781>.\n   [RFC7379]  Li, Y., Hao, W.,\
-    \ Perlman, R., Hudson, J., and H. Zhai,\n              \"Problem Statement and\
-    \ Goals for Active-Active Connection\n              at the Transparent Interconnection\
-    \ of Lots of Links\n              (TRILL) Edge\", RFC 7379, DOI 10.17487/RFC7379,\
-    \ October\n              2014, <https://www.rfc-editor.org/info/rfc7379>.\n  \
-    \ [RFC7783]  Senevirathne, T., Pathangi, J., and J. Hudson,\n              \"\
-    Coordinated Multicast Trees (CMT) for Transparent\n              Interconnection\
-    \ of Lots of Links (TRILL)\", RFC 7783,\n              DOI 10.17487/RFC7783, February\
-    \ 2016,\n              <https://www.rfc-editor.org/info/rfc7783>.\n   [IEEE802.1AX]\n\
-    \              IEEE, \"IEEE Standard for Local and metropolitan area\n       \
-    \       networks -- Link Aggregation\", IEEE 802.1AX,\n              DOI 10.1109/IEEESTD.2017.7888436,\
-    \ March 2017,\n              <http://ieeexplore.ieee.org/document/7888436/>.\n"
-- title: Acknowledgments
-  contents:
-  - "Acknowledgments\n   The authors wish to acknowledge the important contributions\
-    \ of Donald\n   Eastlake, Hongjun Zhai, Xiaomin Wu, Liang Xia, and Francis Dupont.\n"
-- title: Authors' Addresses
-  contents:
-  - "Authors' Addresses\n   Weiguo Hao\n   Huawei Technologies\n   101 Software Avenue,\n\
-    \   Nanjing 210012\n   China\n   Email: haoweiguo@huawei.com\n   Yizhou Li\n \
-    \  Huawei Technologies\n   101 Software Avenue,\n   Nanjing 210012\n   China\n\
-    \   Email: liyizhou@huawei.com\n   Muhammad Durrani\n   Equinix\n   Email: mdurrani@equinix.com\n\
-    \   Sujay Gupta\n   IP Infusion\n   RMZ Centennial\n   Mahadevapura Post\n   Bangalore\
-    \ - 560048\n   India\n   Email: sujay.gupta@ipinfusion.com\n   Andrew Qu\n   MediaTec\n\
-    \   Email: laodulaodu@gmail.com\n"
+  - contents:
+    - "14.1.  Normative References\n   [RFC2119]  Bradner, S., \"Key words for use
+      in RFCs to Indicate\n              Requirement Levels\", BCP 14, RFC 2119,\n
+      \             DOI 10.17487/RFC2119, March 1997,\n              <https://www.rfc-editor.org/info/rfc2119>.\n
+      \  [RFC5310]  Bhatia, M., Manral, V., Li, T., Atkinson, R., White, R.,\n              and
+      M. Fanto, \"IS-IS Generic Cryptographic\n              Authentication\", RFC
+      5310, DOI 10.17487/RFC5310, February\n              2009, <https://www.rfc-editor.org/info/rfc5310>.\n
+      \  [RFC6165]  Banerjee, A. and D. Ward, \"Extensions to IS-IS for Layer-2\n
+      \             Systems\", RFC 6165, DOI 10.17487/RFC6165, April 2011,\n              <https://www.rfc-editor.org/info/rfc6165>.\n
+      \  [RFC6325]  Perlman, R., Eastlake 3rd, D., Dutt, D., Gai, S., and A.\n              Ghanwani,
+      \"Routing Bridges (RBridges): Base Protocol\n              Specification\",
+      RFC 6325, DOI 10.17487/RFC6325, July 2011,\n              <https://www.rfc-editor.org/info/rfc6325>.\n
+      \  [RFC7172]  Eastlake 3rd, D., Zhang, M., Agarwal, P., Perlman, R., and\n              D.
+      Dutt, \"Transparent Interconnection of Lots of Links\n              (TRILL):
+      Fine-Grained Labeling\", RFC 7172,\n              DOI 10.17487/RFC7172, May
+      2014,\n              <https://www.rfc-editor.org/info/rfc7172>.\n   [RFC7176]
+      \ Eastlake 3rd, D., Senevirathne, T., Ghanwani, A., Dutt,\n              D.,
+      and A. Banerjee, \"Transparent Interconnection of Lots\n              of Links
+      (TRILL) Use of IS-IS\", RFC 7176,\n              DOI 10.17487/RFC7176, May 2014,\n
+      \             <https://www.rfc-editor.org/info/rfc7176>.\n   [RFC7780]  Eastlake
+      3rd, D., Zhang, M., Perlman, R., Banerjee, A.,\n              Ghanwani, A.,
+      and S. Gupta, \"Transparent Interconnection\n              of Lots of Links
+      (TRILL): Clarifications, Corrections, and\n              Updates\", RFC 7780,
+      DOI 10.17487/RFC7780, February 2016,\n              <https://www.rfc-editor.org/info/rfc7780>.\n
+      \  [RFC8174]  Leiba, B., \"Ambiguity of Uppercase vs Lowercase in RFC\n              2119
+      Key Words\", BCP 14, RFC 8174, DOI 10.17487/RFC8174,\n              May 2017,
+      <https://www.rfc-editor.org/info/rfc8174>.\n"
+    title: 14.1.  Normative References
+  - contents:
+    - "14.2.  Informative References\n   [RFC7781]  Zhai, H., Senevirathne, T., Perlman,
+      R., Zhang, M., and Y.\n              Li, \"Transparent Interconnection of Lots
+      of Links (TRILL):\n              Pseudo-Nickname for Active-Active Access\",
+      RFC 7781,\n              DOI 10.17487/RFC7781, February 2016,\n              <https://www.rfc-editor.org/info/rfc7781>.\n
+      \  [RFC7379]  Li, Y., Hao, W., Perlman, R., Hudson, J., and H. Zhai,\n              \"Problem
+      Statement and Goals for Active-Active Connection\n              at the Transparent
+      Interconnection of Lots of Links\n              (TRILL) Edge\", RFC 7379, DOI
+      10.17487/RFC7379, October\n              2014, <https://www.rfc-editor.org/info/rfc7379>.\n
+      \  [RFC7783]  Senevirathne, T., Pathangi, J., and J. Hudson,\n              \"Coordinated
+      Multicast Trees (CMT) for Transparent\n              Interconnection of Lots
+      of Links (TRILL)\", RFC 7783,\n              DOI 10.17487/RFC7783, February
+      2016,\n              <https://www.rfc-editor.org/info/rfc7783>.\n   [IEEE802.1AX]\n
+      \             IEEE, \"IEEE Standard for Local and metropolitan area\n              networks
+      -- Link Aggregation\", IEEE 802.1AX,\n              DOI 10.1109/IEEESTD.2017.7888436,
+      March 2017,\n              <http://ieeexplore.ieee.org/document/7888436/>.\n"
+    title: 14.2.  Informative References
+  title: 14.  References
+- contents:
+  - "Acknowledgments\n   The authors wish to acknowledge the important contributions
+    of Donald\n   Eastlake, Hongjun Zhai, Xiaomin Wu, Liang Xia, and Francis Dupont.\n"
+  title: Acknowledgments
+- contents:
+  - "Authors' Addresses\n   Weiguo Hao\n   Huawei Technologies\n   101 Software Avenue,\n
+    \  Nanjing 210012\n   China\n   Email: haoweiguo@huawei.com\n   Yizhou Li\n   Huawei
+    Technologies\n   101 Software Avenue,\n   Nanjing 210012\n   China\n   Email:
+    liyizhou@huawei.com\n   Muhammad Durrani\n   Equinix\n   Email: mdurrani@equinix.com\n
+    \  Sujay Gupta\n   IP Infusion\n   RMZ Centennial\n   Mahadevapura Post\n   Bangalore
+    - 560048\n   India\n   Email: sujay.gupta@ipinfusion.com\n   Andrew Qu\n   MediaTec\n
+    \  Email: laodulaodu@gmail.com\n"
+  title: Authors' Addresses

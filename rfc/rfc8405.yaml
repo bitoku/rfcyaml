@@ -1,387 +1,378 @@
-- title: __initial_text__
-  contents:
+- contents:
   - ' Shortest Path First (SPF) Back-Off Delay Algorithm for Link-State IGPs
 
     '
-- title: Abstract
-  contents:
-  - "Abstract\n   This document defines a standard algorithm to temporarily postpone\
-    \ or\n   \"back off\" link-state IGP Shortest Path First (SPF) computations.\n\
-    \   This reduces the computational load and churn on IGP nodes when\n   multiple\
-    \ temporally close network events trigger multiple SPF\n   computations.\n   Having\
-    \ one standard algorithm improves interoperability by reducing\n   the probability\
-    \ and/or duration of transient forwarding loops during\n   the IGP convergence\
-    \ when the IGP reacts to multiple temporally close\n   IGP events.\n"
-- title: Status of This Memo
-  contents:
-  - "Status of This Memo\n   This is an Internet Standards Track document.\n   This\
-    \ document is a product of the Internet Engineering Task Force\n   (IETF).  It\
-    \ represents the consensus of the IETF community.  It has\n   received public\
-    \ review and has been approved for publication by the\n   Internet Engineering\
-    \ Steering Group (IESG).  Further information on\n   Internet Standards is available\
-    \ in Section 2 of RFC 7841.\n   Information about the current status of this document,\
-    \ any errata,\n   and how to provide feedback on it may be obtained at\n   https://www.rfc-editor.org/info/rfc8405.\n"
-- title: Copyright Notice
-  contents:
-  - "Copyright Notice\n   Copyright (c) 2018 IETF Trust and the persons identified\
-    \ as the\n   document authors.  All rights reserved.\n   This document is subject\
-    \ to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n\
-    \   (https://trustee.ietf.org/license-info) in effect on the date of\n   publication\
-    \ of this document.  Please review these documents\n   carefully, as they describe\
-    \ your rights and restrictions with respect\n   to this document.  Code Components\
-    \ extracted from this document must\n   include Simplified BSD License text as\
-    \ described in Section 4.e of\n   the Trust Legal Provisions and are provided\
-    \ without warranty as\n   described in the Simplified BSD License.\n"
-- title: Table of Contents
-  contents:
-  - "Table of Contents\n   1.  Introduction  . . . . . . . . . . . . . . . . . . .\
-    \ . . . . .   2\n     1.1.  Requirements Language . . . . . . . . . . . . . .\
-    \ . . . .   3\n   2.  High-Level Goals  . . . . . . . . . . . . . . . . . . .\
-    \ . . .   3\n   3.  Definitions and Parameters  . . . . . . . . . . . . . . .\
-    \ . .   4\n   4.  Principles of the SPF Delay Algorithm . . . . . . . . . . .\
-    \ .   5\n   5.  Specification of the SPF Delay State Machine  . . . . . . . .\
-    \   6\n     5.1.  State Machine . . . . . . . . . . . . . . . . . . . . . .  \
-    \ 6\n     5.2.  States  . . . . . . . . . . . . . . . . . . . . . . . . .   7\n\
-    \     5.3.  Timers  . . . . . . . . . . . . . . . . . . . . . . . . .   7\n  \
-    \   5.4.  FSM Events  . . . . . . . . . . . . . . . . . . . . . . .   7\n   6.\
-    \  Parameters  . . . . . . . . . . . . . . . . . . . . . . . . .   9\n   7.  Partial\
-    \ Deployment  . . . . . . . . . . . . . . . . . . . . .  10\n   8.  Impact on\
-    \ Micro-loops . . . . . . . . . . . . . . . . . . . .  11\n   9.  IANA Considerations\
-    \ . . . . . . . . . . . . . . . . . . . . .  11\n   10. Security Considerations\
-    \ . . . . . . . . . . . . . . . . . . .  11\n   11. References  . . . . . . .\
-    \ . . . . . . . . . . . . . . . . . .  11\n     11.1.  Normative References .\
-    \ . . . . . . . . . . . . . . . . .  11\n     11.2.  Informative References .\
-    \ . . . . . . . . . . . . . . . .  11\n   Acknowledgements  . . . . . . . . .\
-    \ . . . . . . . . . . . . . . .  13\n   Authors' Addresses  . . . . . . . . .\
-    \ . . . . . . . . . . . . . .  13\n"
-- title: 1.  Introduction
-  contents:
-  - "1.  Introduction\n   Link-state IGPs, such as IS-IS [ISO10589], OSPF [RFC2328],\
-    \ and OSPFv3\n   [RFC5340], perform distributed route computation on all routers\
-    \ in\n   the area/level.  In order to have consistent routing tables across\n\
-    \   the network, such distributed computation requires that all routers\n   have\
-    \ the same version of the network topology (Link-State Database\n   (LSDB)) and\
-    \ perform their computation essentially at the same time.\n   In general, when\
-    \ the network is stable, there is a desire to trigger\n   a new Shortest Path\
-    \ First (SPF) computation as soon as a failure is\n   detected in order to quickly\
-    \ route around the failure.  However, when\n   the network is experiencing multiple\
-    \ failures over a short period of\n   time, there is a conflicting desire to limit\
-    \ the frequency of SPF\n   computations, which would allow a reduction in control\
-    \ plane\n   resources used by IGPs and all protocols/subsystems reacting to the\n\
-    \   attendant route change, such as LDP [RFC5036], RSVP-TE [RFC3209], BGP\n  \
-    \ [RFC4271], Fast Reroute computations (e.g., Loop-Free Alternates\n   (LFAs)\
-    \ [RFC5286]), FIB updates, etc.  This also reduces network churn\n   and, in particular,\
-    \ reduces side effects (such as micro-loops\n   [RFC5715]) that ensue during IGP\
-    \ convergence.\n   To allow for this, IGPs usually implement an SPF Back-Off Delay\n\
-    \   algorithm that postpones or backs off the SPF computation.  However,\n   different\
-    \ implementations chose different algorithms.  Hence, in a\n   multi-vendor network,\
-    \ it's not possible to ensure that all routers\n   trigger their SPF computation\
-    \ after the same delay.  This situation\n   increases the average and maximum\
-    \ differential delay between routers\n   completing their SPF computation.  It\
-    \ also increases the probability\n   that different routers compute their FIBs\
-    \ based on different LSDB\n   versions.  Both factors increase the probability\
-    \ and/or duration of\n   micro-loops as discussed in Section 8.\n   This document\
-    \ specifies a standard algorithm to allow multi-vendor\n   networks to have all\
-    \ routers delay their SPF computations for the\n   same duration.\n"
-- title: 1.1.  Requirements Language
-  contents:
-  - "1.1.  Requirements Language\n   The key words \"MUST\", \"MUST NOT\", \"REQUIRED\"\
-    , \"SHALL\", \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\", \"\
-    NOT RECOMMENDED\", \"MAY\", and\n   \"OPTIONAL\" in this document are to be interpreted\
-    \ as described in\n   BCP 14 [RFC2119] [RFC8174] when, and only when, they appear\
-    \ in all\n   capitals, as shown here.\n"
-- title: 2.  High-Level Goals
-  contents:
-  - "2.  High-Level Goals\n   The high-level goals of this algorithm are the following:\n\
-    \   o  very fast convergence for a single event (e.g., link failure),\n   o  paced\
-    \ fast convergence for multiple temporally close IGP events\n      while IGP stability\
-    \ is considered acceptable,\n   o  delayed convergence when IGP stability is problematic\
-    \ (this will\n      allow the IGP and related processes to conserve resources\
-    \ during\n      the period of instability), and\n   o  avoidance of having different\
-    \ SPF_DELAY timer values (Section 3)\n      across different routers in the area/level.\
-    \  This requires\n      specific consideration as different routers may receive\
-    \ IGP\n      messages at different intervals, or even in different orders, due\n\
-    \      to differences both in the distance from the originator of the IGP\n  \
-    \    event and in flooding implementations.\n"
-- title: 3.  Definitions and Parameters
-  contents:
-  - "3.  Definitions and Parameters\n   IGP event: The reception or origination of\
-    \ an IGP LSDB change\n   requiring a new routing table computation.  Some examples\
-    \ are a\n   topology change, a prefix change, and a metric change on a link or\n\
-    \   prefix.  Note that locally triggering a routing table computation is\n   not\
-    \ considered an IGP event since other IGP routers are unaware of\n   this occurrence.\n\
-    \   Routing table computation, in this document, is scoped to the IGP;\n   so,\
-    \ this is the computation of the IGP RIB, performed by the IGP,\n   using the\
-    \ IGP LSDB.  No distinction is made between the type of\n   computation performed,\
-    \ e.g., full SPF, incremental SPF, or Partial\n   Route Computation (PRC); the\
-    \ type of computation is a local\n   consideration.  This document may interchangeably\
-    \ use the terms\n   \"routing table computation\" and \"SPF computation\".\n \
-    \  SPF_DELAY: The delay between the first IGP event triggering a new\n   routing\
-    \ table computation and the start of that routing table\n   computation.  It can\
-    \ take the following values:\n    INITIAL_SPF_DELAY: A very small delay to quickly\
-    \ handle a single\n    isolated link failure, e.g., 0 milliseconds.\n    SHORT_SPF_DELAY:\
-    \ A small delay to provide fast convergence in the\n    case of a single component\
-    \ failure (such as a node failure or Shared\n    Risk Link Group (SRLG) failure)\
-    \ that leads to multiple IGP events,\n    e.g., 50-100 milliseconds.\n    LONG_SPF_DELAY:\
-    \ A long delay when the IGP is unstable, e.g., 2\n    seconds.  Note that this\
-    \ allows the IGP network to stabilize.\n   TIME_TO_LEARN_INTERVAL: This is the\
-    \ maximum duration typically needed\n   to learn all the IGP events related to\
-    \ a single component failure\n   (such as router failure or SRLG failure), e.g.,\
-    \ 1 second.  It's\n   mostly dependent on failure detection time variation between\
-    \ all\n   routers that are adjacent to the failure.  Additionally, it may\n  \
-    \ depend on the different IGP implementations/parameters across the\n   network\
-    \ and their relation to the origination and flooding of link\n   state advertisements.\n\
-    \   HOLDDOWN_INTERVAL: The time required with no received IGP event\n   before\
-    \ considering the IGP to be stable again and allowing the\n   SPF_DELAY to be\
-    \ restored to INITIAL_SPF_DELAY, e.g., a\n   HOLDDOWN_INTERVAL of 3 seconds. \
-    \ The HOLDDOWN_INTERVAL MUST be\n   defaulted or configured to be longer than\
-    \ the TIME_TO_LEARN_INTERVAL.\n"
-- title: 4.  Principles of the SPF Delay Algorithm
-  contents:
-  - "4.  Principles of the SPF Delay Algorithm\n   For the first IGP event, we assume\
-    \ that there has been a single\n   simple change in the network, which can be\
-    \ taken into account using a\n   single routing computation (e.g., link failure,\
-    \ prefix (metric)\n   change), and we optimize for very fast convergence by delaying\
-    \ the\n   initial routing computation for a small interval, INITIAL_SPF_DELAY.\n\
-    \   Under this assumption, there is no benefit in delaying the routing\n   computation.\
-    \  In a typical network, this is the most common type of\n   IGP event.  Hence,\
-    \ it makes sense to optimize this case.\n   If subsequent IGP events are received\
-    \ in a short period of time\n   (TIME_TO_LEARN_INTERVAL), we then assume that\
-    \ a single component\n   failed, but that this failure requires the knowledge\
-    \ of multiple IGP\n   events in order for IGP routing to converge.  Under this\
-    \ assumption,\n   we want fast convergence since this is a normal network situation.\n\
-    \   However, there is a benefit in waiting for all IGP events related to\n   this\
-    \ single component failure: the IGP can then compute the post-\n   failure routing\
-    \ table in a single additional route computation.  In\n   this situation, we delay\
-    \ the routing computation by SHORT_SPF_DELAY.\n   If IGP events are still received\
-    \ after TIME_TO_LEARN_INTERVAL from\n   the initial IGP event received in QUIET\
-    \ state (see Section 5.1), then\n   the network is presumably experiencing multiple\
-    \ independent failures.\n   In this case, while waiting for network stability,\
-    \ the computations\n   are delayed for a longer time, which is represented by\n\
-    \   LONG_SPF_DELAY.  This SPF delay is used until no IGP events are\n   received\
-    \ for HOLDDOWN_INTERVAL.\n   Note that in order to increase the consistency network\
-    \ wide, the\n   algorithm uses a delay (TIME_TO_LEARN_INTERVAL) from the initial\
-    \ IGP\n   event rather than the number of SPF computations performed.  Indeed,\n\
-    \   as all routers may receive the IGP events at different times, we\n   cannot\
-    \ assume that all routers will perform the same number of SPF\n   computations.\
-    \  For example, assuming that the SPF delay is 50\n   milliseconds, router R1\
-    \ may receive three IGP events (E1, E2, E3) in\n   those 50 milliseconds and hence\
-    \ will perform a single routing\n   computation, while another router R2 may only\
-    \ receive two events (E1,\n   E2) in those 50 milliseconds and hence will schedule\
-    \ another routing\n   computation when receiving E3.\n"
-- title: 5.  Specification of the SPF Delay State Machine
-  contents:
-  - "5.  Specification of the SPF Delay State Machine\n   This section specifies the\
-    \ Finite State Machine (FSM) intended to\n   control the timing of the execution\
-    \ of SPF calculations in response\n   to IGP events.\n"
-- title: 5.1.  State Machine
-  contents:
-  - "5.1.  State Machine\n   The FSM is initialized to the QUIET state with all three\
-    \ timers\n   (SPF_TIMER, HOLDDOWN_TIMER, and LEARN_TIMER) deactivated.\n   The\
-    \ events that may change the FSM states are an IGP event or the\n   expiration\
-    \ of one timer (SPF_TIMER, HOLDDOWN_TIMER, or LEARN_TIMER).\n   The following\
-    \ diagram briefly describes the state transitions.\n                     +-------------------+\n\
-    \               +---->|                   |<-------------------+\n           \
-    \    |     |      QUIET        |                    |\n               +-----|\
-    \                   |<---------+         |\n           7:        +-------------------+\
-    \          |         |\n           SPF_TIMER           |                    |\
-    \         |\n           expiration          |                    |         |\n\
-    \                               | 1: IGP event       |         |\n           \
-    \                    |                    |         |\n                      \
-    \         v                    |         |\n                     +-------------------+\
-    \          |         |\n               +---->|                   |          |\
-    \         |\n               |     |    SHORT_WAIT     |----->----+         |\n\
-    \               +-----|                   |                    |\n           2:\
-    \        +-------------------+  6: HOLDDOWN_TIMER |\n           IGP event    \
-    \       |               expiration     |\n           8: SPF_TIMER        |   \
-    \                           |\n              expiration       |              \
-    \                |\n                               | 3: LEARN_TIMER          \
-    \     |\n                               |    expiration                |\n   \
-    \                            |                              |\n              \
-    \                 v                              |\n                     +-------------------+\
-    \                    |\n               +---->|                   |           \
-    \         |\n               |     |     LONG_WAIT     |------------>-------+\n\
-    \               +-----|                   |\n           4:        +-------------------+\
-    \  5: HOLDDOWN_TIMER\n           IGP event                           expiration\n\
-    \           9: SPF_TIMER expiration\n                          Figure 1: State\
-    \ Machine\n"
-- title: 5.2.  States
-  contents:
-  - "5.2.  States\n   The naming and semantics of each state corresponds directly\
-    \ to the\n   SPF delay used for IGP events received in that state.  Three states\n\
-    \   are defined:\n   QUIET: This is the initial state, when no IGP events have\
-    \ occurred\n   for at least HOLDDOWN_INTERVAL since the last routing table\n \
-    \  computation.  The state is meant to handle link failures very\n   quickly.\n\
-    \   SHORT_WAIT: This is the state entered when an IGP event has been\n   received\
-    \ in QUIET state.  This state is meant to handle a single\n   component failure\
-    \ requiring multiple IGP events (e.g., node, SRLG).\n   LONG_WAIT: This is the\
-    \ state reached after TIME_TO_LEARN_INTERVAL in\n   state SHORT_WAIT.  This state\
-    \ is meant to handle multiple independent\n   component failures during periods\
-    \ of IGP instability.\n"
-- title: 5.3.  Timers
-  contents:
-  - "5.3.  Timers\n   SPF_TIMER: This is the FSM timer that uses the computed SPF\
-    \ delay.\n   Upon expiration, the routing table computation (as defined in\n \
-    \  Section 3) is performed.\n   HOLDDOWN_TIMER: This is the FSM timer that is\
-    \ (re)started when an IGP\n   event is received and set to HOLDDOWN_INTERVAL.\
-    \  Upon expiration, the\n   FSM is moved to the QUIET state.\n   LEARN_TIMER:\
-    \ This is the FSM timer that is started when an IGP event\n   is received while\
-    \ the FSM is in the QUIET state.  Upon expiration,\n   the FSM is moved to the\
-    \ LONG_WAIT state.\n"
-- title: 5.4.  FSM Events
-  contents:
-  - "5.4.  FSM Events\n   This section describes the events and the actions performed\
-    \ in\n   response.\n   Transition 1: IGP event while in QUIET state\n   Actions\
-    \ on event 1:\n   o  If SPF_TIMER is not already running, start it with value\n\
-    \      INITIAL_SPF_DELAY.\n   o  Start LEARN_TIMER with TIME_TO_LEARN_INTERVAL.\n\
-    \   o  Start HOLDDOWN_TIMER with HOLDDOWN_INTERVAL.\n   o  Transition to SHORT_WAIT\
-    \ state.\n   Transition 2: IGP event while in SHORT_WAIT\n   Actions on event\
-    \ 2:\n   o  Reset HOLDDOWN_TIMER to HOLDDOWN_INTERVAL.\n   o  If SPF_TIMER is\
-    \ not already running, start it with value\n      SHORT_SPF_DELAY.\n   o  Remain\
-    \ in current state.\n   Transition 3: LEARN_TIMER expiration\n   Actions on event\
-    \ 3:\n   o  Transition to LONG_WAIT state.\n   Transition 4: IGP event while in\
-    \ LONG_WAIT\n   Actions on event 4:\n   o  Reset HOLDDOWN_TIMER to HOLDDOWN_INTERVAL.\n\
-    \   o  If SPF_TIMER is not already running, start it with value\n      LONG_SPF_DELAY.\n\
-    \   o  Remain in current state.\n   Transition 5: HOLDDOWN_TIMER expiration while\
-    \ in LONG_WAIT\n   Actions on event 5:\n   o  Transition to QUIET state.\n   Transition\
-    \ 6: HOLDDOWN_TIMER expiration while in SHORT_WAIT\n   Actions on event 6:\n \
-    \  o  Deactivate LEARN_TIMER.\n   o  Transition to QUIET state.\n   Transition\
-    \ 7: SPF_TIMER expiration while in QUIET\n   Actions on event 7:\n   o  Compute\
-    \ SPF.\n   o  Remain in current state.\n   Transition 8: SPF_TIMER expiration\
-    \ while in SHORT_WAIT\n   Actions on event 8:\n   o  Compute SPF.\n   o  Remain\
-    \ in current state.\n   Transition 9: SPF_TIMER expiration while in LONG_WAIT\n\
-    \   Actions on event 9:\n   o  Compute SPF.\n   o  Remain in current state.\n"
-- title: 6.  Parameters
-  contents:
-  - "6.  Parameters\n   All the parameters MUST be configurable at the protocol instance\n\
-    \   level.  They MAY be configurable on a per IGP LSDB basis (e.g., IS-IS\n  \
-    \ level, OSPF area, or IS-IS Level 1 area).  All the delays\n   (INITIAL_SPF_DELAY,\
-    \ SHORT_SPF_DELAY, LONG_SPF_DELAY,\n   TIME_TO_LEARN_INTERVAL, and HOLDDOWN_INTERVAL)\
-    \ SHOULD be configurable\n   with a granularity of a millisecond.  They MUST be\
-    \ configurable with\n   a granularity of at least a tenth of a second.  The configurable\n\
-    \   range for all the parameters SHOULD be from 0 milliseconds to at\n   least\
-    \ 6000 milliseconds.  The HOLDDOWN_INTERVAL MUST be defaulted or\n   configured\
-    \ to be longer than the TIME_TO_LEARN_INTERVAL.\n   If this SPF Back-Off algorithm\
-    \ is enabled by default, then in order\n   to have consistent SPF delays between\
-    \ implementations with default\n   configuration, the following default values\
-    \ SHOULD be implemented:\n      INITIAL_SPF_DELAY         50 ms\n      SHORT_SPF_DELAY\
-    \          200 ms\n      LONG_SPF_DELAY          5000 ms\n      TIME_TO_LEARN_INTERVAL\
-    \   500 ms\n      HOLDDOWN_INTERVAL      10000 ms\n   In order to satisfy the\
-    \ goals stated in Section 2, operators are\n   RECOMMENDED to configure delay\
-    \ intervals such that INITIAL_SPF_DELAY\n   <= SHORT_SPF_DELAY and SHORT_SPF_DELAY\
-    \ <= LONG_SPF_DELAY.\n   When setting (default) values, one should consider the\
-    \ customers and\n   their application requirements, the computational power of\
-    \ the\n   routers, the size of the network as determined primarily by the\n  \
-    \ number of IP prefixes advertised in the IGP, the frequency and number\n   of\
-    \ IGP events, and the number of protocol reactions/computations\n   triggered\
-    \ by IGP SPF computation (e.g., BGP, Path Computation Element\n   Communication\
-    \ Protocol (PCEP), Traffic Engineering Constrained SPF\n   (CSPF), and Fast Reroute\
-    \ computations).  Note that some or all of\n   these factors may change over the\
-    \ life of the network.  In case of\n   doubt, it's RECOMMENDED that timer intervals\
-    \ should be chosen\n   conservatively (i.e., longer timer values).\n   For the\
-    \ standard algorithm to be effective in mitigating micro-loops,\n   it is RECOMMENDED\
-    \ that all routers in the IGP domain, or at least all\n   the routers in the same\
-    \ area/level, have exactly the same configured\n   values.\n"
-- title: 7.  Partial Deployment
-  contents:
-  - "7.  Partial Deployment\n   In general, the SPF Back-Off Delay algorithm is only\
-    \ effective in\n   mitigating micro-loops if it is deployed with the same parameters\
-    \ on\n   all routers in the IGP domain or, at least, all routers in an IGP\n \
-    \  area/level.  The impact of partial deployment is dependent on the\n   particular\
-    \ event, the topology, and the algorithm(s) used on other\n   routers in the IGP\
-    \ area/level.  In cases where the previous SPF Back-\n   Off Delay algorithm was\
-    \ implemented uniformly, partial deployment\n   will increase the frequency and\
-    \ duration of micro-loops.  Hence, it\n   is RECOMMENDED that all routers in the\
-    \ IGP domain, or at least within\n   the same area/level, be migrated to the SPF\
-    \ algorithm described\n   herein at roughly the same time.\n   Note that this\
-    \ is not a new consideration; over time, network\n   operators have changed SPF\
-    \ delay parameters in order to accommodate\n   new customer requirements for fast\
-    \ convergence, as permitted by new\n   software and hardware.  They may also have\
-    \ progressively replaced an\n   implementation using a given SPF Back-Off Delay\
-    \ algorithm with\n   another implementation using a different one.\n"
-- title: 8.  Impact on Micro-loops
-  contents:
-  - "8.  Impact on Micro-loops\n   Micro-loops during IGP convergence are due to a\
-    \ non-synchronized or\n   non-ordered update of FIBs [RFC5715] [RFC6976] [SPF-MICRO].\
-    \  FIBs are\n   installed after multiple steps, such as flooding of the IGP event\n\
-    \   across the network, SPF wait time, SPF computation, FIB distribution\n   across\
-    \ line cards, and FIB update.  This document only addresses the\n   contribution\
-    \ from the SPF wait time.  This standardized procedure\n   reduces the probability\
-    \ and/or duration of micro-loops when IGPs\n   experience multiple temporally\
-    \ close events.  It does not prevent all\n   micro-loops; however, it is beneficial\
-    \ and is less complex and costly\n   to implement when compared to full solutions\
-    \ such as Distributed\n   Tunnels [RFC5715], Synchronized FIB Update [RFC5715],\
-    \ or the ordered\n   FIB approach [RFC6976].\n"
-- title: 9.  IANA Considerations
-  contents:
+  title: __initial_text__
+- contents:
+  - "Abstract\n   This document defines a standard algorithm to temporarily postpone
+    or\n   \"back off\" link-state IGP Shortest Path First (SPF) computations.\n   This
+    reduces the computational load and churn on IGP nodes when\n   multiple temporally
+    close network events trigger multiple SPF\n   computations.\n   Having one standard
+    algorithm improves interoperability by reducing\n   the probability and/or duration
+    of transient forwarding loops during\n   the IGP convergence when the IGP reacts
+    to multiple temporally close\n   IGP events.\n"
+  title: Abstract
+- contents:
+  - "Status of This Memo\n   This is an Internet Standards Track document.\n   This
+    document is a product of the Internet Engineering Task Force\n   (IETF).  It represents
+    the consensus of the IETF community.  It has\n   received public review and has
+    been approved for publication by the\n   Internet Engineering Steering Group (IESG).
+    \ Further information on\n   Internet Standards is available in Section 2 of RFC
+    7841.\n   Information about the current status of this document, any errata,\n
+    \  and how to provide feedback on it may be obtained at\n   https://www.rfc-editor.org/info/rfc8405.\n"
+  title: Status of This Memo
+- contents:
+  - "Copyright Notice\n   Copyright (c) 2018 IETF Trust and the persons identified
+    as the\n   document authors.  All rights reserved.\n   This document is subject
+    to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n
+    \  (https://trustee.ietf.org/license-info) in effect on the date of\n   publication
+    of this document.  Please review these documents\n   carefully, as they describe
+    your rights and restrictions with respect\n   to this document.  Code Components
+    extracted from this document must\n   include Simplified BSD License text as described
+    in Section 4.e of\n   the Trust Legal Provisions and are provided without warranty
+    as\n   described in the Simplified BSD License.\n"
+  title: Copyright Notice
+- contents:
+  - "Table of Contents\n   1.  Introduction  . . . . . . . . . . . . . . . . . . .
+    . . . . .   2\n     1.1.  Requirements Language . . . . . . . . . . . . . . .
+    . . .   3\n   2.  High-Level Goals  . . . . . . . . . . . . . . . . . . . . .
+    .   3\n   3.  Definitions and Parameters  . . . . . . . . . . . . . . . . .   4\n
+    \  4.  Principles of the SPF Delay Algorithm . . . . . . . . . . . .   5\n   5.
+    \ Specification of the SPF Delay State Machine  . . . . . . . .   6\n     5.1.
+    \ State Machine . . . . . . . . . . . . . . . . . . . . . .   6\n     5.2.  States
+    \ . . . . . . . . . . . . . . . . . . . . . . . . .   7\n     5.3.  Timers  .
+    . . . . . . . . . . . . . . . . . . . . . . . .   7\n     5.4.  FSM Events  .
+    . . . . . . . . . . . . . . . . . . . . . .   7\n   6.  Parameters  . . . . .
+    . . . . . . . . . . . . . . . . . . . .   9\n   7.  Partial Deployment  . . .
+    . . . . . . . . . . . . . . . . . .  10\n   8.  Impact on Micro-loops . . . .
+    . . . . . . . . . . . . . . . .  11\n   9.  IANA Considerations . . . . . . .
+    . . . . . . . . . . . . . .  11\n   10. Security Considerations . . . . . . .
+    . . . . . . . . . . . .  11\n   11. References  . . . . . . . . . . . . . . .
+    . . . . . . . . . .  11\n     11.1.  Normative References . . . . . . . . . .
+    . . . . . . . .  11\n     11.2.  Informative References . . . . . . . . . . .
+    . . . . . .  11\n   Acknowledgements  . . . . . . . . . . . . . . . . . . . .
+    . . . .  13\n   Authors' Addresses  . . . . . . . . . . . . . . . . . . . . .
+    . .  13\n"
+  title: Table of Contents
+- contents:
+  - "1.  Introduction\n   Link-state IGPs, such as IS-IS [ISO10589], OSPF [RFC2328],
+    and OSPFv3\n   [RFC5340], perform distributed route computation on all routers
+    in\n   the area/level.  In order to have consistent routing tables across\n   the
+    network, such distributed computation requires that all routers\n   have the same
+    version of the network topology (Link-State Database\n   (LSDB)) and perform their
+    computation essentially at the same time.\n   In general, when the network is
+    stable, there is a desire to trigger\n   a new Shortest Path First (SPF) computation
+    as soon as a failure is\n   detected in order to quickly route around the failure.
+    \ However, when\n   the network is experiencing multiple failures over a short
+    period of\n   time, there is a conflicting desire to limit the frequency of SPF\n
+    \  computations, which would allow a reduction in control plane\n   resources
+    used by IGPs and all protocols/subsystems reacting to the\n   attendant route
+    change, such as LDP [RFC5036], RSVP-TE [RFC3209], BGP\n   [RFC4271], Fast Reroute
+    computations (e.g., Loop-Free Alternates\n   (LFAs) [RFC5286]), FIB updates, etc.
+    \ This also reduces network churn\n   and, in particular, reduces side effects
+    (such as micro-loops\n   [RFC5715]) that ensue during IGP convergence.\n   To
+    allow for this, IGPs usually implement an SPF Back-Off Delay\n   algorithm that
+    postpones or backs off the SPF computation.  However,\n   different implementations
+    chose different algorithms.  Hence, in a\n   multi-vendor network, it's not possible
+    to ensure that all routers\n   trigger their SPF computation after the same delay.
+    \ This situation\n   increases the average and maximum differential delay between
+    routers\n   completing their SPF computation.  It also increases the probability\n
+    \  that different routers compute their FIBs based on different LSDB\n   versions.
+    \ Both factors increase the probability and/or duration of\n   micro-loops as
+    discussed in Section 8.\n   This document specifies a standard algorithm to allow
+    multi-vendor\n   networks to have all routers delay their SPF computations for
+    the\n   same duration.\n"
+  - contents:
+    - "1.1.  Requirements Language\n   The key words \"MUST\", \"MUST NOT\", \"REQUIRED\",
+      \"SHALL\", \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\", \"NOT
+      RECOMMENDED\", \"MAY\", and\n   \"OPTIONAL\" in this document are to be interpreted
+      as described in\n   BCP 14 [RFC2119] [RFC8174] when, and only when, they appear
+      in all\n   capitals, as shown here.\n"
+    title: 1.1.  Requirements Language
+  title: 1.  Introduction
+- contents:
+  - "2.  High-Level Goals\n   The high-level goals of this algorithm are the following:\n
+    \  o  very fast convergence for a single event (e.g., link failure),\n   o  paced
+    fast convergence for multiple temporally close IGP events\n      while IGP stability
+    is considered acceptable,\n   o  delayed convergence when IGP stability is problematic
+    (this will\n      allow the IGP and related processes to conserve resources during\n
+    \     the period of instability), and\n   o  avoidance of having different SPF_DELAY
+    timer values (Section 3)\n      across different routers in the area/level.  This
+    requires\n      specific consideration as different routers may receive IGP\n
+    \     messages at different intervals, or even in different orders, due\n      to
+    differences both in the distance from the originator of the IGP\n      event and
+    in flooding implementations.\n"
+  title: 2.  High-Level Goals
+- contents:
+  - "3.  Definitions and Parameters\n   IGP event: The reception or origination of
+    an IGP LSDB change\n   requiring a new routing table computation.  Some examples
+    are a\n   topology change, a prefix change, and a metric change on a link or\n
+    \  prefix.  Note that locally triggering a routing table computation is\n   not
+    considered an IGP event since other IGP routers are unaware of\n   this occurrence.\n
+    \  Routing table computation, in this document, is scoped to the IGP;\n   so,
+    this is the computation of the IGP RIB, performed by the IGP,\n   using the IGP
+    LSDB.  No distinction is made between the type of\n   computation performed, e.g.,
+    full SPF, incremental SPF, or Partial\n   Route Computation (PRC); the type of
+    computation is a local\n   consideration.  This document may interchangeably use
+    the terms\n   \"routing table computation\" and \"SPF computation\".\n   SPF_DELAY:
+    The delay between the first IGP event triggering a new\n   routing table computation
+    and the start of that routing table\n   computation.  It can take the following
+    values:\n    INITIAL_SPF_DELAY: A very small delay to quickly handle a single\n
+    \   isolated link failure, e.g., 0 milliseconds.\n    SHORT_SPF_DELAY: A small
+    delay to provide fast convergence in the\n    case of a single component failure
+    (such as a node failure or Shared\n    Risk Link Group (SRLG) failure) that leads
+    to multiple IGP events,\n    e.g., 50-100 milliseconds.\n    LONG_SPF_DELAY: A
+    long delay when the IGP is unstable, e.g., 2\n    seconds.  Note that this allows
+    the IGP network to stabilize.\n   TIME_TO_LEARN_INTERVAL: This is the maximum
+    duration typically needed\n   to learn all the IGP events related to a single
+    component failure\n   (such as router failure or SRLG failure), e.g., 1 second.
+    \ It's\n   mostly dependent on failure detection time variation between all\n
+    \  routers that are adjacent to the failure.  Additionally, it may\n   depend
+    on the different IGP implementations/parameters across the\n   network and their
+    relation to the origination and flooding of link\n   state advertisements.\n   HOLDDOWN_INTERVAL:
+    The time required with no received IGP event\n   before considering the IGP to
+    be stable again and allowing the\n   SPF_DELAY to be restored to INITIAL_SPF_DELAY,
+    e.g., a\n   HOLDDOWN_INTERVAL of 3 seconds.  The HOLDDOWN_INTERVAL MUST be\n   defaulted
+    or configured to be longer than the TIME_TO_LEARN_INTERVAL.\n"
+  title: 3.  Definitions and Parameters
+- contents:
+  - "4.  Principles of the SPF Delay Algorithm\n   For the first IGP event, we assume
+    that there has been a single\n   simple change in the network, which can be taken
+    into account using a\n   single routing computation (e.g., link failure, prefix
+    (metric)\n   change), and we optimize for very fast convergence by delaying the\n
+    \  initial routing computation for a small interval, INITIAL_SPF_DELAY.\n   Under
+    this assumption, there is no benefit in delaying the routing\n   computation.
+    \ In a typical network, this is the most common type of\n   IGP event.  Hence,
+    it makes sense to optimize this case.\n   If subsequent IGP events are received
+    in a short period of time\n   (TIME_TO_LEARN_INTERVAL), we then assume that a
+    single component\n   failed, but that this failure requires the knowledge of multiple
+    IGP\n   events in order for IGP routing to converge.  Under this assumption,\n
+    \  we want fast convergence since this is a normal network situation.\n   However,
+    there is a benefit in waiting for all IGP events related to\n   this single component
+    failure: the IGP can then compute the post-\n   failure routing table in a single
+    additional route computation.  In\n   this situation, we delay the routing computation
+    by SHORT_SPF_DELAY.\n   If IGP events are still received after TIME_TO_LEARN_INTERVAL
+    from\n   the initial IGP event received in QUIET state (see Section 5.1), then\n
+    \  the network is presumably experiencing multiple independent failures.\n   In
+    this case, while waiting for network stability, the computations\n   are delayed
+    for a longer time, which is represented by\n   LONG_SPF_DELAY.  This SPF delay
+    is used until no IGP events are\n   received for HOLDDOWN_INTERVAL.\n   Note that
+    in order to increase the consistency network wide, the\n   algorithm uses a delay
+    (TIME_TO_LEARN_INTERVAL) from the initial IGP\n   event rather than the number
+    of SPF computations performed.  Indeed,\n   as all routers may receive the IGP
+    events at different times, we\n   cannot assume that all routers will perform
+    the same number of SPF\n   computations.  For example, assuming that the SPF delay
+    is 50\n   milliseconds, router R1 may receive three IGP events (E1, E2, E3) in\n
+    \  those 50 milliseconds and hence will perform a single routing\n   computation,
+    while another router R2 may only receive two events (E1,\n   E2) in those 50 milliseconds
+    and hence will schedule another routing\n   computation when receiving E3.\n"
+  title: 4.  Principles of the SPF Delay Algorithm
+- contents:
+  - "5.  Specification of the SPF Delay State Machine\n   This section specifies the
+    Finite State Machine (FSM) intended to\n   control the timing of the execution
+    of SPF calculations in response\n   to IGP events.\n"
+  - contents:
+    - "5.1.  State Machine\n   The FSM is initialized to the QUIET state with all
+      three timers\n   (SPF_TIMER, HOLDDOWN_TIMER, and LEARN_TIMER) deactivated.\n
+      \  The events that may change the FSM states are an IGP event or the\n   expiration
+      of one timer (SPF_TIMER, HOLDDOWN_TIMER, or LEARN_TIMER).\n   The following
+      diagram briefly describes the state transitions.\n                     +-------------------+\n
+      \              +---->|                   |<-------------------+\n               |
+      \    |      QUIET        |                    |\n               +-----|                   |<---------+
+      \        |\n           7:        +-------------------+          |         |\n
+      \          SPF_TIMER           |                    |         |\n           expiration
+      \         |                    |         |\n                               |
+      1: IGP event       |         |\n                               |                    |
+      \        |\n                               v                    |         |\n
+      \                    +-------------------+          |         |\n               +---->|
+      \                  |          |         |\n               |     |    SHORT_WAIT
+      \    |----->----+         |\n               +-----|                   |                    |\n
+      \          2:        +-------------------+  6: HOLDDOWN_TIMER |\n           IGP
+      event           |               expiration     |\n           8: SPF_TIMER        |
+      \                             |\n              expiration       |                              |\n
+      \                              | 3: LEARN_TIMER               |\n                               |
+      \   expiration                |\n                               |                              |\n
+      \                              v                              |\n                     +-------------------+
+      \                   |\n               +---->|                   |                    |\n
+      \              |     |     LONG_WAIT     |------------>-------+\n               +-----|
+      \                  |\n           4:        +-------------------+  5: HOLDDOWN_TIMER\n
+      \          IGP event                           expiration\n           9: SPF_TIMER
+      expiration\n                          Figure 1: State Machine\n"
+    title: 5.1.  State Machine
+  - contents:
+    - "5.2.  States\n   The naming and semantics of each state corresponds directly
+      to the\n   SPF delay used for IGP events received in that state.  Three states\n
+      \  are defined:\n   QUIET: This is the initial state, when no IGP events have
+      occurred\n   for at least HOLDDOWN_INTERVAL since the last routing table\n   computation.
+      \ The state is meant to handle link failures very\n   quickly.\n   SHORT_WAIT:
+      This is the state entered when an IGP event has been\n   received in QUIET state.
+      \ This state is meant to handle a single\n   component failure requiring multiple
+      IGP events (e.g., node, SRLG).\n   LONG_WAIT: This is the state reached after
+      TIME_TO_LEARN_INTERVAL in\n   state SHORT_WAIT.  This state is meant to handle
+      multiple independent\n   component failures during periods of IGP instability.\n"
+    title: 5.2.  States
+  - contents:
+    - "5.3.  Timers\n   SPF_TIMER: This is the FSM timer that uses the computed SPF
+      delay.\n   Upon expiration, the routing table computation (as defined in\n   Section
+      3) is performed.\n   HOLDDOWN_TIMER: This is the FSM timer that is (re)started
+      when an IGP\n   event is received and set to HOLDDOWN_INTERVAL.  Upon expiration,
+      the\n   FSM is moved to the QUIET state.\n   LEARN_TIMER: This is the FSM timer
+      that is started when an IGP event\n   is received while the FSM is in the QUIET
+      state.  Upon expiration,\n   the FSM is moved to the LONG_WAIT state.\n"
+    title: 5.3.  Timers
+  - contents:
+    - "5.4.  FSM Events\n   This section describes the events and the actions performed
+      in\n   response.\n   Transition 1: IGP event while in QUIET state\n   Actions
+      on event 1:\n   o  If SPF_TIMER is not already running, start it with value\n
+      \     INITIAL_SPF_DELAY.\n   o  Start LEARN_TIMER with TIME_TO_LEARN_INTERVAL.\n
+      \  o  Start HOLDDOWN_TIMER with HOLDDOWN_INTERVAL.\n   o  Transition to SHORT_WAIT
+      state.\n   Transition 2: IGP event while in SHORT_WAIT\n   Actions on event
+      2:\n   o  Reset HOLDDOWN_TIMER to HOLDDOWN_INTERVAL.\n   o  If SPF_TIMER is
+      not already running, start it with value\n      SHORT_SPF_DELAY.\n   o  Remain
+      in current state.\n   Transition 3: LEARN_TIMER expiration\n   Actions on event
+      3:\n   o  Transition to LONG_WAIT state.\n   Transition 4: IGP event while in
+      LONG_WAIT\n   Actions on event 4:\n   o  Reset HOLDDOWN_TIMER to HOLDDOWN_INTERVAL.\n
+      \  o  If SPF_TIMER is not already running, start it with value\n      LONG_SPF_DELAY.\n
+      \  o  Remain in current state.\n   Transition 5: HOLDDOWN_TIMER expiration while
+      in LONG_WAIT\n   Actions on event 5:\n   o  Transition to QUIET state.\n   Transition
+      6: HOLDDOWN_TIMER expiration while in SHORT_WAIT\n   Actions on event 6:\n   o
+      \ Deactivate LEARN_TIMER.\n   o  Transition to QUIET state.\n   Transition 7:
+      SPF_TIMER expiration while in QUIET\n   Actions on event 7:\n   o  Compute SPF.\n
+      \  o  Remain in current state.\n   Transition 8: SPF_TIMER expiration while
+      in SHORT_WAIT\n   Actions on event 8:\n   o  Compute SPF.\n   o  Remain in current
+      state.\n   Transition 9: SPF_TIMER expiration while in LONG_WAIT\n   Actions
+      on event 9:\n   o  Compute SPF.\n   o  Remain in current state.\n"
+    title: 5.4.  FSM Events
+  title: 5.  Specification of the SPF Delay State Machine
+- contents:
+  - "6.  Parameters\n   All the parameters MUST be configurable at the protocol instance\n
+    \  level.  They MAY be configurable on a per IGP LSDB basis (e.g., IS-IS\n   level,
+    OSPF area, or IS-IS Level 1 area).  All the delays\n   (INITIAL_SPF_DELAY, SHORT_SPF_DELAY,
+    LONG_SPF_DELAY,\n   TIME_TO_LEARN_INTERVAL, and HOLDDOWN_INTERVAL) SHOULD be configurable\n
+    \  with a granularity of a millisecond.  They MUST be configurable with\n   a
+    granularity of at least a tenth of a second.  The configurable\n   range for all
+    the parameters SHOULD be from 0 milliseconds to at\n   least 6000 milliseconds.
+    \ The HOLDDOWN_INTERVAL MUST be defaulted or\n   configured to be longer than
+    the TIME_TO_LEARN_INTERVAL.\n   If this SPF Back-Off algorithm is enabled by default,
+    then in order\n   to have consistent SPF delays between implementations with default\n
+    \  configuration, the following default values SHOULD be implemented:\n      INITIAL_SPF_DELAY
+    \        50 ms\n      SHORT_SPF_DELAY          200 ms\n      LONG_SPF_DELAY          5000
+    ms\n      TIME_TO_LEARN_INTERVAL   500 ms\n      HOLDDOWN_INTERVAL      10000
+    ms\n   In order to satisfy the goals stated in Section 2, operators are\n   RECOMMENDED
+    to configure delay intervals such that INITIAL_SPF_DELAY\n   <= SHORT_SPF_DELAY
+    and SHORT_SPF_DELAY <= LONG_SPF_DELAY.\n   When setting (default) values, one
+    should consider the customers and\n   their application requirements, the computational
+    power of the\n   routers, the size of the network as determined primarily by the\n
+    \  number of IP prefixes advertised in the IGP, the frequency and number\n   of
+    IGP events, and the number of protocol reactions/computations\n   triggered by
+    IGP SPF computation (e.g., BGP, Path Computation Element\n   Communication Protocol
+    (PCEP), Traffic Engineering Constrained SPF\n   (CSPF), and Fast Reroute computations).
+    \ Note that some or all of\n   these factors may change over the life of the network.
+    \ In case of\n   doubt, it's RECOMMENDED that timer intervals should be chosen\n
+    \  conservatively (i.e., longer timer values).\n   For the standard algorithm
+    to be effective in mitigating micro-loops,\n   it is RECOMMENDED that all routers
+    in the IGP domain, or at least all\n   the routers in the same area/level, have
+    exactly the same configured\n   values.\n"
+  title: 6.  Parameters
+- contents:
+  - "7.  Partial Deployment\n   In general, the SPF Back-Off Delay algorithm is only
+    effective in\n   mitigating micro-loops if it is deployed with the same parameters
+    on\n   all routers in the IGP domain or, at least, all routers in an IGP\n   area/level.
+    \ The impact of partial deployment is dependent on the\n   particular event, the
+    topology, and the algorithm(s) used on other\n   routers in the IGP area/level.
+    \ In cases where the previous SPF Back-\n   Off Delay algorithm was implemented
+    uniformly, partial deployment\n   will increase the frequency and duration of
+    micro-loops.  Hence, it\n   is RECOMMENDED that all routers in the IGP domain,
+    or at least within\n   the same area/level, be migrated to the SPF algorithm described\n
+    \  herein at roughly the same time.\n   Note that this is not a new consideration;
+    over time, network\n   operators have changed SPF delay parameters in order to
+    accommodate\n   new customer requirements for fast convergence, as permitted by
+    new\n   software and hardware.  They may also have progressively replaced an\n
+    \  implementation using a given SPF Back-Off Delay algorithm with\n   another
+    implementation using a different one.\n"
+  title: 7.  Partial Deployment
+- contents:
+  - "8.  Impact on Micro-loops\n   Micro-loops during IGP convergence are due to a
+    non-synchronized or\n   non-ordered update of FIBs [RFC5715] [RFC6976] [SPF-MICRO].
+    \ FIBs are\n   installed after multiple steps, such as flooding of the IGP event\n
+    \  across the network, SPF wait time, SPF computation, FIB distribution\n   across
+    line cards, and FIB update.  This document only addresses the\n   contribution
+    from the SPF wait time.  This standardized procedure\n   reduces the probability
+    and/or duration of micro-loops when IGPs\n   experience multiple temporally close
+    events.  It does not prevent all\n   micro-loops; however, it is beneficial and
+    is less complex and costly\n   to implement when compared to full solutions such
+    as Distributed\n   Tunnels [RFC5715], Synchronized FIB Update [RFC5715], or the
+    ordered\n   FIB approach [RFC6976].\n"
+  title: 8.  Impact on Micro-loops
+- contents:
   - "9.  IANA Considerations\n   This document has no IANA actions.\n"
-- title: 10.  Security Considerations
-  contents:
-  - "10.  Security Considerations\n   The algorithm presented in this document does\
-    \ not compromise IGP\n   security.  An attacker having the ability to generate\
-    \ IGP events\n   would be able to delay the IGP convergence time.  The LONG_SPF_DELAY\n\
-    \   state may help mitigate the effects of Denial-of-Service (DoS)\n   attacks\
-    \ generating many IGP events.\n"
-- title: 11.  References
-  contents:
+  title: 9.  IANA Considerations
+- contents:
+  - "10.  Security Considerations\n   The algorithm presented in this document does
+    not compromise IGP\n   security.  An attacker having the ability to generate IGP
+    events\n   would be able to delay the IGP convergence time.  The LONG_SPF_DELAY\n
+    \  state may help mitigate the effects of Denial-of-Service (DoS)\n   attacks
+    generating many IGP events.\n"
+  title: 10.  Security Considerations
+- contents:
   - '11.  References
 
     '
-- title: 11.1.  Normative References
-  contents:
-  - "11.1.  Normative References\n   [RFC2119]  Bradner, S., \"Key words for use in\
-    \ RFCs to Indicate\n              Requirement Levels\", BCP 14, RFC 2119,\n  \
-    \            DOI 10.17487/RFC2119, March 1997,\n              <https://www.rfc-editor.org/info/rfc2119>.\n\
-    \   [RFC8174]  Leiba, B., \"Ambiguity of Uppercase vs Lowercase in RFC\n     \
-    \         2119 Key Words\", BCP 14, RFC 8174, DOI 10.17487/RFC8174,\n        \
-    \      May 2017, <https://www.rfc-editor.org/info/rfc8174>.\n"
-- title: 11.2.  Informative References
-  contents:
-  - "11.2.  Informative References\n   [ISO10589]\n              International Organization\
-    \ for Standardization,\n              \"Information technology -- Telecommunications\
-    \ and\n              information exchange between systems -- Intermediate\n  \
-    \            System to Intermediate System intra-domain routeing\n           \
-    \   information exchange protocol for use in conjunction with\n              the\
-    \ protocol for providing the connectionless-mode network\n              service\
-    \ (ISO 8473)\", ISO/IEC 10589:2002, Second Edition,\n              November 2002.\n\
-    \   [RFC2328]  Moy, J., \"OSPF Version 2\", STD 54, RFC 2328,\n              DOI\
-    \ 10.17487/RFC2328, April 1998,\n              <https://www.rfc-editor.org/info/rfc2328>.\n\
-    \   [RFC3209]  Awduche, D., Berger, L., Gan, D., Li, T., Srinivasan, V.,\n   \
-    \           and G. Swallow, \"RSVP-TE: Extensions to RSVP for LSP\n          \
-    \    Tunnels\", RFC 3209, DOI 10.17487/RFC3209, December 2001,\n             \
-    \ <https://www.rfc-editor.org/info/rfc3209>.\n   [RFC4271]  Rekhter, Y., Ed.,\
-    \ Li, T., Ed., and S. Hares, Ed., \"A\n              Border Gateway Protocol 4\
-    \ (BGP-4)\", RFC 4271,\n              DOI 10.17487/RFC4271, January 2006,\n  \
-    \            <https://www.rfc-editor.org/info/rfc4271>.\n   [RFC5036]  Andersson,\
-    \ L., Ed., Minei, I., Ed., and B. Thomas, Ed.,\n              \"LDP Specification\"\
-    , RFC 5036, DOI 10.17487/RFC5036,\n              October 2007, <https://www.rfc-editor.org/info/rfc5036>.\n\
-    \   [RFC5286]  Atlas, A., Ed. and A. Zinin, Ed., \"Basic Specification for\n \
-    \             IP Fast Reroute: Loop-Free Alternates\", RFC 5286,\n           \
-    \   DOI 10.17487/RFC5286, September 2008,\n              <https://www.rfc-editor.org/info/rfc5286>.\n\
-    \   [RFC5340]  Coltun, R., Ferguson, D., Moy, J., and A. Lindem, \"OSPF\n    \
-    \          for IPv6\", RFC 5340, DOI 10.17487/RFC5340, July 2008,\n          \
-    \    <https://www.rfc-editor.org/info/rfc5340>.\n   [RFC5715]  Shand, M. and S.\
-    \ Bryant, \"A Framework for Loop-Free\n              Convergence\", RFC 5715,\
-    \ DOI 10.17487/RFC5715, January\n              2010, <https://www.rfc-editor.org/info/rfc5715>.\n\
-    \   [RFC6976]  Shand, M., Bryant, S., Previdi, S., Filsfils, C.,\n           \
-    \   Francois, P., and O. Bonaventure, \"Framework for Loop-Free\n            \
-    \  Convergence Using the Ordered Forwarding Information Base\n              (oFIB)\
-    \ Approach\", RFC 6976, DOI 10.17487/RFC6976, July\n              2013, <https://www.rfc-editor.org/info/rfc6976>.\n\
-    \   [SPF-MICRO]\n              Litkowski, S., Decraene, B., and M. Horneffer,\
-    \ \"Link State\n              protocols SPF trigger and delay algorithm impact\
-    \ on IGP\n              micro-loops\", Work in Progress, draft-ietf-rtgwg-spf-\n\
-    \              uloop-pb-statement-07, May 2018.\n"
-- title: Acknowledgements
-  contents:
-  - "Acknowledgements\n   We would like to acknowledge Les Ginsberg, Uma Chunduri,\
-    \ Mike Shand,\n   and Alexander Vainshtein for the discussions and comments related\
-    \ to\n   this document.\n"
-- title: Authors' Addresses
-  contents:
-  - "Authors' Addresses\n   Bruno Decraene\n   Orange\n   Email: bruno.decraene@orange.com\n\
-    \   Stephane Litkowski\n   Orange Business Service\n   Email: stephane.litkowski@orange.com\n\
-    \   Hannes Gredler\n   RtBrick Inc.\n   Email: hannes@rtbrick.com\n   Acee Lindem\n\
-    \   Cisco Systems\n   301 Midenhall Way\n   Cary, NC  27513\n   United States\
-    \ of America\n   Email: acee@cisco.com\n   Pierre Francois\n   Email: pfrpfr@gmail.com\n\
-    \   Chris Bowers\n   Juniper Networks, Inc.\n   1194 N. Mathilda Ave.\n   Sunnyvale,\
-    \ CA  94089\n   United States of America\n   Email: cbowers@juniper.net\n"
+  - contents:
+    - "11.1.  Normative References\n   [RFC2119]  Bradner, S., \"Key words for use
+      in RFCs to Indicate\n              Requirement Levels\", BCP 14, RFC 2119,\n
+      \             DOI 10.17487/RFC2119, March 1997,\n              <https://www.rfc-editor.org/info/rfc2119>.\n
+      \  [RFC8174]  Leiba, B., \"Ambiguity of Uppercase vs Lowercase in RFC\n              2119
+      Key Words\", BCP 14, RFC 8174, DOI 10.17487/RFC8174,\n              May 2017,
+      <https://www.rfc-editor.org/info/rfc8174>.\n"
+    title: 11.1.  Normative References
+  - contents:
+    - "11.2.  Informative References\n   [ISO10589]\n              International Organization
+      for Standardization,\n              \"Information technology -- Telecommunications
+      and\n              information exchange between systems -- Intermediate\n              System
+      to Intermediate System intra-domain routeing\n              information exchange
+      protocol for use in conjunction with\n              the protocol for providing
+      the connectionless-mode network\n              service (ISO 8473)\", ISO/IEC
+      10589:2002, Second Edition,\n              November 2002.\n   [RFC2328]  Moy,
+      J., \"OSPF Version 2\", STD 54, RFC 2328,\n              DOI 10.17487/RFC2328,
+      April 1998,\n              <https://www.rfc-editor.org/info/rfc2328>.\n   [RFC3209]
+      \ Awduche, D., Berger, L., Gan, D., Li, T., Srinivasan, V.,\n              and
+      G. Swallow, \"RSVP-TE: Extensions to RSVP for LSP\n              Tunnels\",
+      RFC 3209, DOI 10.17487/RFC3209, December 2001,\n              <https://www.rfc-editor.org/info/rfc3209>.\n
+      \  [RFC4271]  Rekhter, Y., Ed., Li, T., Ed., and S. Hares, Ed., \"A\n              Border
+      Gateway Protocol 4 (BGP-4)\", RFC 4271,\n              DOI 10.17487/RFC4271,
+      January 2006,\n              <https://www.rfc-editor.org/info/rfc4271>.\n   [RFC5036]
+      \ Andersson, L., Ed., Minei, I., Ed., and B. Thomas, Ed.,\n              \"LDP
+      Specification\", RFC 5036, DOI 10.17487/RFC5036,\n              October 2007,
+      <https://www.rfc-editor.org/info/rfc5036>.\n   [RFC5286]  Atlas, A., Ed. and
+      A. Zinin, Ed., \"Basic Specification for\n              IP Fast Reroute: Loop-Free
+      Alternates\", RFC 5286,\n              DOI 10.17487/RFC5286, September 2008,\n
+      \             <https://www.rfc-editor.org/info/rfc5286>.\n   [RFC5340]  Coltun,
+      R., Ferguson, D., Moy, J., and A. Lindem, \"OSPF\n              for IPv6\",
+      RFC 5340, DOI 10.17487/RFC5340, July 2008,\n              <https://www.rfc-editor.org/info/rfc5340>.\n
+      \  [RFC5715]  Shand, M. and S. Bryant, \"A Framework for Loop-Free\n              Convergence\",
+      RFC 5715, DOI 10.17487/RFC5715, January\n              2010, <https://www.rfc-editor.org/info/rfc5715>.\n
+      \  [RFC6976]  Shand, M., Bryant, S., Previdi, S., Filsfils, C.,\n              Francois,
+      P., and O. Bonaventure, \"Framework for Loop-Free\n              Convergence
+      Using the Ordered Forwarding Information Base\n              (oFIB) Approach\",
+      RFC 6976, DOI 10.17487/RFC6976, July\n              2013, <https://www.rfc-editor.org/info/rfc6976>.\n
+      \  [SPF-MICRO]\n              Litkowski, S., Decraene, B., and M. Horneffer,
+      \"Link State\n              protocols SPF trigger and delay algorithm impact
+      on IGP\n              micro-loops\", Work in Progress, draft-ietf-rtgwg-spf-\n
+      \             uloop-pb-statement-07, May 2018.\n"
+    title: 11.2.  Informative References
+  title: 11.  References
+- contents:
+  - "Acknowledgements\n   We would like to acknowledge Les Ginsberg, Uma Chunduri,
+    Mike Shand,\n   and Alexander Vainshtein for the discussions and comments related
+    to\n   this document.\n"
+  title: Acknowledgements
+- contents:
+  - "Authors' Addresses\n   Bruno Decraene\n   Orange\n   Email: bruno.decraene@orange.com\n
+    \  Stephane Litkowski\n   Orange Business Service\n   Email: stephane.litkowski@orange.com\n
+    \  Hannes Gredler\n   RtBrick Inc.\n   Email: hannes@rtbrick.com\n   Acee Lindem\n
+    \  Cisco Systems\n   301 Midenhall Way\n   Cary, NC  27513\n   United States of
+    America\n   Email: acee@cisco.com\n   Pierre Francois\n   Email: pfrpfr@gmail.com\n
+    \  Chris Bowers\n   Juniper Networks, Inc.\n   1194 N. Mathilda Ave.\n   Sunnyvale,
+    CA  94089\n   United States of America\n   Email: cbowers@juniper.net\n"
+  title: Authors' Addresses

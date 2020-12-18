@@ -214,7 +214,7 @@ def check_dup(sections: List[RFCSection]):
 
 
 def main(start, end):
-    for i in range(start, end+1):
+    for i in tqdm(range(start, end+1)):
         try:
             rfc = RFC(i)
             sections = rfc.sections
@@ -223,22 +223,9 @@ def main(start, end):
                 RFCStatus.INTERNET_STANDARD,
                 RFCStatus.DRAFT_STANDARD
             } and not rfc.info['obsoleted_by']:
-                # text = preprocess(i)
-                # sections = extract_sections(i, text)
-                # rfc = RFC(i, sections)
-                # rfc.dump()
-
-                print(i)
-                # for section in sections:
-                #     if re.search(r'[=\-+|{}]', section['title']):
-                #         print(i, section['title'])
-                try:
-                    new_sections = create_tree(sections)
-                except:
-                    raise Exception(f'RFC{i} tree error')
-                if check_dup(new_sections):
-                    raise Exception(f'RFC{i} duplicate found')
-                print_sec(new_sections)
+                new_sections = create_tree(sections)
+                rfc = RFC(i, new_sections)
+                rfc.dump()
         except FileNotFoundError:
             continue
 

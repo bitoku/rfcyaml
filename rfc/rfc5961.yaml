@@ -1,616 +1,610 @@
-- title: __initial_text__
-  contents:
+- contents:
   - '         Improving TCP''s Robustness to Blind In-Window Attacks
 
     '
-- title: Abstract
-  contents:
-  - "Abstract\n   TCP has historically been considered to be protected against spoofed\n\
-    \   off-path packet injection attacks by relying on the fact that it is\n   difficult\
-    \ to guess the 4-tuple (the source and destination IP\n   addresses and the source\
-    \ and destination ports) in combination with\n   the 32-bit sequence number(s).\
-    \  A combination of increasing window\n   sizes and applications using longer-term\
-    \ connections (e.g., H-323 or\n   Border Gateway Protocol (BGP) [RFC4271]) have\
-    \ left modern TCP\n   implementations more vulnerable to these types of spoofed\
-    \ packet\n   injection attacks.\n   Many of these long-term TCP applications tend\
-    \ to have predictable IP\n   addresses and ports that makes it far easier for\
-    \ the 4-tuple (4-tuple\n   is the same as the socket pair mentioned in RFC 793)\
-    \ to be guessed.\n   Having guessed the 4-tuple correctly, an attacker can inject\
-    \ a TCP\n   segment with the RST bit set, the SYN bit set or data into a TCP\n\
-    \   connection by systematically guessing the sequence number of the\n   spoofed\
-    \ segment to be in the current receive window.  This can cause\n   the connection\
-    \ to abort or cause data corruption.  This document\n   specifies small modifications\
-    \ to the way TCP handles inbound segments\n   that can reduce the chances of a\
-    \ successful attack.\n"
-- title: Status of This Memo
-  contents:
-  - "Status of This Memo\n   This is an Internet Standards Track document.\n   This\
-    \ document is a product of the Internet Engineering Task Force\n   (IETF).  It\
-    \ represents the consensus of the IETF community.  It has\n   received public\
-    \ review and has been approved for publication by the\n   Internet Engineering\
-    \ Steering Group (IESG).  Further information on\n   Internet Standards is available\
-    \ in Section 2 of RFC 5741.\n   Information about the current status of this document,\
-    \ any errata,\n   and how to provide feedback on it may be obtained at\n   http://www.rfc-editor.org/info/rfc5961.\n"
-- title: Copyright Notice
-  contents:
-  - "Copyright Notice\n   Copyright (c) 2010 IETF Trust and the persons identified\
-    \ as the\n   document authors.  All rights reserved.\n   This document is subject\
-    \ to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n\
-    \   (http://trustee.ietf.org/license-info) in effect on the date of\n   publication\
-    \ of this document.  Please review these documents\n   carefully, as they describe\
-    \ your rights and restrictions with respect\n   to this document.  Code Components\
-    \ extracted from this document must\n   include Simplified BSD License text as\
-    \ described in Section 4.e of\n   the Trust Legal Provisions and are provided\
-    \ without warranty as\n   described in the Simplified BSD License.\n"
-- title: Table of Contents
-  contents:
-  - "Table of Contents\n   1. Introduction ....................................................3\n\
-    \      1.1. Applicability Statement ....................................3\n  \
-    \    1.2. Basic Attack Methodology ...................................4\n    \
-    \  1.3. Attack probabilities .......................................5\n   2. Terminology\
-    \ .....................................................7\n   3. Blind Reset Attack\
-    \ Using the RST Bit ............................7\n      3.1. Description of the\
-    \ Attack ..................................7\n      3.2. Mitigation .................................................7\n\
-    \   4. Blind Reset Attack Using the SYN Bit ............................9\n  \
-    \    4.1. Description of the Attack ..................................9\n    \
-    \  4.2. Mitigation .................................................9\n   5. Blind\
-    \ Data Injection Attack ....................................10\n      5.1. Description\
-    \ of the Attack .................................10\n      5.2. Mitigation ................................................11\n\
-    \   6. Suggested Mitigation Strengths .................................12\n  \
-    \ 7. ACK Throttling .................................................12\n   8.\
-    \ Backward Compatibility and Other Considerations ................13\n   9. Middlebox\
-    \ Considerations .......................................14\n      9.1. Middlebox\
-    \ That Resend RSTs ................................14\n      9.2. Middleboxes\
-    \ That Advance Sequence Numbers .................15\n      9.3. Middleboxes That\
-    \ Drop the Challenge ACK ...................15\n   10. Security Considerations\
-    \ .......................................16\n   11. Contributors ..................................................17\n\
-    \   12. Acknowledgments ...............................................17\n  \
-    \ 13. References ....................................................17\n    \
-    \  13.1. Normative References .....................................17\n      13.2.\
-    \ Informative References ...................................17\n"
-- title: 1.  Introduction
-  contents:
-  - "1.  Introduction\n   TCP [RFC0793] is widely deployed and the most common reliable\
-    \ end-to-\n   end transport protocol used for data communication in today's\n\
-    \   Internet.  Yet, when it was standardized over 20 years ago, the\n   Internet\
-    \ was a different place, lacking many of the threats that are\n   now common.\
-    \  The off-path TCP spoofing attacks, which are seen in the\n   Internet today,\
-    \ fall into this category.\n   In a TCP spoofing attack, an off-path attacker\
-    \ crafts TCP packets by\n   forging the IP source and destination addresses as\
-    \ well as the source\n   and destination ports (referred to as a 4-tuple value\
-    \ in this\n   document).  The targeted TCP endpoint will then associate such a\n\
-    \   packet with an existing TCP connection.  It needs to be noted that,\n   guessing\
-    \ this 4-tuple value is not always easy for an attacker.  But\n   there are some\
-    \ applications (e.g., BGP [RFC4271]) that have a\n   tendency to use the same\
-    \ set(s) of ports on either endpoint, making\n   the odds of correctly guessing\
-    \ the 4-tuple value much easier.  When\n   an attacker is successful in guessing\
-    \ the 4-tuple value, one of three\n   types of injection attacks may be waged\
-    \ against a long-lived\n   connection.\n   RST -  Where an attacker injects a\
-    \ RST segment hoping to cause the\n      connection to be torn down.  \"RST segment\"\
-    \ here refers to a TCP\n      segment with the RST bit set.\n   SYN -  Where an\
-    \ attacker injects a SYN hoping to cause the receiver\n      to believe the peer\
-    \ has restarted and therefore tear down the\n      connection state.  \"SYN segment\"\
-    \ here refers to a TCP segment with\n      SYN bit set.\n   DATA -  Where an attacker\
-    \ tries to inject a DATA segment to corrupt\n      the contents of the transmission.\
-    \  \"DATA segment\" here refers to\n      any TCP segment containing data.\n"
-- title: 1.1.  Applicability Statement
-  contents:
-  - "1.1.  Applicability Statement\n   This document talks about some known in-window\
-    \ attacks and suitable\n   defenses against these.  The mitigations suggested\
-    \ in this document\n   SHOULD be implemented in devices that regularly need to\
-    \ maintain TCP\n   connections of the kind most vulnerable to the attacks described\
-    \ in\n   this document.  Examples of such TCP connections are the ones that\n\
-    \   tend to be long-lived and where the connection endpoints can be\n   determined,\
-    \ in cases where no auxiliary anti-spoofing protection\n   mechanisms like TCP\
-    \ MD5 [RFC2385] can be deployed.  These mitigations\n   MAY be implemented in\
-    \ other cases.\n"
-- title: 1.2.  Basic Attack Methodology
-  contents:
-  - "1.2.  Basic Attack Methodology\n   Focusing upon the RST attack, we examine this\
-    \ attack in more detail\n   to get an overview as to how it works and how this\
-    \ document addresses\n   the issue.  For this attack, the goal is for the attacker\
-    \ to cause\n   one of the two endpoints of the connection to incorrectly tear\
-    \ down\n   the connection state, effectively aborting the connection.  One of\n\
-    \   the important things to note is that for the attack to succeed the\n   RST\
-    \ needs to be in the valid receive window.  It also needs to be\n   emphasized\
-    \ that the receive window is independent of the current\n   congestion window\
-    \ of the TCP connection.  The attacker would try to\n   forge many RST segments\
-    \ to try to cover the space of possible windows\n   by putting out a packet in\
-    \ each potential window.  To do this, the\n   attacker needs to have or guess\
-    \ several pieces of information namely:\n   1) The 4-tuple value containing the\
-    \ IP address and TCP port number of\n      both ends of the connection.  For one\
-    \ side (usually the server),\n      guessing the port number is a trivial exercise.\
-    \  The client side\n      may or may not be easy for an attacker to guess depending\
-    \ on a\n      number of factors, most notably the operating system and\n     \
-    \ application involved.\n   2) A sequence number that will be used in the RST.\
-    \  This sequence\n      number will be a starting point for a series of guesses\
-    \ to attempt\n      to present a RST segment to a connection endpoint that would\
-    \ be\n      acceptable to it.  Any random value may be used to guess the\n   \
-    \   starting sequence number.\n   3) The window size that the two endpoints are\
-    \ using.  This value does\n      NOT have to be the exact window size since a\
-    \ smaller value used in\n      lieu of the correct one will just cause the attacker\
-    \ to generate\n      more segments before succeeding in his mischief.  Most modern\n\
-    \      operating systems have a default window size that usually is\n      applied\
-    \ to most connections.  Some applications however may change\n      the window\
-    \ size to better suit the needs of the application.  So\n      often times the\
-    \ attacker, with a fair degree of certainty (knowing\n      the application that\
-    \ is under attack), can come up with a very\n      close approximation as to the\
-    \ actual window size in use on the\n      connection.\n   After assembling the\
-    \ above set of information, the attacker begins\n   sending spoofed TCP segments\
-    \ with the RST bit set and a guessed TCP\n   sequence number.  Each time a new\
-    \ RST segment is sent, the sequence\n   number guess is incremented by the window\
-    \ size.  The feasibility of\n   this methodology (without mitigations) was first\
-    \ shown in [SITW].\n   This is because [RFC0793] specifies that any RST within\
-    \ the current\n   window is acceptable.  Also, [RFC4953] talks about the probability\
-    \ of\n   a successful attack with varying window sizes and bandwidth.\n   A slight\
-    \ enhancement to TCP's segment processing rules can be made,\n   which makes such\
-    \ an attack much more difficult to accomplish.  If the\n   receiver examines the\
-    \ incoming RST segment and validates that the\n   sequence number exactly matches\
-    \ the sequence number that is next\n   expected, then such an attack becomes much\
-    \ more difficult than\n   outlined in [SITW] (i.e., the attacker would have to\
-    \ generate 1/2 the\n   entire sequence space, on average).  This document will\
-    \ discuss the\n   exact details of what needs to be changed within TCP's segment\n\
-    \   processing rules to mitigate all three types of attacks (RST, SYN,\n   and\
-    \ DATA).\n"
-- title: 1.3.  Attack probabilities
-  contents:
-  - "1.3.  Attack probabilities\n   Every application has control of a number of factors\
-    \ that drastically\n   affect the probability of a successful spoofing attack.\
-    \  These\n   factors include such things as:\n   Window Size  - Normally settable\
-    \ by the application but often times\n      defaulting to 32,768 or 65,535 depending\
-    \ upon the operating system\n      (see Figure 6 of [Medina05]).\n   Server Port\
-    \ number  - This value is normally a fixed value so that a\n      client will\
-    \ know where to connect to the peer.  Thus, this value\n      normally provides\
-    \ no additional protection.\n   Client Port number  - This value may be a random\
-    \ ephemeral value, if\n      so, this makes a spoofing attack more difficult.\
-    \  There are some\n      clients, however, that for whatever reason either pick\
-    \ a fixed\n      client port or have a very guessable one (due to the range of\n\
-    \      ephemeral ports available with their operating system or other\n      application\
-    \ considerations) for such applications a spoofing\n      attack becomes less\
-    \ difficult.\n   For the purposes of the rest of this discussion we will assume\
-    \ that\n   the attacker knows the 4-tuple values.  This assumption will help us\n\
-    \   focus on the effects of the window size versus the number of TCP\n   packets\
-    \ an attacker must generate.  This assumption will rarely be\n   true in the real\
-    \ Internet since at least the client port number will\n   provide us with some\
-    \ amount of randomness (depending on the operating\n   system).\n   To successfully\
-    \ inject a spoofed packet (RST, SYN, or DATA), in the\n   past, the entire sequence\
-    \ space (i.e., 2^32) was often considered\n   available to make such an attack\
-    \ unlikely.  [SITW] demonstrated that\n   this assumption was incorrect and that\
-    \ instead of (1/2 * 2^32)\n   packets (assuming a random distribution), (1/2 *\
-    \ (2^32/window))\n   packets are required.  In other words, the mean number of\
-    \ tries\n   needed to inject a RST segment is (2^31/window) rather than the 2^31\n\
-    \   assumed before.\n   Substituting numbers into this formula, we see that for\
-    \ a window size\n   of 32,768, an average of 65,536 packets would need to be transmitted\n\
-    \   in order to \"spoof\" a TCP segment that would be acceptable to a TCP\n  \
-    \ receiver.  A window size of 65,535 reduces this even further to\n   32,768 packets.\
-    \  At today's access bandwidths, an attack of that size\n   is feasible.\n   With\
-    \ rises in bandwidth to both the home and office, it can only be\n   expected\
-    \ that the values for default window sizes will continue to\n   rise in order\
-    \ to better take advantage of the newly available\n   bandwidth.  It also needs\
-    \ to be noted that this attack can be\n   performed in a distributed fashion in\
-    \ order potentially gain access\n   to more bandwidth.\n   As we can see from\
-    \ the above discussion this weakness lowers the bar\n   quite considerably for\
-    \ likely attacks.  But there is one additional\n   dependency that is the duration\
-    \ of the TCP connection.  A TCP\n   connection that lasts only a few brief packets,\
-    \ as often is the case\n   for web traffic, would not be subject to such an attack\
-    \ since the\n   connection may not be established long enough for an attacker\
-    \ to\n   generate enough traffic.  However, there is a set of applications,\n\
-    \   such as BGP [RFC4271], that is judged to be potentially most affected\n  \
-    \ by this vulnerability.  BGP relies on a persistent TCP session\n   between BGP\
-    \ peers.  Resetting the connection can result in term-\n   medium unavailability\
-    \ due to the need to rebuild routing tables and\n   route flapping; see [NISCC]\
-    \ for further details.\n   For applications that can use the TCP MD5 option [RFC2385],\
-    \ such as\n   BGP, that option makes the attacks described in this specification\n\
-    \   effectively impossible.  However, some applications or\n   implementations\
-    \ may find that option expensive to implement.\n   There are alternative protections\
-    \ against the threats that this\n   document addresses.  For further details regarding\
-    \ the attacks and\n   the existing techniques, please refer to [RFC4953].  It\
-    \ also needs to\n   be emphasized that, as suggested in [TSVWG-PORT] and [RFC1948],\
-    \ port\n   randomization and initial sequence number (ISN) randomization would\n\
-    \   help improve the robustness of the TCP connection against off-path\n   attacks.\n"
-- title: 2.  Terminology
-  contents:
-  - "2.  Terminology\n   The key words \"MUST\", \"MUST NOT\", \"REQUIRED\", \"SHALL\"\
-    , \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\", \"MAY\", and\
-    \ \"OPTIONAL\" in this\n   document are to be interpreted as described in [RFC2119].\
-    \  TCP\n   terminology should be interpreted as described in [RFC0793].\n"
-- title: 3.  Blind Reset Attack Using the RST Bit
-  contents:
+  title: __initial_text__
+- contents:
+  - "Abstract\n   TCP has historically been considered to be protected against spoofed\n
+    \  off-path packet injection attacks by relying on the fact that it is\n   difficult
+    to guess the 4-tuple (the source and destination IP\n   addresses and the source
+    and destination ports) in combination with\n   the 32-bit sequence number(s).
+    \ A combination of increasing window\n   sizes and applications using longer-term
+    connections (e.g., H-323 or\n   Border Gateway Protocol (BGP) [RFC4271]) have
+    left modern TCP\n   implementations more vulnerable to these types of spoofed
+    packet\n   injection attacks.\n   Many of these long-term TCP applications tend
+    to have predictable IP\n   addresses and ports that makes it far easier for the
+    4-tuple (4-tuple\n   is the same as the socket pair mentioned in RFC 793) to be
+    guessed.\n   Having guessed the 4-tuple correctly, an attacker can inject a TCP\n
+    \  segment with the RST bit set, the SYN bit set or data into a TCP\n   connection
+    by systematically guessing the sequence number of the\n   spoofed segment to be
+    in the current receive window.  This can cause\n   the connection to abort or
+    cause data corruption.  This document\n   specifies small modifications to the
+    way TCP handles inbound segments\n   that can reduce the chances of a successful
+    attack.\n"
+  title: Abstract
+- contents:
+  - "Status of This Memo\n   This is an Internet Standards Track document.\n   This
+    document is a product of the Internet Engineering Task Force\n   (IETF).  It represents
+    the consensus of the IETF community.  It has\n   received public review and has
+    been approved for publication by the\n   Internet Engineering Steering Group (IESG).
+    \ Further information on\n   Internet Standards is available in Section 2 of RFC
+    5741.\n   Information about the current status of this document, any errata,\n
+    \  and how to provide feedback on it may be obtained at\n   http://www.rfc-editor.org/info/rfc5961.\n"
+  title: Status of This Memo
+- contents:
+  - "Copyright Notice\n   Copyright (c) 2010 IETF Trust and the persons identified
+    as the\n   document authors.  All rights reserved.\n   This document is subject
+    to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n
+    \  (http://trustee.ietf.org/license-info) in effect on the date of\n   publication
+    of this document.  Please review these documents\n   carefully, as they describe
+    your rights and restrictions with respect\n   to this document.  Code Components
+    extracted from this document must\n   include Simplified BSD License text as described
+    in Section 4.e of\n   the Trust Legal Provisions and are provided without warranty
+    as\n   described in the Simplified BSD License.\n"
+  title: Copyright Notice
+- contents:
+  - "Table of Contents\n   1. Introduction ....................................................3\n
+    \     1.1. Applicability Statement ....................................3\n      1.2.
+    Basic Attack Methodology ...................................4\n      1.3. Attack
+    probabilities .......................................5\n   2. Terminology .....................................................7\n
+    \  3. Blind Reset Attack Using the RST Bit ............................7\n      3.1.
+    Description of the Attack ..................................7\n      3.2. Mitigation
+    .................................................7\n   4. Blind Reset Attack Using
+    the SYN Bit ............................9\n      4.1. Description of the Attack
+    ..................................9\n      4.2. Mitigation .................................................9\n
+    \  5. Blind Data Injection Attack ....................................10\n      5.1.
+    Description of the Attack .................................10\n      5.2. Mitigation
+    ................................................11\n   6. Suggested Mitigation
+    Strengths .................................12\n   7. ACK Throttling .................................................12\n
+    \  8. Backward Compatibility and Other Considerations ................13\n   9.
+    Middlebox Considerations .......................................14\n      9.1.
+    Middlebox That Resend RSTs ................................14\n      9.2. Middleboxes
+    That Advance Sequence Numbers .................15\n      9.3. Middleboxes That
+    Drop the Challenge ACK ...................15\n   10. Security Considerations .......................................16\n
+    \  11. Contributors ..................................................17\n   12.
+    Acknowledgments ...............................................17\n   13. References
+    ....................................................17\n      13.1. Normative
+    References .....................................17\n      13.2. Informative References
+    ...................................17\n"
+  title: Table of Contents
+- contents:
+  - "1.  Introduction\n   TCP [RFC0793] is widely deployed and the most common reliable
+    end-to-\n   end transport protocol used for data communication in today's\n   Internet.
+    \ Yet, when it was standardized over 20 years ago, the\n   Internet was a different
+    place, lacking many of the threats that are\n   now common.  The off-path TCP
+    spoofing attacks, which are seen in the\n   Internet today, fall into this category.\n
+    \  In a TCP spoofing attack, an off-path attacker crafts TCP packets by\n   forging
+    the IP source and destination addresses as well as the source\n   and destination
+    ports (referred to as a 4-tuple value in this\n   document).  The targeted TCP
+    endpoint will then associate such a\n   packet with an existing TCP connection.
+    \ It needs to be noted that,\n   guessing this 4-tuple value is not always easy
+    for an attacker.  But\n   there are some applications (e.g., BGP [RFC4271]) that
+    have a\n   tendency to use the same set(s) of ports on either endpoint, making\n
+    \  the odds of correctly guessing the 4-tuple value much easier.  When\n   an
+    attacker is successful in guessing the 4-tuple value, one of three\n   types of
+    injection attacks may be waged against a long-lived\n   connection.\n   RST -
+    \ Where an attacker injects a RST segment hoping to cause the\n      connection
+    to be torn down.  \"RST segment\" here refers to a TCP\n      segment with the
+    RST bit set.\n   SYN -  Where an attacker injects a SYN hoping to cause the receiver\n
+    \     to believe the peer has restarted and therefore tear down the\n      connection
+    state.  \"SYN segment\" here refers to a TCP segment with\n      SYN bit set.\n
+    \  DATA -  Where an attacker tries to inject a DATA segment to corrupt\n      the
+    contents of the transmission.  \"DATA segment\" here refers to\n      any TCP
+    segment containing data.\n"
+  - contents:
+    - "1.1.  Applicability Statement\n   This document talks about some known in-window
+      attacks and suitable\n   defenses against these.  The mitigations suggested
+      in this document\n   SHOULD be implemented in devices that regularly need to
+      maintain TCP\n   connections of the kind most vulnerable to the attacks described
+      in\n   this document.  Examples of such TCP connections are the ones that\n
+      \  tend to be long-lived and where the connection endpoints can be\n   determined,
+      in cases where no auxiliary anti-spoofing protection\n   mechanisms like TCP
+      MD5 [RFC2385] can be deployed.  These mitigations\n   MAY be implemented in
+      other cases.\n"
+    title: 1.1.  Applicability Statement
+  - contents:
+    - "1.2.  Basic Attack Methodology\n   Focusing upon the RST attack, we examine
+      this attack in more detail\n   to get an overview as to how it works and how
+      this document addresses\n   the issue.  For this attack, the goal is for the
+      attacker to cause\n   one of the two endpoints of the connection to incorrectly
+      tear down\n   the connection state, effectively aborting the connection.  One
+      of\n   the important things to note is that for the attack to succeed the\n
+      \  RST needs to be in the valid receive window.  It also needs to be\n   emphasized
+      that the receive window is independent of the current\n   congestion window
+      of the TCP connection.  The attacker would try to\n   forge many RST segments
+      to try to cover the space of possible windows\n   by putting out a packet in
+      each potential window.  To do this, the\n   attacker needs to have or guess
+      several pieces of information namely:\n   1) The 4-tuple value containing the
+      IP address and TCP port number of\n      both ends of the connection.  For one
+      side (usually the server),\n      guessing the port number is a trivial exercise.
+      \ The client side\n      may or may not be easy for an attacker to guess depending
+      on a\n      number of factors, most notably the operating system and\n      application
+      involved.\n   2) A sequence number that will be used in the RST.  This sequence\n
+      \     number will be a starting point for a series of guesses to attempt\n      to
+      present a RST segment to a connection endpoint that would be\n      acceptable
+      to it.  Any random value may be used to guess the\n      starting sequence number.\n
+      \  3) The window size that the two endpoints are using.  This value does\n      NOT
+      have to be the exact window size since a smaller value used in\n      lieu of
+      the correct one will just cause the attacker to generate\n      more segments
+      before succeeding in his mischief.  Most modern\n      operating systems have
+      a default window size that usually is\n      applied to most connections.  Some
+      applications however may change\n      the window size to better suit the needs
+      of the application.  So\n      often times the attacker, with a fair degree
+      of certainty (knowing\n      the application that is under attack), can come
+      up with a very\n      close approximation as to the actual window size in use
+      on the\n      connection.\n   After assembling the above set of information,
+      the attacker begins\n   sending spoofed TCP segments with the RST bit set and
+      a guessed TCP\n   sequence number.  Each time a new RST segment is sent, the
+      sequence\n   number guess is incremented by the window size.  The feasibility
+      of\n   this methodology (without mitigations) was first shown in [SITW].\n   This
+      is because [RFC0793] specifies that any RST within the current\n   window is
+      acceptable.  Also, [RFC4953] talks about the probability of\n   a successful
+      attack with varying window sizes and bandwidth.\n   A slight enhancement to
+      TCP's segment processing rules can be made,\n   which makes such an attack much
+      more difficult to accomplish.  If the\n   receiver examines the incoming RST
+      segment and validates that the\n   sequence number exactly matches the sequence
+      number that is next\n   expected, then such an attack becomes much more difficult
+      than\n   outlined in [SITW] (i.e., the attacker would have to generate 1/2 the\n
+      \  entire sequence space, on average).  This document will discuss the\n   exact
+      details of what needs to be changed within TCP's segment\n   processing rules
+      to mitigate all three types of attacks (RST, SYN,\n   and DATA).\n"
+    title: 1.2.  Basic Attack Methodology
+  - contents:
+    - "1.3.  Attack probabilities\n   Every application has control of a number of
+      factors that drastically\n   affect the probability of a successful spoofing
+      attack.  These\n   factors include such things as:\n   Window Size  - Normally
+      settable by the application but often times\n      defaulting to 32,768 or 65,535
+      depending upon the operating system\n      (see Figure 6 of [Medina05]).\n   Server
+      Port number  - This value is normally a fixed value so that a\n      client
+      will know where to connect to the peer.  Thus, this value\n      normally provides
+      no additional protection.\n   Client Port number  - This value may be a random
+      ephemeral value, if\n      so, this makes a spoofing attack more difficult.
+      \ There are some\n      clients, however, that for whatever reason either pick
+      a fixed\n      client port or have a very guessable one (due to the range of\n
+      \     ephemeral ports available with their operating system or other\n      application
+      considerations) for such applications a spoofing\n      attack becomes less
+      difficult.\n   For the purposes of the rest of this discussion we will assume
+      that\n   the attacker knows the 4-tuple values.  This assumption will help us\n
+      \  focus on the effects of the window size versus the number of TCP\n   packets
+      an attacker must generate.  This assumption will rarely be\n   true in the real
+      Internet since at least the client port number will\n   provide us with some
+      amount of randomness (depending on the operating\n   system).\n   To successfully
+      inject a spoofed packet (RST, SYN, or DATA), in the\n   past, the entire sequence
+      space (i.e., 2^32) was often considered\n   available to make such an attack
+      unlikely.  [SITW] demonstrated that\n   this assumption was incorrect and that
+      instead of (1/2 * 2^32)\n   packets (assuming a random distribution), (1/2 *
+      (2^32/window))\n   packets are required.  In other words, the mean number of
+      tries\n   needed to inject a RST segment is (2^31/window) rather than the 2^31\n
+      \  assumed before.\n   Substituting numbers into this formula, we see that for
+      a window size\n   of 32,768, an average of 65,536 packets would need to be transmitted\n
+      \  in order to \"spoof\" a TCP segment that would be acceptable to a TCP\n   receiver.
+      \ A window size of 65,535 reduces this even further to\n   32,768 packets.  At
+      today's access bandwidths, an attack of that size\n   is feasible.\n   With
+      rises in bandwidth to both the home and office, it can only be\n   expected
+      that the values for default window sizes will continue to\n   rise in order
+      to better take advantage of the newly available\n   bandwidth.  It also needs
+      to be noted that this attack can be\n   performed in a distributed fashion in
+      order potentially gain access\n   to more bandwidth.\n   As we can see from
+      the above discussion this weakness lowers the bar\n   quite considerably for
+      likely attacks.  But there is one additional\n   dependency that is the duration
+      of the TCP connection.  A TCP\n   connection that lasts only a few brief packets,
+      as often is the case\n   for web traffic, would not be subject to such an attack
+      since the\n   connection may not be established long enough for an attacker
+      to\n   generate enough traffic.  However, there is a set of applications,\n
+      \  such as BGP [RFC4271], that is judged to be potentially most affected\n   by
+      this vulnerability.  BGP relies on a persistent TCP session\n   between BGP
+      peers.  Resetting the connection can result in term-\n   medium unavailability
+      due to the need to rebuild routing tables and\n   route flapping; see [NISCC]
+      for further details.\n   For applications that can use the TCP MD5 option [RFC2385],
+      such as\n   BGP, that option makes the attacks described in this specification\n
+      \  effectively impossible.  However, some applications or\n   implementations
+      may find that option expensive to implement.\n   There are alternative protections
+      against the threats that this\n   document addresses.  For further details regarding
+      the attacks and\n   the existing techniques, please refer to [RFC4953].  It
+      also needs to\n   be emphasized that, as suggested in [TSVWG-PORT] and [RFC1948],
+      port\n   randomization and initial sequence number (ISN) randomization would\n
+      \  help improve the robustness of the TCP connection against off-path\n   attacks.\n"
+    title: 1.3.  Attack probabilities
+  title: 1.  Introduction
+- contents:
+  - "2.  Terminology\n   The key words \"MUST\", \"MUST NOT\", \"REQUIRED\", \"SHALL\",
+    \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\", \"MAY\", and \"OPTIONAL\"
+    in this\n   document are to be interpreted as described in [RFC2119].  TCP\n   terminology
+    should be interpreted as described in [RFC0793].\n"
+  title: 2.  Terminology
+- contents:
   - '3.  Blind Reset Attack Using the RST Bit
 
     '
-- title: 3.1.  Description of the Attack
-  contents:
-  - "3.1.  Description of the Attack\n   As described in the introduction, it is possible\
-    \ for an attacker to\n   generate a RST segment that would be acceptable to a\
-    \ TCP receiver by\n   guessing in-window sequence numbers.  In particular [RFC0793],\
-    \ page\n   37, states the following:\n      In all states except SYN-SENT, all\
-    \ reset (RST) segments are\n      validated by checking their SEQ-fields [sequence\
-    \ numbers].  A\n      reset is valid if its sequence number is in the window.\
-    \  In the\n      SYN-SENT state (a RST received in response to an initial SYN),\
-    \ the\n      RST is acceptable if the ACK field acknowledges the SYN.\n"
-- title: 3.2.  Mitigation
-  contents:
-  - "3.2.  Mitigation\n   [RFC0793] currently requires handling of a segment with\
-    \ the RST bit\n   when in a synchronized state to be processed as follows:\n \
-    \  1) If the RST bit is set and the sequence number is outside the\n      current\
-    \ receive window (SEG.SEQ <= RCV.NXT || SEG.SEQ > RCV.NXT+\n      RCV.WND), silently\
-    \ drop the segment.\n   2) If the RST bit is set and the sequence number is acceptable,\
-    \ i.e.,\n      (RCV.NXT <= SEG.SEQ < RCV.NXT+RCV.WND), then reset the connection.\n\
-    \   Instead, implementations SHOULD implement the following steps in\n   place\
-    \ of those specified in [RFC0793] (as listed above).\n   1) If the RST bit is\
-    \ set and the sequence number is outside the\n      current receive window, silently\
-    \ drop the segment.\n   2) If the RST bit is set and the sequence number exactly\
-    \ matches the\n      next expected sequence number (RCV.NXT), then TCP MUST reset\
-    \ the\n      connection.\n   3) If the RST bit is set and the sequence number\
-    \ does not exactly\n      match the next expected sequence value, yet is within\
-    \ the current\n      receive window (RCV.NXT < SEG.SEQ < RCV.NXT+RCV.WND), TCP\
-    \ MUST\n      send an acknowledgment (challenge ACK):\n      <SEQ=SND.NXT><ACK=RCV.NXT><CTL=ACK>\n\
-    \      After sending the challenge ACK, TCP MUST drop the unacceptable\n     \
-    \ segment and stop processing the incoming packet further.  Further\n      segments\
-    \ destined to this connection will be processed as normal.\n   The modified RST\
-    \ segment processing would thus become:\n   In all states except SYN-SENT, all\
-    \ reset (RST) segments are validated\n   by checking their SEQ-fields [sequence\
-    \ numbers].  A reset is valid if\n   its sequence number exactly matches the next\
-    \ expected sequence\n   number.  If the RST arrives and its sequence number field\
-    \ does NOT\n   match the next expected sequence number but is within the window,\n\
-    \   then the receiver should generate an ACK.  In all other cases, where\n   the\
-    \ SEQ-field does not match and is outside the window, the receiver\n   MUST silently\
-    \ discard the segment.\n   In the SYN-SENT state (a RST received in response to\
-    \ an initial SYN),\n   the RST is acceptable if the ACK field acknowledges the\
-    \ SYN.  In all\n   other cases the receiver MUST silently discard the segment.\n\
-    \   With the above slight change to the TCP state machine, it becomes\n   much\
-    \ harder for an attacker to generate an acceptable reset segment.\n   In cases\
-    \ where the remote peer did generate a RST, but it fails to\n   meet the above\
-    \ criteria (the RST sequence number was within the\n   window but NOT the exact\
-    \ expected sequence number), when the\n   challenge ACK is sent back, it will\
-    \ no longer have the transmission\n   control block (TCB) related to this connection\
-    \ and hence as per\n   [RFC0793], the remote peer will send a second RST back.\
-    \  The sequence\n   number of the second RST is derived from the acknowledgment\
-    \ number of\n   the incoming ACK.  This second RST, if it reaches the sender,\
-    \ will\n   cause the connection to be aborted since the sequence number would\n\
-    \   now be an exact match.\n   A valid RST received out of order would still generate\
-    \ a challenge\n   ACK in response.  If this RST happens to be a genuine one, the\
-    \ other\n   end would send an RST with an exact sequence number match that would\n\
-    \   cause the connection to be dropped.\n   Note that the above mitigation may\
-    \ cause a non-amplification ACK\n   exchange.  This concern is discussed in Section\
-    \ 10.\n"
-- title: 4.  Blind Reset Attack Using the SYN Bit
-  contents:
+  - contents:
+    - "3.1.  Description of the Attack\n   As described in the introduction, it is
+      possible for an attacker to\n   generate a RST segment that would be acceptable
+      to a TCP receiver by\n   guessing in-window sequence numbers.  In particular
+      [RFC0793], page\n   37, states the following:\n      In all states except SYN-SENT,
+      all reset (RST) segments are\n      validated by checking their SEQ-fields [sequence
+      numbers].  A\n      reset is valid if its sequence number is in the window.
+      \ In the\n      SYN-SENT state (a RST received in response to an initial SYN),
+      the\n      RST is acceptable if the ACK field acknowledges the SYN.\n"
+    title: 3.1.  Description of the Attack
+  - contents:
+    - "3.2.  Mitigation\n   [RFC0793] currently requires handling of a segment with
+      the RST bit\n   when in a synchronized state to be processed as follows:\n   1)
+      If the RST bit is set and the sequence number is outside the\n      current
+      receive window (SEG.SEQ <= RCV.NXT || SEG.SEQ > RCV.NXT+\n      RCV.WND), silently
+      drop the segment.\n   2) If the RST bit is set and the sequence number is acceptable,
+      i.e.,\n      (RCV.NXT <= SEG.SEQ < RCV.NXT+RCV.WND), then reset the connection.\n
+      \  Instead, implementations SHOULD implement the following steps in\n   place
+      of those specified in [RFC0793] (as listed above).\n   1) If the RST bit is
+      set and the sequence number is outside the\n      current receive window, silently
+      drop the segment.\n   2) If the RST bit is set and the sequence number exactly
+      matches the\n      next expected sequence number (RCV.NXT), then TCP MUST reset
+      the\n      connection.\n   3) If the RST bit is set and the sequence number
+      does not exactly\n      match the next expected sequence value, yet is within
+      the current\n      receive window (RCV.NXT < SEG.SEQ < RCV.NXT+RCV.WND), TCP
+      MUST\n      send an acknowledgment (challenge ACK):\n      <SEQ=SND.NXT><ACK=RCV.NXT><CTL=ACK>\n
+      \     After sending the challenge ACK, TCP MUST drop the unacceptable\n      segment
+      and stop processing the incoming packet further.  Further\n      segments destined
+      to this connection will be processed as normal.\n   The modified RST segment
+      processing would thus become:\n   In all states except SYN-SENT, all reset (RST)
+      segments are validated\n   by checking their SEQ-fields [sequence numbers].
+      \ A reset is valid if\n   its sequence number exactly matches the next expected
+      sequence\n   number.  If the RST arrives and its sequence number field does
+      NOT\n   match the next expected sequence number but is within the window,\n
+      \  then the receiver should generate an ACK.  In all other cases, where\n   the
+      SEQ-field does not match and is outside the window, the receiver\n   MUST silently
+      discard the segment.\n   In the SYN-SENT state (a RST received in response to
+      an initial SYN),\n   the RST is acceptable if the ACK field acknowledges the
+      SYN.  In all\n   other cases the receiver MUST silently discard the segment.\n
+      \  With the above slight change to the TCP state machine, it becomes\n   much
+      harder for an attacker to generate an acceptable reset segment.\n   In cases
+      where the remote peer did generate a RST, but it fails to\n   meet the above
+      criteria (the RST sequence number was within the\n   window but NOT the exact
+      expected sequence number), when the\n   challenge ACK is sent back, it will
+      no longer have the transmission\n   control block (TCB) related to this connection
+      and hence as per\n   [RFC0793], the remote peer will send a second RST back.
+      \ The sequence\n   number of the second RST is derived from the acknowledgment
+      number of\n   the incoming ACK.  This second RST, if it reaches the sender,
+      will\n   cause the connection to be aborted since the sequence number would\n
+      \  now be an exact match.\n   A valid RST received out of order would still
+      generate a challenge\n   ACK in response.  If this RST happens to be a genuine
+      one, the other\n   end would send an RST with an exact sequence number match
+      that would\n   cause the connection to be dropped.\n   Note that the above mitigation
+      may cause a non-amplification ACK\n   exchange.  This concern is discussed in
+      Section 10.\n"
+    title: 3.2.  Mitigation
+  title: 3.  Blind Reset Attack Using the RST Bit
+- contents:
   - '4.  Blind Reset Attack Using the SYN Bit
 
     '
-- title: 4.1.  Description of the Attack
-  contents:
-  - "4.1.  Description of the Attack\n   The analysis of the reset attack using the\
-    \ RST bit highlights another\n   possible avenue for a blind attacker using a\
-    \ similar set of sequence\n   number guessing.  Instead of using the RST bit,\
-    \ an attacker can use\n   the SYN bit with the exact same semantics to tear down\
-    \ a connection.\n"
-- title: 4.2.  Mitigation
-  contents:
-  - "4.2.  Mitigation\n   [RFC0793] currently requires handling of a segment with\
-    \ the SYN bit\n   set in the synchronized state to be as follows:\n   1) If the\
-    \ SYN bit is set and the sequence number is outside the\n      expected window,\
-    \ send an ACK back to the sender.\n   2) If the SYN bit is set and the sequence\
-    \ number is acceptable, i.e.,\n      (RCV.NXT <= SEG.SEQ < RCV.NXT+RCV.WND), then\
-    \ send a RST segment to\n      the sender.\n   Instead, the handling of the SYN\
-    \ in the synchronized state SHOULD be\n   performed as follows:\n   1) If the\
-    \ SYN bit is set, irrespective of the sequence number, TCP\n      MUST send an\
-    \ ACK (also referred to as challenge ACK) to the remote\n      peer:\n      <SEQ=SND.NXT><ACK=RCV.NXT><CTL=ACK>\n\
-    \      After sending the acknowledgment, TCP MUST drop the unacceptable\n    \
-    \  segment and stop processing further.\n   By sending an ACK, the remote peer\
-    \ is challenged to confirm the loss\n   of the previous connection and the request\
-    \ to start a new connection.\n   A legitimate peer, after restart, would not have\
-    \ a TCB in the\n   synchronized state.  Thus, when the ACK arrives, the peer should\
-    \ send\n   a RST segment back with the sequence number derived from the ACK\n\
-    \   field that caused the RST.\n   This RST will confirm that the remote peer\
-    \ has indeed closed the\n   previous connection.  Upon receipt of a valid RST,\
-    \ the local TCP\n   endpoint MUST terminate its connection.  The local TCP endpoint\n\
-    \   should then rely on SYN retransmission from the remote end to\n   re-establish\
-    \ the connection.\n   A spoofed SYN, on the other hand, will then have generated\
-    \ an\n   additional ACK that the peer will discard as a duplicate ACK and will\n\
-    \   not affect the established connection.\n   Note that this mitigation does\
-    \ leave one corner case un-handled,\n   which will prevent the reset of a connection\
-    \ when it should be reset\n   (i.e., it is a non-spoofed SYN wherein a peer really\
-    \ did restart).\n   This problem occurs when the restarting host chooses the exact\
-    \ same\n   IP address and port number that it was using prior to its restart.\n\
-    \   By chance, the restarted host must also choose an initial sequence\n   number\
-    \ of exactly (RCV.NXT - 1) of the remote peer that is still in\n   the established\
-    \ state.  Such a case would cause the receiver to\n   generate a \"challenge\"\
-    \ ACK as described above.  But since the ACK\n   would be within the outgoing\
-    \ connections window, the inbound ACK\n   would be acceptable, and the sender\
-    \ of the SYN will do nothing with\n   the response ACK.  This sequence will continue\
-    \ as the SYN sender\n   continually times out and retransmits the SYN until such\
-    \ time as the\n   connection attempt fails.\n   This corner case is a result of\
-    \ the [RFC0793] specification and is\n   not introduced by these new requirements.\n\
-    \   Note that the above mitigation may cause a non-amplification ACK\n   exchange.\
-    \  This concern is discussed in Section 10.\n"
-- title: 5.  Blind Data Injection Attack
-  contents:
+  - contents:
+    - "4.1.  Description of the Attack\n   The analysis of the reset attack using
+      the RST bit highlights another\n   possible avenue for a blind attacker using
+      a similar set of sequence\n   number guessing.  Instead of using the RST bit,
+      an attacker can use\n   the SYN bit with the exact same semantics to tear down
+      a connection.\n"
+    title: 4.1.  Description of the Attack
+  - contents:
+    - "4.2.  Mitigation\n   [RFC0793] currently requires handling of a segment with
+      the SYN bit\n   set in the synchronized state to be as follows:\n   1) If the
+      SYN bit is set and the sequence number is outside the\n      expected window,
+      send an ACK back to the sender.\n   2) If the SYN bit is set and the sequence
+      number is acceptable, i.e.,\n      (RCV.NXT <= SEG.SEQ < RCV.NXT+RCV.WND), then
+      send a RST segment to\n      the sender.\n   Instead, the handling of the SYN
+      in the synchronized state SHOULD be\n   performed as follows:\n   1) If the
+      SYN bit is set, irrespective of the sequence number, TCP\n      MUST send an
+      ACK (also referred to as challenge ACK) to the remote\n      peer:\n      <SEQ=SND.NXT><ACK=RCV.NXT><CTL=ACK>\n
+      \     After sending the acknowledgment, TCP MUST drop the unacceptable\n      segment
+      and stop processing further.\n   By sending an ACK, the remote peer is challenged
+      to confirm the loss\n   of the previous connection and the request to start
+      a new connection.\n   A legitimate peer, after restart, would not have a TCB
+      in the\n   synchronized state.  Thus, when the ACK arrives, the peer should
+      send\n   a RST segment back with the sequence number derived from the ACK\n
+      \  field that caused the RST.\n   This RST will confirm that the remote peer
+      has indeed closed the\n   previous connection.  Upon receipt of a valid RST,
+      the local TCP\n   endpoint MUST terminate its connection.  The local TCP endpoint\n
+      \  should then rely on SYN retransmission from the remote end to\n   re-establish
+      the connection.\n   A spoofed SYN, on the other hand, will then have generated
+      an\n   additional ACK that the peer will discard as a duplicate ACK and will\n
+      \  not affect the established connection.\n   Note that this mitigation does
+      leave one corner case un-handled,\n   which will prevent the reset of a connection
+      when it should be reset\n   (i.e., it is a non-spoofed SYN wherein a peer really
+      did restart).\n   This problem occurs when the restarting host chooses the exact
+      same\n   IP address and port number that it was using prior to its restart.\n
+      \  By chance, the restarted host must also choose an initial sequence\n   number
+      of exactly (RCV.NXT - 1) of the remote peer that is still in\n   the established
+      state.  Such a case would cause the receiver to\n   generate a \"challenge\"
+      ACK as described above.  But since the ACK\n   would be within the outgoing
+      connections window, the inbound ACK\n   would be acceptable, and the sender
+      of the SYN will do nothing with\n   the response ACK.  This sequence will continue
+      as the SYN sender\n   continually times out and retransmits the SYN until such
+      time as the\n   connection attempt fails.\n   This corner case is a result of
+      the [RFC0793] specification and is\n   not introduced by these new requirements.\n
+      \  Note that the above mitigation may cause a non-amplification ACK\n   exchange.
+      \ This concern is discussed in Section 10.\n"
+    title: 4.2.  Mitigation
+  title: 4.  Blind Reset Attack Using the SYN Bit
+- contents:
   - '5.  Blind Data Injection Attack
 
     '
-- title: 5.1.  Description of the Attack
-  contents:
-  - "5.1.  Description of the Attack\n   A third type of attack is also highlighted\
-    \ by both the RST and SYN\n   attacks.  It is also possible to inject data into\
-    \ a TCP connection by\n   simply guessing a sequence number within the current\
-    \ receive window\n   of the victim.  The ACK value of any data segment is considered\
-    \ valid\n   as long as it does not acknowledge data ahead of the next segment\
-    \ to\n   send.  In other words, an ACK value is acceptable if it is\n   ((SND.UNA-(2^31-1))\
-    \ <= SEG.ACK <= SND.NXT).  The (2^31 - 1) in the\n   above inequality takes into\
-    \ account the fact that comparisons on TCP\n   sequence and acknowledgment numbers\
-    \ is done using the modulo 32-bit\n   arithmetic to accommodate the number wraparound.\
-    \  This means that an\n   attacker has to guess two ACK values with every guessed\
-    \ sequence\n   number so that the chances of successfully injecting data into\
-    \ a\n   connection are 1 in ( 1/2 (2^32 / RCV.WND) * 2).  Thus, the mean\n   number\
-    \ of tries needed to inject data successfully is\n   1/2 (2*2^32/RWND) = 2^32/RCV.WND.\n\
-    \   When an attacker successfully injects data into a connection, the\n   data\
-    \ will sit in the receiver's re-assembly queue until the peer\n   sends enough\
-    \ data to bridge the gap between the RCV.NXT value and the\n   injected data.\
-    \  At that point, one of two things will occur:\n   1) A packet war will ensue\
-    \ with the receiver indicating that it has\n      received data up until RCV.NXT\
-    \ (which includes the attacker's\n      data) and the sender sending an ACK with\
-    \ an acknowledgment number\n      less than RCV.NXT.\n   2) The sender will send\
-    \ enough data to the peer that will move\n      RCV.NXT even further along past\
-    \ the injected data.\n   Depending upon the TCP implementation in question and\
-    \ the TCP traffic\n   characteristics at that time, data corruption may result.\
-    \  In case\n   (a), the connection will eventually be reset by one of the sides\n\
-    \   unless the sender produces more data that will transform the ACK war\n   into\
-    \ case (b).  The reset will usually occur via User Time Out (UTO)\n   (see section\
-    \ 4.2.3.5 of [RFC1122]).\n   Note that the protections illustrated in this section\
-    \ neither cause\n   an ACK war nor prevent one from occurring if data is actually\n\
-    \   injected into a connection.  The ACK war is a product of the attack\n   itself\
-    \ and cannot be prevented (other than by preventing the data\n   from being injected).\n"
-- title: 5.2.  Mitigation
-  contents:
-  - "5.2.  Mitigation\n   All TCP stacks MAY implement the following mitigation. \
-    \ TCP stacks\n   that implement this mitigation MUST add an additional input check\
-    \ to\n   any incoming segment.  The ACK value is considered acceptable only if\n\
-    \   it is in the range of ((SND.UNA - MAX.SND.WND) <= SEG.ACK <=\n   SND.NXT).\
-    \  All incoming segments whose ACK value doesn't satisfy the\n   above condition\
-    \ MUST be discarded and an ACK sent back.  It needs to\n   be noted that RFC 793\
-    \ on page 72 (fifth check) says: \"If the ACK is a\n   duplicate (SEG.ACK < SND.UNA),\
-    \ it can be ignored.  If the ACK\n   acknowledges something not yet sent (SEG.ACK\
-    \ > SND.NXT) then send an\n   ACK, drop the segment, and return\".  The \"ignored\"\
-    \ above implies that\n   the processing of the incoming data segment continues,\
-    \ which means\n   the ACK value is treated as acceptable.  This mitigation makes\
-    \ the\n   ACK check more stringent since any ACK < SND.UNA wouldn't be\n   accepted,\
-    \ instead only ACKs that are in the range ((SND.UNA -\n   MAX.SND.WND) <= SEG.ACK\
-    \ <= SND.NXT) get through.\n   A new state variable MAX.SND.WND is defined as\
-    \ the largest window\n   that the local sender has ever received from its peer.\
-    \  This window\n   may be scaled to a value larger than 65,535 bytes ([RFC1323]).\
-    \  This\n   small check will reduce the vulnerability to an attacker guessing\
-    \ a\n   valid sequence number, since, not only one must guess the in-window\n\
-    \   sequence number, but also guess a proper ACK value within a scoped\n   range.\
-    \  This mitigation reduces, but does not eliminate, the ability\n   to generate\
-    \ false segments.  It does however reduce the probability\n   that invalid data\
-    \ will be injected.\n   Implementations can also chose to hard code the MAX.SND.WND\
-    \ value to\n   the maximum permissible window size, i.e., 65535 in the absence\
-    \ of\n   window scaling.  In the presence of the window scaling option, the\n\
-    \   value becomes (MAX.SND.WND << Snd.Wind.Scale).\n   This mitigation also helps\
-    \ in improving robustness on accepting\n   spoofed FIN segments (FIN attacks).\
-    \  Among other things, this\n   mitigation requires that the attacker also needs\
-    \ to get the\n   acknowledgment number to fall in the range mentioned above in\
-    \ order\n   to successfully spoof a FIN segment leading to the closure of the\n\
-    \   connection.  Thus, this mitigation greatly improves the robustness to\n  \
-    \ spoofed FIN segments.\n   Note that the above mitigation may cause a non-amplification\
-    \ ACK\n   exchange.  This concern is discussed in Section 10.\n"
-- title: 6.  Suggested Mitigation Strengths
-  contents:
-  - "6.  Suggested Mitigation Strengths\n   As described in the above sections, recommendation\
-    \ levels for RST,\n   SYN, and DATA are tagged as SHOULD, SHOULD, and MAY, respectively.\n\
-    \   The reason that DATA mitigation is tagged as MAY, even though it\n   increased\
-    \ the TCP robustness in general is because, the DATA\n   injection is perceived\
-    \ to be more difficult (twice as unlikely) when\n   compared to RST and SYN counterparts.\
-    \  However, it needs to be noted\n   that all the suggested mitigations improve\
-    \ TCP's robustness in\n   general and hence the choice of implementing some or\
-    \ all mitigations\n   recommended in the document is purely left to the implementer.\n"
-- title: 7.  ACK Throttling
-  contents:
-  - "7.  ACK Throttling\n   In order to alleviate multiple RSTs/SYNs from triggering\
-    \ multiple\n   challenge ACKs, an ACK throttling mechanism is suggested as follows:\n\
-    \   1) The system administrator can configure the number of challenge\n      ACKs\
-    \ that can be sent out in a given interval.  For example, in\n      any 5 second\
-    \ window, no more than 10 challenge ACKs should be\n      sent.\n   2) The values\
-    \ for both the time and number of ACKs SHOULD be tunable\n      by the system\
-    \ administrator to accommodate different perceived\n      levels of threat and/or\
-    \ system resources.\n   It should be noted that these numbers are empirical in\
-    \ nature and\n   have been obtained from the RST throttling mechanisms existing\
-    \ in\n   some implementations.  Also, note that no timer is needed to\n   implement\
-    \ the above mechanism, instead a timestamp and a counter can\n   be used.\n  \
-    \ An implementation SHOULD include an ACK throttling mechanism to be\n   conservative.\
-    \  While we have not encountered a case where the lack of\n   ACK throttling can\
-    \ be exploited, as a fail-safe mechanism we\n   recommend its use.  An implementation\
-    \ may take an excessive number of\n   invocations of the throttling mechanism\
-    \ as an indication that network\n   conditions are unusual or hostile.\n   An\
-    \ administrator who is more concerned about protecting his bandwidth\n   and CPU\
-    \ utilization may set smaller ACK throttling values whereas an\n   administrator\
-    \ who is more interested in faster cleanup of stale\n   connections (i.e., concerned\
-    \ about excess TCP state) may decide to\n   set a higher value thus allowing more\
-    \ RST's to be processed in any\n   given time period.\n   The time limit SHOULD\
-    \ be tunable to help timeout brute force attacks\n   faster than a potential legitimate\
-    \ flood of RSTs.\n"
-- title: 8.  Backward Compatibility and Other Considerations
-  contents:
-  - "8.  Backward Compatibility and Other Considerations\n   All of the new required\
-    \ mitigation techniques in this document are\n   totally compatible with existing\
-    \ ([RFC0793]) compliant TCP\n   implementations as this document introduces no\
-    \ new assumptions or\n   conditions.\n   There is a corner scenario in the above\
-    \ mitigations that will require\n   more than one round-trip time to successfully\
-    \ abort the connection as\n   per the figure below.  This scenario is similar\
-    \ to the one in which\n   the original RST was lost in the network.\n        \
-    \  TCP A                                                 TCP B\n   1.a. ESTAB\
-    \        <-- <SEQ=300><ACK=101><CTL=ACK><DATA> <--  ESTAB\n     b. (delayed) \
-    \   ... <SEQ=400><ACK=101><CTL=ACK><DATA> <--  ESTAB\n     c. (in flight)  ...\
-    \ <SEQ=500><ACK=101><CTL=RST>       <--  CLOSED\n   2.   ESTAB        --> <SEQ=101><ACK=400><CTL=ACK>\
-    \       -->  CLOSED\n       (ACK for 1.a)\n                     ... <SEQ=400><ACK=0><CTL=RST>\
-    \         <--  CLOSED\n   3.   CHALLENGE    --> <SEQ=101><ACK=400><CTL=ACK>  \
-    \     -->  CLOSED\n        (for 1.c)\n                     ... <SEQ=400><ACK=0><CTL=RST>\
-    \         <--  RESPONSE\n   4.a. ESTAB        <-- <SEQ=400><ACK=101><CTL=ACK><DATA>\
-    \ 1.b reaches A\n     b. ESTAB        --> <SEQ=101><ACK=500><CTL=ACK>\n     c.\
-    \ (in flight)  ... <SEQ=500><ACK=0><CTL=RST>         <--  CLOSED\n   5.   RESPONSE\
-    \ arrives at A, but dropped since its outside of window.\n   6.   ESTAB      \
-    \  <-- <SEQ=500><ACK=0><CTL=RST>         4.c reaches A\n   7.   CLOSED       \
-    \                                            CLOSED\n   For the mitigation to\
-    \ be maximally effective against the\n   vulnerabilities discussed in this document,\
-    \ both ends of the TCP\n   connection need to have the fix.  Although, having\
-    \ the mitigations at\n   one end might prevent that end from being exposed to\
-    \ the attack, the\n   connection is still vulnerable at the other end.\n"
-- title: 9.  Middlebox Considerations
-  contents:
+  - contents:
+    - "5.1.  Description of the Attack\n   A third type of attack is also highlighted
+      by both the RST and SYN\n   attacks.  It is also possible to inject data into
+      a TCP connection by\n   simply guessing a sequence number within the current
+      receive window\n   of the victim.  The ACK value of any data segment is considered
+      valid\n   as long as it does not acknowledge data ahead of the next segment
+      to\n   send.  In other words, an ACK value is acceptable if it is\n   ((SND.UNA-(2^31-1))
+      <= SEG.ACK <= SND.NXT).  The (2^31 - 1) in the\n   above inequality takes into
+      account the fact that comparisons on TCP\n   sequence and acknowledgment numbers
+      is done using the modulo 32-bit\n   arithmetic to accommodate the number wraparound.
+      \ This means that an\n   attacker has to guess two ACK values with every guessed
+      sequence\n   number so that the chances of successfully injecting data into
+      a\n   connection are 1 in ( 1/2 (2^32 / RCV.WND) * 2).  Thus, the mean\n   number
+      of tries needed to inject data successfully is\n   1/2 (2*2^32/RWND) = 2^32/RCV.WND.\n
+      \  When an attacker successfully injects data into a connection, the\n   data
+      will sit in the receiver's re-assembly queue until the peer\n   sends enough
+      data to bridge the gap between the RCV.NXT value and the\n   injected data.
+      \ At that point, one of two things will occur:\n   1) A packet war will ensue
+      with the receiver indicating that it has\n      received data up until RCV.NXT
+      (which includes the attacker's\n      data) and the sender sending an ACK with
+      an acknowledgment number\n      less than RCV.NXT.\n   2) The sender will send
+      enough data to the peer that will move\n      RCV.NXT even further along past
+      the injected data.\n   Depending upon the TCP implementation in question and
+      the TCP traffic\n   characteristics at that time, data corruption may result.
+      \ In case\n   (a), the connection will eventually be reset by one of the sides\n
+      \  unless the sender produces more data that will transform the ACK war\n   into
+      case (b).  The reset will usually occur via User Time Out (UTO)\n   (see section
+      4.2.3.5 of [RFC1122]).\n   Note that the protections illustrated in this section
+      neither cause\n   an ACK war nor prevent one from occurring if data is actually\n
+      \  injected into a connection.  The ACK war is a product of the attack\n   itself
+      and cannot be prevented (other than by preventing the data\n   from being injected).\n"
+    title: 5.1.  Description of the Attack
+  - contents:
+    - "5.2.  Mitigation\n   All TCP stacks MAY implement the following mitigation.
+      \ TCP stacks\n   that implement this mitigation MUST add an additional input
+      check to\n   any incoming segment.  The ACK value is considered acceptable only
+      if\n   it is in the range of ((SND.UNA - MAX.SND.WND) <= SEG.ACK <=\n   SND.NXT).
+      \ All incoming segments whose ACK value doesn't satisfy the\n   above condition
+      MUST be discarded and an ACK sent back.  It needs to\n   be noted that RFC 793
+      on page 72 (fifth check) says: \"If the ACK is a\n   duplicate (SEG.ACK < SND.UNA),
+      it can be ignored.  If the ACK\n   acknowledges something not yet sent (SEG.ACK
+      > SND.NXT) then send an\n   ACK, drop the segment, and return\".  The \"ignored\"
+      above implies that\n   the processing of the incoming data segment continues,
+      which means\n   the ACK value is treated as acceptable.  This mitigation makes
+      the\n   ACK check more stringent since any ACK < SND.UNA wouldn't be\n   accepted,
+      instead only ACKs that are in the range ((SND.UNA -\n   MAX.SND.WND) <= SEG.ACK
+      <= SND.NXT) get through.\n   A new state variable MAX.SND.WND is defined as
+      the largest window\n   that the local sender has ever received from its peer.
+      \ This window\n   may be scaled to a value larger than 65,535 bytes ([RFC1323]).
+      \ This\n   small check will reduce the vulnerability to an attacker guessing
+      a\n   valid sequence number, since, not only one must guess the in-window\n
+      \  sequence number, but also guess a proper ACK value within a scoped\n   range.
+      \ This mitigation reduces, but does not eliminate, the ability\n   to generate
+      false segments.  It does however reduce the probability\n   that invalid data
+      will be injected.\n   Implementations can also chose to hard code the MAX.SND.WND
+      value to\n   the maximum permissible window size, i.e., 65535 in the absence
+      of\n   window scaling.  In the presence of the window scaling option, the\n
+      \  value becomes (MAX.SND.WND << Snd.Wind.Scale).\n   This mitigation also helps
+      in improving robustness on accepting\n   spoofed FIN segments (FIN attacks).
+      \ Among other things, this\n   mitigation requires that the attacker also needs
+      to get the\n   acknowledgment number to fall in the range mentioned above in
+      order\n   to successfully spoof a FIN segment leading to the closure of the\n
+      \  connection.  Thus, this mitigation greatly improves the robustness to\n   spoofed
+      FIN segments.\n   Note that the above mitigation may cause a non-amplification
+      ACK\n   exchange.  This concern is discussed in Section 10.\n"
+    title: 5.2.  Mitigation
+  title: 5.  Blind Data Injection Attack
+- contents:
+  - "6.  Suggested Mitigation Strengths\n   As described in the above sections, recommendation
+    levels for RST,\n   SYN, and DATA are tagged as SHOULD, SHOULD, and MAY, respectively.\n
+    \  The reason that DATA mitigation is tagged as MAY, even though it\n   increased
+    the TCP robustness in general is because, the DATA\n   injection is perceived
+    to be more difficult (twice as unlikely) when\n   compared to RST and SYN counterparts.
+    \ However, it needs to be noted\n   that all the suggested mitigations improve
+    TCP's robustness in\n   general and hence the choice of implementing some or all
+    mitigations\n   recommended in the document is purely left to the implementer.\n"
+  title: 6.  Suggested Mitigation Strengths
+- contents:
+  - "7.  ACK Throttling\n   In order to alleviate multiple RSTs/SYNs from triggering
+    multiple\n   challenge ACKs, an ACK throttling mechanism is suggested as follows:\n
+    \  1) The system administrator can configure the number of challenge\n      ACKs
+    that can be sent out in a given interval.  For example, in\n      any 5 second
+    window, no more than 10 challenge ACKs should be\n      sent.\n   2) The values
+    for both the time and number of ACKs SHOULD be tunable\n      by the system administrator
+    to accommodate different perceived\n      levels of threat and/or system resources.\n
+    \  It should be noted that these numbers are empirical in nature and\n   have
+    been obtained from the RST throttling mechanisms existing in\n   some implementations.
+    \ Also, note that no timer is needed to\n   implement the above mechanism, instead
+    a timestamp and a counter can\n   be used.\n   An implementation SHOULD include
+    an ACK throttling mechanism to be\n   conservative.  While we have not encountered
+    a case where the lack of\n   ACK throttling can be exploited, as a fail-safe mechanism
+    we\n   recommend its use.  An implementation may take an excessive number of\n
+    \  invocations of the throttling mechanism as an indication that network\n   conditions
+    are unusual or hostile.\n   An administrator who is more concerned about protecting
+    his bandwidth\n   and CPU utilization may set smaller ACK throttling values whereas
+    an\n   administrator who is more interested in faster cleanup of stale\n   connections
+    (i.e., concerned about excess TCP state) may decide to\n   set a higher value
+    thus allowing more RST's to be processed in any\n   given time period.\n   The
+    time limit SHOULD be tunable to help timeout brute force attacks\n   faster than
+    a potential legitimate flood of RSTs.\n"
+  title: 7.  ACK Throttling
+- contents:
+  - "8.  Backward Compatibility and Other Considerations\n   All of the new required
+    mitigation techniques in this document are\n   totally compatible with existing
+    ([RFC0793]) compliant TCP\n   implementations as this document introduces no new
+    assumptions or\n   conditions.\n   There is a corner scenario in the above mitigations
+    that will require\n   more than one round-trip time to successfully abort the
+    connection as\n   per the figure below.  This scenario is similar to the one in
+    which\n   the original RST was lost in the network.\n          TCP A                                                 TCP
+    B\n   1.a. ESTAB        <-- <SEQ=300><ACK=101><CTL=ACK><DATA> <--  ESTAB\n     b.
+    (delayed)    ... <SEQ=400><ACK=101><CTL=ACK><DATA> <--  ESTAB\n     c. (in flight)
+    \ ... <SEQ=500><ACK=101><CTL=RST>       <--  CLOSED\n   2.   ESTAB        -->
+    <SEQ=101><ACK=400><CTL=ACK>       -->  CLOSED\n       (ACK for 1.a)\n                     ...
+    <SEQ=400><ACK=0><CTL=RST>         <--  CLOSED\n   3.   CHALLENGE    --> <SEQ=101><ACK=400><CTL=ACK>
+    \      -->  CLOSED\n        (for 1.c)\n                     ... <SEQ=400><ACK=0><CTL=RST>
+    \        <--  RESPONSE\n   4.a. ESTAB        <-- <SEQ=400><ACK=101><CTL=ACK><DATA>
+    1.b reaches A\n     b. ESTAB        --> <SEQ=101><ACK=500><CTL=ACK>\n     c. (in
+    flight)  ... <SEQ=500><ACK=0><CTL=RST>         <--  CLOSED\n   5.   RESPONSE arrives
+    at A, but dropped since its outside of window.\n   6.   ESTAB        <-- <SEQ=500><ACK=0><CTL=RST>
+    \        4.c reaches A\n   7.   CLOSED                                                   CLOSED\n
+    \  For the mitigation to be maximally effective against the\n   vulnerabilities
+    discussed in this document, both ends of the TCP\n   connection need to have the
+    fix.  Although, having the mitigations at\n   one end might prevent that end from
+    being exposed to the attack, the\n   connection is still vulnerable at the other
+    end.\n"
+  title: 8.  Backward Compatibility and Other Considerations
+- contents:
   - '9.  Middlebox Considerations
 
     '
-- title: 9.1.  Middlebox That Resend RSTs
-  contents:
-  - "9.1.  Middlebox That Resend RSTs\n   Consider a middlebox M-B tracking connections\
-    \ between two TCP end\n   hosts E-A and E-C.  If E-C sends a RST with a sequence\
-    \ number that is\n   within the window but not an exact match to reset the connection\
-    \ and\n   M-B does not have the fix recommended in this document, it may clear\n\
-    \   the connection and forward the RST to E-A saving an incorrect\n   sequence\
-    \ number.  If E-A does not have the fix, the connection would\n   get cleared\
-    \ as required.  However, if E-A does have the required fix,\n   it will send a\
-    \ challenge ACK to E-C.  M-B, being a middlebox, may\n   intercept this ACK and\
-    \ resend the RST on behalf of E-C with the old\n   sequence number.  This RST\
-    \ will, again, not be acceptable and may\n   trigger a challenge ACK.\n   The\
-    \ above situation may result in a RST/ACK war.  However, we believe\n   that if\
-    \ such a case exists in the Internet, the middlebox is\n   generating packets\
-    \ a conformant TCP endpoint would not generate.\n   [RFC0793] dictates that the\
-    \ sequence number of a RST has to be\n   derived from the acknowledgment number\
-    \ of the incoming ACK segment.\n   It is outside the scope of this document to\
-    \ suggest mitigations to\n   the ill-behaved middleboxes.\n   Consider a similar\
-    \ scenario where the RST from M-B to E-A gets lost,\n   E-A will continue to hold\
-    \ the connection and E-A might send an ACK an\n   arbitrary time later after the\
-    \ connection state was destroyed at M-B.\n   For this case, M-B will have to cache\
-    \ the RST for an arbitrary amount\n   of time until it is confirmed that the connection\
-    \ has been cleared at\n   E-A.\n"
-- title: 9.2.  Middleboxes That Advance Sequence Numbers
-  contents:
-  - "9.2.  Middleboxes That Advance Sequence Numbers\n   Some middleboxes may compute\
-    \ RST sequence numbers at the higher end\n   of the acceptable window.  The scenario\
-    \ is the same as the earlier\n   case, but in this case instead of sending the\
-    \ cached RST, the\n   middlebox (M-B) sends a RST that computes its sequence number\
-    \ as the\n   sum of the acknowledgment field in the ACK and the window advertised\n\
-    \   by the ACK that was sent by E-A to challenge the RST as depicted\n   below.\
-    \  The difference in the sequence numbers between step 1 and 2\n   below is due\
-    \ to data lost in the network.\n      TCP A                                  \
-    \                 Middlebox\n   1. ESTABLISHED  <-- <SEQ=500><ACK=100><CTL=RST>\
-    \          <--  CLOSED\n   2. ESTABLISHED  --> <SEQ=100><ACK=300><WND=500><CTL=ACK>\
-    \ -->  CLOSED\n   3. ESTABLISHED  <-- <SEQ=800><ACK=100><CTL=RST>          <--\
-    \  CLOSED\n   4. ESTABLISHED  --> <SEQ=100><ACK=300><WND=500><CTL=ACK> -->  CLOSED\n\
-    \   5. ESTABLISHED  <-- <SEQ=800><ACK=100><CTL=RST>          <--  CLOSED\n   Although\
-    \ the authors are not aware of an implementation that does the\n   above, it could\
-    \ be mitigated by implementing the ACK throttling\n   mechanism described earlier.\n"
-- title: 9.3.  Middleboxes That Drop the Challenge ACK
-  contents:
-  - "9.3.  Middleboxes That Drop the Challenge ACK\n   It also needs to be noted that,\
-    \ some middleboxes (Firewalls/NATs)\n   that don't have the fix recommended in\
-    \ the document, may drop the\n   challenge ACK.  This can happen because, the\
-    \ original RST segment\n   that was in window had already cleared the flow state\
-    \ pertaining to\n   the TCP connection in the middlebox.  In such cases, the end\
-    \ hosts\n   that have implemented the RST mitigation described in this document,\n\
-    \   will have the TCP connection left open.  This is a corner case and\n   can\
-    \ go away if the middlebox is conformant with the changes proposed\n   in this\
-    \ document.\n"
-- title: 10.  Security Considerations
-  contents:
-  - "10.  Security Considerations\n   These changes to the TCP state machine do NOT\
-    \ protect an\n   implementation from on-path attacks.  It also needs to be emphasized\n\
-    \   that while mitigations within this document make it harder for off-\n   path\
-    \ attackers to inject segments, it does NOT make it impossible.\n   The only way\
-    \ to fully protect a TCP connection from both on- and off-\n   path attacks is\
-    \ by using either IPsec Authentication Header (AH)\n   [RFC4302] or IPsec Encapsulating\
-    \ Security Payload (ESP) [RFC4303].\n   Implementers also should be aware that\
-    \ the attacks detailed in this\n   specification are not the only attacks available\
-    \ to an off-path\n   attacker and that the counter measures described herein are\
-    \ not a\n   comprehensive defense against such attacks.\n   In particular, administrators\
-    \ should be aware that forged ICMP\n   messages provide off-path attackers the\
-    \ opportunity to disrupt\n   connections or degrade service.  Such attacks may\
-    \ be subject to even\n   less scrutiny than the TCP attacks addressed here, especially\
-    \ in\n   stacks not tuned for hostile environments.  It is important to note\n\
-    \   that some ICMP messages, validated or not, are key to the proper\n   function\
-    \ of TCP.  Those ICMP messages used to properly set the path\n   maximum transmission\
-    \ unit are the most obvious example.  There are a\n   variety of ways to choose\
-    \ which, if any, ICMP messages to trust in\n   the presence of off-path attackers\
-    \ and choosing between them depends\n   on the assumptions and guarantees developers\
-    \ and administrators can\n   make about their network.  This specification does\
-    \ not attempt to do\n   more than note this and related issues.  Unless implementers\
-    \ address\n   spoofed ICMP messages [RFC5927], the mitigations specified in this\n\
-    \   document may not provide the desired protection level.\n   In any case, this\
-    \ RFC details only part of a complete strategy to\n   prevent off-path attackers\
-    \ from disrupting services that use TCP.\n   Administrators and implementers should\
-    \ consider the other attack\n   vectors and determine appropriate mitigations\
-    \ in securing their\n   systems.\n   Another notable consideration is that a reflector\
-    \ attack is possible\n   with the required RST/SYN mitigation techniques.  In\
-    \ this attack, an\n   off-path attacker can cause a victim to send an ACK segment\
-    \ for each\n   spoofed RST/SYN segment that lies within the current receive window\n\
-    \   of the victim.  It should be noted, however, that this does not cause\n  \
-    \ any amplification since the attacker must generate a segment for each\n   one\
-    \ that the victim will generate.\n"
-- title: 11.  Contributors
-  contents:
-  - "11.  Contributors\n   Mitesh Dalal and Amol Khare of Cisco Systems came up with\
-    \ the\n   solution for the RST/SYN attacks.  Anantha Ramaiah and Randall\n   Stewart\
-    \ of Cisco Systems discovered the data injection vulnerability\n   and together\
-    \ with Patrick Mahan and Peter Lei of Cisco Systems found\n   solutions for the\
-    \ same.  Paul Goyette, Mark Baushke, Frank\n   Kastenholz, Art Stine, and David\
-    \ Wang of Juniper Networks provided\n   the insight that apart from RSTs, SYNs\
-    \ could also result in\n   formidable attacks.  Shrirang Bage of Cisco Systems,\
-    \ Qing Li and\n   Preety Puri of Wind River Systems, and Xiaodan Tang of QNX Software\n\
-    \   along with the folks above helped in ratifying and testing the\n   interoperability\
-    \ of the suggested solutions.\n"
-- title: 12.  Acknowledgments
-  contents:
-  - "12.  Acknowledgments\n   Special thanks to Mark Allman, Ted Faber, Steve Bellovin,\
-    \ Vern\n   Paxson, Allison Mankin, Sharad Ahlawat, Damir Rajnovic, John Wong,\n\
-    \   Joe Touch, Alfred Hoenes, Andre Oppermann, Fernando Gont, Sandra\n   Murphy,\
-    \ Brian Carpenter, Cullen Jennings, and other members of the\n   tcpm WG for suggestions\
-    \ and comments.  ACK throttling was introduced\n   to this document by combining\
-    \ the suggestions from the tcpm working\n   group.\n"
-- title: 13.  References
-  contents:
+  - contents:
+    - "9.1.  Middlebox That Resend RSTs\n   Consider a middlebox M-B tracking connections
+      between two TCP end\n   hosts E-A and E-C.  If E-C sends a RST with a sequence
+      number that is\n   within the window but not an exact match to reset the connection
+      and\n   M-B does not have the fix recommended in this document, it may clear\n
+      \  the connection and forward the RST to E-A saving an incorrect\n   sequence
+      number.  If E-A does not have the fix, the connection would\n   get cleared
+      as required.  However, if E-A does have the required fix,\n   it will send a
+      challenge ACK to E-C.  M-B, being a middlebox, may\n   intercept this ACK and
+      resend the RST on behalf of E-C with the old\n   sequence number.  This RST
+      will, again, not be acceptable and may\n   trigger a challenge ACK.\n   The
+      above situation may result in a RST/ACK war.  However, we believe\n   that if
+      such a case exists in the Internet, the middlebox is\n   generating packets
+      a conformant TCP endpoint would not generate.\n   [RFC0793] dictates that the
+      sequence number of a RST has to be\n   derived from the acknowledgment number
+      of the incoming ACK segment.\n   It is outside the scope of this document to
+      suggest mitigations to\n   the ill-behaved middleboxes.\n   Consider a similar
+      scenario where the RST from M-B to E-A gets lost,\n   E-A will continue to hold
+      the connection and E-A might send an ACK an\n   arbitrary time later after the
+      connection state was destroyed at M-B.\n   For this case, M-B will have to cache
+      the RST for an arbitrary amount\n   of time until it is confirmed that the connection
+      has been cleared at\n   E-A.\n"
+    title: 9.1.  Middlebox That Resend RSTs
+  - contents:
+    - "9.2.  Middleboxes That Advance Sequence Numbers\n   Some middleboxes may compute
+      RST sequence numbers at the higher end\n   of the acceptable window.  The scenario
+      is the same as the earlier\n   case, but in this case instead of sending the
+      cached RST, the\n   middlebox (M-B) sends a RST that computes its sequence number
+      as the\n   sum of the acknowledgment field in the ACK and the window advertised\n
+      \  by the ACK that was sent by E-A to challenge the RST as depicted\n   below.
+      \ The difference in the sequence numbers between step 1 and 2\n   below is due
+      to data lost in the network.\n      TCP A                                                   Middlebox\n
+      \  1. ESTABLISHED  <-- <SEQ=500><ACK=100><CTL=RST>          <--  CLOSED\n   2.
+      ESTABLISHED  --> <SEQ=100><ACK=300><WND=500><CTL=ACK> -->  CLOSED\n   3. ESTABLISHED
+      \ <-- <SEQ=800><ACK=100><CTL=RST>          <--  CLOSED\n   4. ESTABLISHED  -->
+      <SEQ=100><ACK=300><WND=500><CTL=ACK> -->  CLOSED\n   5. ESTABLISHED  <-- <SEQ=800><ACK=100><CTL=RST>
+      \         <--  CLOSED\n   Although the authors are not aware of an implementation
+      that does the\n   above, it could be mitigated by implementing the ACK throttling\n
+      \  mechanism described earlier.\n"
+    title: 9.2.  Middleboxes That Advance Sequence Numbers
+  - contents:
+    - "9.3.  Middleboxes That Drop the Challenge ACK\n   It also needs to be noted
+      that, some middleboxes (Firewalls/NATs)\n   that don't have the fix recommended
+      in the document, may drop the\n   challenge ACK.  This can happen because, the
+      original RST segment\n   that was in window had already cleared the flow state
+      pertaining to\n   the TCP connection in the middlebox.  In such cases, the end
+      hosts\n   that have implemented the RST mitigation described in this document,\n
+      \  will have the TCP connection left open.  This is a corner case and\n   can
+      go away if the middlebox is conformant with the changes proposed\n   in this
+      document.\n"
+    title: 9.3.  Middleboxes That Drop the Challenge ACK
+  title: 9.  Middlebox Considerations
+- contents:
+  - "10.  Security Considerations\n   These changes to the TCP state machine do NOT
+    protect an\n   implementation from on-path attacks.  It also needs to be emphasized\n
+    \  that while mitigations within this document make it harder for off-\n   path
+    attackers to inject segments, it does NOT make it impossible.\n   The only way
+    to fully protect a TCP connection from both on- and off-\n   path attacks is by
+    using either IPsec Authentication Header (AH)\n   [RFC4302] or IPsec Encapsulating
+    Security Payload (ESP) [RFC4303].\n   Implementers also should be aware that the
+    attacks detailed in this\n   specification are not the only attacks available
+    to an off-path\n   attacker and that the counter measures described herein are
+    not a\n   comprehensive defense against such attacks.\n   In particular, administrators
+    should be aware that forged ICMP\n   messages provide off-path attackers the opportunity
+    to disrupt\n   connections or degrade service.  Such attacks may be subject to
+    even\n   less scrutiny than the TCP attacks addressed here, especially in\n   stacks
+    not tuned for hostile environments.  It is important to note\n   that some ICMP
+    messages, validated or not, are key to the proper\n   function of TCP.  Those
+    ICMP messages used to properly set the path\n   maximum transmission unit are
+    the most obvious example.  There are a\n   variety of ways to choose which, if
+    any, ICMP messages to trust in\n   the presence of off-path attackers and choosing
+    between them depends\n   on the assumptions and guarantees developers and administrators
+    can\n   make about their network.  This specification does not attempt to do\n
+    \  more than note this and related issues.  Unless implementers address\n   spoofed
+    ICMP messages [RFC5927], the mitigations specified in this\n   document may not
+    provide the desired protection level.\n   In any case, this RFC details only part
+    of a complete strategy to\n   prevent off-path attackers from disrupting services
+    that use TCP.\n   Administrators and implementers should consider the other attack\n
+    \  vectors and determine appropriate mitigations in securing their\n   systems.\n
+    \  Another notable consideration is that a reflector attack is possible\n   with
+    the required RST/SYN mitigation techniques.  In this attack, an\n   off-path attacker
+    can cause a victim to send an ACK segment for each\n   spoofed RST/SYN segment
+    that lies within the current receive window\n   of the victim.  It should be noted,
+    however, that this does not cause\n   any amplification since the attacker must
+    generate a segment for each\n   one that the victim will generate.\n"
+  title: 10.  Security Considerations
+- contents:
+  - "11.  Contributors\n   Mitesh Dalal and Amol Khare of Cisco Systems came up with
+    the\n   solution for the RST/SYN attacks.  Anantha Ramaiah and Randall\n   Stewart
+    of Cisco Systems discovered the data injection vulnerability\n   and together
+    with Patrick Mahan and Peter Lei of Cisco Systems found\n   solutions for the
+    same.  Paul Goyette, Mark Baushke, Frank\n   Kastenholz, Art Stine, and David
+    Wang of Juniper Networks provided\n   the insight that apart from RSTs, SYNs could
+    also result in\n   formidable attacks.  Shrirang Bage of Cisco Systems, Qing Li
+    and\n   Preety Puri of Wind River Systems, and Xiaodan Tang of QNX Software\n
+    \  along with the folks above helped in ratifying and testing the\n   interoperability
+    of the suggested solutions.\n"
+  title: 11.  Contributors
+- contents:
+  - "12.  Acknowledgments\n   Special thanks to Mark Allman, Ted Faber, Steve Bellovin,
+    Vern\n   Paxson, Allison Mankin, Sharad Ahlawat, Damir Rajnovic, John Wong,\n
+    \  Joe Touch, Alfred Hoenes, Andre Oppermann, Fernando Gont, Sandra\n   Murphy,
+    Brian Carpenter, Cullen Jennings, and other members of the\n   tcpm WG for suggestions
+    and comments.  ACK throttling was introduced\n   to this document by combining
+    the suggestions from the tcpm working\n   group.\n"
+  title: 12.  Acknowledgments
+- contents:
   - '13.  References
 
     '
-- title: 13.1.  Normative References
-  contents:
-  - "13.1.  Normative References\n   [RFC0793]     Postel, J., \"Transmission Control\
-    \ Protocol\", STD 7,\n                 RFC 793, September 1981.\n   [RFC2119]\
-    \     Bradner, S., \"Key words for use in RFCs to Indicate\n                 Requirement\
-    \ Levels\", BCP 14, RFC 2119, March 1997.\n"
-- title: 13.2.  Informative References
-  contents:
-  - "13.2.  Informative References\n   [Medina05]    Medina, A., Allman, M., and S.\
-    \ Floyd, \"Measuring the\n                 Evolution of Transport Protocols in\
-    \ the Internet\", ACM\n                 Computer Communication Review, 35(2),\
-    \ April 2005,\n                 <http://www.icir.org/mallman/papers/tcp-evo-ccr05.ps>.\n\
-    \   [NISCC]       NISCC, \"NISCC Vulnerability Advisory 236929 -\n           \
-    \      Vulnerability Issues in TCP\".\n   [RFC1122]     Braden, R., \"Requirements\
-    \ for Internet Hosts -\n                 Communication Layers\", STD 3, RFC 1122,\
-    \ October 1989.\n   [RFC1323]     Jacobson, V., Braden, B., and D. Borman, \"\
-    TCP\n                 Extensions for High Performance\", RFC 1323, May 1992.\n\
-    \   [RFC1948]     Bellovin, S., \"Defending Against Sequence Number\n        \
-    \         Attacks\", RFC 1948, May 1996.\n   [RFC2385]     Heffernan, A., \"Protection\
-    \ of BGP Sessions via the TCP\n                 MD5 Signature Option\", RFC 2385,\
-    \ August 1998.\n   [RFC4271]     Rekhter, Y., Li, T., and S. Hares, \"A Border\
-    \ Gateway\n                 Protocol 4 (BGP-4)\", RFC 4271, January 2006.\n  \
-    \ [RFC4302]     Kent, S., \"IP Authentication Header\", RFC 4302,\n          \
-    \       December 2005.\n   [RFC4303]     Kent, S., \"IP Encapsulating Security\
-    \ Payload (ESP)\",\n                 RFC 4303, December 2005.\n   [RFC4953]  \
-    \   Touch, J., \"Defending TCP Against Spoofing Attacks\",\n                 RFC\
-    \ 4953, July 2007.\n   [RFC5927]     Gont, F., \"ICMP Attacks against TCP\", RFC\
-    \ 5927,\n                 July 2010.\n   [SITW]        Watson, P., \"Slipping\
-    \ in the Window: TCP Reset\n                 attacks\", Presentation at 2004 CanSecWest,\n\
-    \                 <http://cansecwest.com/csw04archive.html>.\n   [TSVWG-PORT]\
-    \  Larsen, M. and F. Gont, \"Transport Protocol Port\n                 Randomization\
-    \ Recommendations\", Work in Progress,\n                 August 2010.\n"
-- title: Authors' Addresses
-  contents:
-  - "Authors' Addresses\n   Anantha Ramaiah\n   Cisco Systems\n   170 Tasman Drive\n\
-    \   San Jose, CA  95134\n   USA\n   Phone: +1 (408) 525-6486\n   EMail: ananth@cisco.com\n\
-    \   Randall R. Stewart\n   Huawei\n   148 Crystal Cove Ct\n   Chapin, SC  29036\n\
-    \   USA\n   Phone: +1 (803) 345-0369\n   EMail: rstewart@huawei.com\n   Mitesh\
-    \ Dalal\n   Cisco Systems\n   170 Tasman Drive\n   San Jose, CA  95134\n   USA\n\
-    \   Phone: +1 (408) 853-5257\n   EMail: mdalal@cisco.com\n"
+  - contents:
+    - "13.1.  Normative References\n   [RFC0793]     Postel, J., \"Transmission Control
+      Protocol\", STD 7,\n                 RFC 793, September 1981.\n   [RFC2119]
+      \    Bradner, S., \"Key words for use in RFCs to Indicate\n                 Requirement
+      Levels\", BCP 14, RFC 2119, March 1997.\n"
+    title: 13.1.  Normative References
+  - contents:
+    - "13.2.  Informative References\n   [Medina05]    Medina, A., Allman, M., and
+      S. Floyd, \"Measuring the\n                 Evolution of Transport Protocols
+      in the Internet\", ACM\n                 Computer Communication Review, 35(2),
+      April 2005,\n                 <http://www.icir.org/mallman/papers/tcp-evo-ccr05.ps>.\n
+      \  [NISCC]       NISCC, \"NISCC Vulnerability Advisory 236929 -\n                 Vulnerability
+      Issues in TCP\".\n   [RFC1122]     Braden, R., \"Requirements for Internet Hosts
+      -\n                 Communication Layers\", STD 3, RFC 1122, October 1989.\n
+      \  [RFC1323]     Jacobson, V., Braden, B., and D. Borman, \"TCP\n                 Extensions
+      for High Performance\", RFC 1323, May 1992.\n   [RFC1948]     Bellovin, S.,
+      \"Defending Against Sequence Number\n                 Attacks\", RFC 1948, May
+      1996.\n   [RFC2385]     Heffernan, A., \"Protection of BGP Sessions via the
+      TCP\n                 MD5 Signature Option\", RFC 2385, August 1998.\n   [RFC4271]
+      \    Rekhter, Y., Li, T., and S. Hares, \"A Border Gateway\n                 Protocol
+      4 (BGP-4)\", RFC 4271, January 2006.\n   [RFC4302]     Kent, S., \"IP Authentication
+      Header\", RFC 4302,\n                 December 2005.\n   [RFC4303]     Kent,
+      S., \"IP Encapsulating Security Payload (ESP)\",\n                 RFC 4303,
+      December 2005.\n   [RFC4953]     Touch, J., \"Defending TCP Against Spoofing
+      Attacks\",\n                 RFC 4953, July 2007.\n   [RFC5927]     Gont, F.,
+      \"ICMP Attacks against TCP\", RFC 5927,\n                 July 2010.\n   [SITW]
+      \       Watson, P., \"Slipping in the Window: TCP Reset\n                 attacks\",
+      Presentation at 2004 CanSecWest,\n                 <http://cansecwest.com/csw04archive.html>.\n
+      \  [TSVWG-PORT]  Larsen, M. and F. Gont, \"Transport Protocol Port\n                 Randomization
+      Recommendations\", Work in Progress,\n                 August 2010.\n"
+    title: 13.2.  Informative References
+  title: 13.  References
+- contents:
+  - "Authors' Addresses\n   Anantha Ramaiah\n   Cisco Systems\n   170 Tasman Drive\n
+    \  San Jose, CA  95134\n   USA\n   Phone: +1 (408) 525-6486\n   EMail: ananth@cisco.com\n
+    \  Randall R. Stewart\n   Huawei\n   148 Crystal Cove Ct\n   Chapin, SC  29036\n
+    \  USA\n   Phone: +1 (803) 345-0369\n   EMail: rstewart@huawei.com\n   Mitesh
+    Dalal\n   Cisco Systems\n   170 Tasman Drive\n   San Jose, CA  95134\n   USA\n
+    \  Phone: +1 (408) 853-5257\n   EMail: mdalal@cisco.com\n"
+  title: Authors' Addresses

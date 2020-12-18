@@ -1,553 +1,540 @@
-- title: __initial_text__
-  contents:
+- contents:
   - '          DNS Transport over TCP - Implementation Requirements
 
     '
-- title: Abstract
-  contents:
-  - "Abstract\n   This document specifies the requirement for support of TCP as a\n\
-    \   transport protocol for DNS implementations and provides guidelines\n   towards\
-    \ DNS-over-TCP performance on par with that of DNS-over-UDP.\n   This document\
-    \ obsoletes RFC 5966 and therefore updates RFC 1035 and\n   RFC 1123.\n"
-- title: Status of This Memo
-  contents:
-  - "Status of This Memo\n   This is an Internet Standards Track document.\n   This\
-    \ document is a product of the Internet Engineering Task Force\n   (IETF).  It\
-    \ represents the consensus of the IETF community.  It has\n   received public\
-    \ review and has been approved for publication by the\n   Internet Engineering\
-    \ Steering Group (IESG).  Further information on\n   Internet Standards is available\
-    \ in Section 2 of RFC 5741.\n   Information about the current status of this document,\
-    \ any errata,\n   and how to provide feedback on it may be obtained at\n   http://www.rfc-editor.org/info/rfc7766.\n"
-- title: Copyright Notice
-  contents:
-  - "Copyright Notice\n   Copyright (c) 2016 IETF Trust and the persons identified\
-    \ as the\n   document authors.  All rights reserved.\n   This document is subject\
-    \ to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n\
-    \   (http://trustee.ietf.org/license-info) in effect on the date of\n   publication\
-    \ of this document.  Please review these documents\n   carefully, as they describe\
-    \ your rights and restrictions with respect\n   to this document.  Code Components\
-    \ extracted from this document must\n   include Simplified BSD License text as\
-    \ described in Section 4.e of\n   the Trust Legal Provisions and are provided\
-    \ without warranty as\n   described in the Simplified BSD License.\n"
-- title: Table of Contents
-  contents:
-  - "Table of Contents\n   1.  Introduction  . . . . . . . . . . . . . . . . . . .\
-    \ . . . . .   3\n   2.  Requirements Terminology  . . . . . . . . . . . . . .\
-    \ . . . .   4\n   3.  Terminology . . . . . . . . . . . . . . . . . . . . . .\
-    \ . . .   4\n   4.  Discussion  . . . . . . . . . . . . . . . . . . . . . . .\
-    \ . .   4\n   5.  Transport Protocol Selection  . . . . . . . . . . . . . . .\
-    \ .   5\n   6.  Connection Handling . . . . . . . . . . . . . . . . . . . . .\
-    \   6\n     6.1.  Current Practices . . . . . . . . . . . . . . . . . . . .  \
-    \ 6\n       6.1.1.  Clients . . . . . . . . . . . . . . . . . . . . . . .   7\n\
-    \       6.1.2.  Servers . . . . . . . . . . . . . . . . . . . . . . .   7\n  \
-    \   6.2.  Recommendations . . . . . . . . . . . . . . . . . . . . .   8\n    \
-    \   6.2.1.  Connection Reuse  . . . . . . . . . . . . . . . . . .   8\n      \
-    \   6.2.1.1.  Query Pipelining  . . . . . . . . . . . . . . . .   8\n       6.2.2.\
-    \  Concurrent Connections  . . . . . . . . . . . . . . .   9\n       6.2.3.  Idle\
-    \ Timeouts . . . . . . . . . . . . . . . . . . . .   9\n       6.2.4.  Teardown\
-    \  . . . . . . . . . . . . . . . . . . . . . .  10\n   7.  Response Reordering\
-    \ . . . . . . . . . . . . . . . . . . . . .  10\n   8.  TCP Message Length Field\
-    \  . . . . . . . . . . . . . . . . . .  11\n   9.  TCP Fast Open . . . . . . .\
-    \ . . . . . . . . . . . . . . . . .  11\n   10. Security Considerations . . .\
-    \ . . . . . . . . . . . . . . . .  12\n   11. References  . . . . . . . . . .\
-    \ . . . . . . . . . . . . . . .  13\n     11.1.  Normative References . . . .\
-    \ . . . . . . . . . . . . . .  13\n     11.2.  Informative References . . . .\
-    \ . . . . . . . . . . . . .  14\n   Appendix A.  Summary of Advantages and Disadvantages\
-    \ to Using TCP\n                for DNS  . . . . . . . . . . . . . . . . . . .\
-    \ . . .  16\n   Appendix B.  Changes to RFC 5966  . . . . . . . . . . . . . .\
-    \ . .  16\n   Acknowledgements  . . . . . . . . . . . . . . . . . . . . . . .\
-    \ .  17\n   Authors' Addresses  . . . . . . . . . . . . . . . . . . . . . . .\
-    \  18\n"
-- title: 1.  Introduction
-  contents:
-  - "1.  Introduction\n   Most DNS [RFC1034] transactions take place over UDP [RFC768].\
-    \  TCP\n   [RFC793] is always used for full zone transfers (using AXFR) and is\n\
-    \   often used for messages whose sizes exceed the DNS protocol's\n   original\
-    \ 512-byte limit.  The growing deployment of DNS Security\n   (DNSSEC) and IPv6\
-    \ has increased response sizes and therefore the use\n   of TCP.  The need for\
-    \ increased TCP use has also been driven by the\n   protection it provides against\
-    \ address spoofing and therefore\n   exploitation of DNS in reflection/amplification\
-    \ attacks.  It is now\n   widely used in Response Rate Limiting [RRL1] [RRL2].\
-    \  Additionally,\n   recent work on DNS privacy solutions such as [DNS-over-TLS]\
-    \ is\n   another motivation to revisit DNS-over-TCP requirements.\n   Section\
-    \ 6.1.3.2 of [RFC1123] states:\n      DNS resolvers and recursive servers MUST\
-    \ support UDP, and SHOULD\n      support TCP, for sending (non-zone-transfer)\
-    \ queries.\n   However, some implementors have taken the text quoted above to\
-    \ mean\n   that TCP support is an optional feature of the DNS protocol.\n   The\
-    \ majority of DNS server operators already support TCP, and the\n   default configuration\
-    \ for most software implementations is to support\n   TCP.  The primary audience\
-    \ for this document is those implementors\n   whose limited support for TCP restricts\
-    \ interoperability and hinders\n   deployment of new DNS features.\n   This document\
-    \ therefore updates the core DNS protocol specifications\n   such that support\
-    \ for TCP is henceforth a REQUIRED part of a full DNS\n   protocol implementation.\n\
-    \   There are several advantages and disadvantages to the increased use\n   of\
-    \ TCP (see Appendix A) as well as implementation details that need\n   to be considered.\
-    \  This document addresses these issues and presents\n   TCP as a valid transport\
-    \ alternative for DNS.  It extends the content\n   of [RFC5966], with additional\
-    \ considerations and lessons learned from\n   research, developments, and implementation\
-    \ of TCP in DNS and in other\n   Internet protocols.\n   Whilst this document\
-    \ makes no specific requirements for operators of\n   DNS servers to meet, it\
-    \ does offer some suggestions to operators to\n   help ensure that support for\
-    \ TCP on their servers and network is\n   optimal.  It should be noted that failure\
-    \ to support TCP (or the\n   blocking of DNS over TCP at the network layer) will\
-    \ probably result\n   in resolution failure and/or application-level timeouts.\n"
-- title: 2.  Requirements Terminology
-  contents:
-  - "2.  Requirements Terminology\n   The key words \"MUST\", \"MUST NOT\", \"REQUIRED\"\
-    , \"SHALL\", \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\", \"\
-    MAY\", and \"OPTIONAL\" in this\n   document are to be interpreted as described\
-    \ in [RFC2119].\n"
-- title: 3.  Terminology
-  contents:
-  - "3.  Terminology\n   o  Persistent connection: a TCP connection that is not closed\
-    \ either\n      by the server after sending the first response nor by the client\n\
-    \      after receiving the first response.\n   o  Connection Reuse: the sending\
-    \ of multiple queries and responses\n      over a single TCP connection.\n   o\
-    \  Idle DNS-over-TCP session: Clients and servers view application-\n      level\
-    \ idleness differently.  A DNS client considers an established\n      DNS-over-TCP\
-    \ session to be idle when it has no pending queries to\n      send and there are\
-    \ no outstanding responses.  A DNS server\n      considers an established DNS-over-TCP\
-    \ session to be idle when it\n      has sent responses to all the queries it has\
-    \ received on that\n      connection.\n   o  Pipelining: the sending of multiple\
-    \ queries and responses over a\n      single TCP connection but not waiting for\
-    \ any outstanding replies\n      before sending another query.\n   o  Out-of-Order\
-    \ Processing: The processing of queries concurrently\n      and the returning\
-    \ of individual responses as soon as they are\n      available, possibly out of\
-    \ order.  This will most likely occur in\n      recursive servers; however, it\
-    \ is possible in authoritative\n      servers that, for example, have different\
-    \ backend data stores.\n"
-- title: 4.  Discussion
-  contents:
-  - "4.  Discussion\n   In the absence of EDNS0 (Extension Mechanisms for DNS 0 [RFC6891];\n\
-    \   see below), the normal behaviour of any DNS server that needs to send\n  \
-    \ a UDP response that would exceed the 512-byte limit is for the server\n   to\
-    \ truncate the response so that it fits within that limit and then\n   set the\
-    \ TC flag in the response header.  When the client receives\n   such a response,\
-    \ it takes the TC flag as an indication that it should\n   retry over TCP instead.\n\
-    \   RFC 1123 also says:\n      ... it is also clear that some new DNS record types\
-    \ defined in the\n      future will contain information exceeding the 512 byte\
-    \ limit that\n      applies to UDP, and hence will require TCP.  Thus, resolvers\
-    \ and\n      name servers should implement TCP services as a backup to UDP\n \
-    \     today, with the knowledge that they will require the TCP service\n     \
-    \ in the future.\n   Existing deployments of DNSSEC [RFC4033] have shown that\
-    \ truncation\n   at the 512-byte boundary is now commonplace.  For example, a\
-    \ Non-\n   Existent Domain (NXDOMAIN) (RCODE == 3) response from a DNSSEC-signed\n\
-    \   zone using NextSECure 3 (NSEC3) [RFC5155] is almost invariably larger\n  \
-    \ than 512 bytes.\n   Since the original core specifications for DNS were written,\
-    \ the\n   extension mechanisms for DNS have been introduced.  These extensions\n\
-    \   can be used to indicate that the client is prepared to receive UDP\n   responses\
-    \ larger than 512 bytes.  An EDNS0-compatible server\n   receiving a request from\
-    \ an EDNS0-compatible client may send UDP\n   packets up to that client's announced\
-    \ buffer size without truncation.\n   However, transport of UDP packets that exceed\
-    \ the size of the path\n   MTU causes IP packet fragmentation, which has been\
-    \ found to be\n   unreliable in many circumstances.  Many firewalls routinely\
-    \ block\n   fragmented IP packets, and some do not implement the algorithms\n\
-    \   necessary to reassemble fragmented packets.  Worse still, some\n   network\
-    \ devices deliberately refuse to handle DNS packets containing\n   EDNS0 options.\
-    \  Other issues relating to UDP transport and packet\n   size are discussed in\
-    \ [RFC5625].\n   The MTU most commonly found in the core of the Internet is around\n\
-    \   1500 bytes, and even that limit is routinely exceeded by DNSSEC-\n   signed\
-    \ responses.\n   The future that was anticipated in RFC 1123 has arrived, and\
-    \ the only\n   standardised UDP-based mechanism that may have resolved the packet\n\
-    \   size issue has been found inadequate.\n"
-- title: 5.  Transport Protocol Selection
-  contents:
-  - "5.  Transport Protocol Selection\n   Section 6.1.3.2 of [RFC1123] is updated:\
-    \ All general-purpose DNS\n   implementations MUST support both UDP and TCP transport.\n\
-    \   o  Authoritative server implementations MUST support TCP so that they\n  \
-    \    do not limit the size of responses to what fits in a single UDP\n      packet.\n\
-    \   o  Recursive server (or forwarder) implementations MUST support TCP\n    \
-    \  so that they do not prevent large responses from a TCP-capable\n      server\
-    \ from reaching its TCP-capable clients.\n   o  Stub resolver implementations\
-    \ (e.g., an operating system's DNS\n      resolution library) MUST support TCP\
-    \ since to do otherwise would\n      limit the interoperability between their\
-    \ own clients and upstream\n      servers.\n   Regarding the choice of when to\
-    \ use UDP or TCP, Section 6.1.3.2 of\n   RFC 1123 also says:\n      ... a DNS\
-    \ resolver or server that is sending a non-zone-transfer\n      query MUST send\
-    \ a UDP query first.\n   This requirement is hereby relaxed.  Stub resolvers and\
-    \ recursive\n   resolvers MAY elect to send either TCP or UDP queries depending\
-    \ on\n   local operational reasons.  TCP MAY be used before sending any UDP\n\
-    \   queries.  If the resolver already has an open TCP connection to the\n   server,\
-    \ it SHOULD reuse this connection.  In essence, TCP ought to be\n   considered\
-    \ a valid alternative transport to UDP, not purely a retry\n   option.\n   In\
-    \ addition, it is noted that all recursive and authoritative servers\n   MUST\
-    \ send responses using the same transport as the query arrived on.\n   In the\
-    \ case of TCP, this MUST also be the same connection.\n"
-- title: 6.  Connection Handling
-  contents:
+  title: __initial_text__
+- contents:
+  - "Abstract\n   This document specifies the requirement for support of TCP as a\n
+    \  transport protocol for DNS implementations and provides guidelines\n   towards
+    DNS-over-TCP performance on par with that of DNS-over-UDP.\n   This document obsoletes
+    RFC 5966 and therefore updates RFC 1035 and\n   RFC 1123.\n"
+  title: Abstract
+- contents:
+  - "Status of This Memo\n   This is an Internet Standards Track document.\n   This
+    document is a product of the Internet Engineering Task Force\n   (IETF).  It represents
+    the consensus of the IETF community.  It has\n   received public review and has
+    been approved for publication by the\n   Internet Engineering Steering Group (IESG).
+    \ Further information on\n   Internet Standards is available in Section 2 of RFC
+    5741.\n   Information about the current status of this document, any errata,\n
+    \  and how to provide feedback on it may be obtained at\n   http://www.rfc-editor.org/info/rfc7766.\n"
+  title: Status of This Memo
+- contents:
+  - "Copyright Notice\n   Copyright (c) 2016 IETF Trust and the persons identified
+    as the\n   document authors.  All rights reserved.\n   This document is subject
+    to BCP 78 and the IETF Trust's Legal\n   Provisions Relating to IETF Documents\n
+    \  (http://trustee.ietf.org/license-info) in effect on the date of\n   publication
+    of this document.  Please review these documents\n   carefully, as they describe
+    your rights and restrictions with respect\n   to this document.  Code Components
+    extracted from this document must\n   include Simplified BSD License text as described
+    in Section 4.e of\n   the Trust Legal Provisions and are provided without warranty
+    as\n   described in the Simplified BSD License.\n"
+  title: Copyright Notice
+- contents:
+  - "Table of Contents\n   1.  Introduction  . . . . . . . . . . . . . . . . . . .
+    . . . . .   3\n   2.  Requirements Terminology  . . . . . . . . . . . . . . .
+    . . .   4\n   3.  Terminology . . . . . . . . . . . . . . . . . . . . . . . .
+    .   4\n   4.  Discussion  . . . . . . . . . . . . . . . . . . . . . . . . .   4\n
+    \  5.  Transport Protocol Selection  . . . . . . . . . . . . . . . .   5\n   6.
+    \ Connection Handling . . . . . . . . . . . . . . . . . . . . .   6\n     6.1.
+    \ Current Practices . . . . . . . . . . . . . . . . . . . .   6\n       6.1.1.
+    \ Clients . . . . . . . . . . . . . . . . . . . . . . .   7\n       6.1.2.  Servers
+    . . . . . . . . . . . . . . . . . . . . . . .   7\n     6.2.  Recommendations
+    . . . . . . . . . . . . . . . . . . . . .   8\n       6.2.1.  Connection Reuse
+    \ . . . . . . . . . . . . . . . . . .   8\n         6.2.1.1.  Query Pipelining
+    \ . . . . . . . . . . . . . . . .   8\n       6.2.2.  Concurrent Connections  .
+    . . . . . . . . . . . . . .   9\n       6.2.3.  Idle Timeouts . . . . . . . .
+    . . . . . . . . . . . .   9\n       6.2.4.  Teardown  . . . . . . . . . . . .
+    . . . . . . . . . .  10\n   7.  Response Reordering . . . . . . . . . . . . .
+    . . . . . . . .  10\n   8.  TCP Message Length Field  . . . . . . . . . . . .
+    . . . . . .  11\n   9.  TCP Fast Open . . . . . . . . . . . . . . . . . . . .
+    . . . .  11\n   10. Security Considerations . . . . . . . . . . . . . . . . .
+    . .  12\n   11. References  . . . . . . . . . . . . . . . . . . . . . . . . .
+    \ 13\n     11.1.  Normative References . . . . . . . . . . . . . . . . . .  13\n
+    \    11.2.  Informative References . . . . . . . . . . . . . . . . .  14\n   Appendix
+    A.  Summary of Advantages and Disadvantages to Using TCP\n                for
+    DNS  . . . . . . . . . . . . . . . . . . . . . .  16\n   Appendix B.  Changes
+    to RFC 5966  . . . . . . . . . . . . . . . .  16\n   Acknowledgements  . . . .
+    . . . . . . . . . . . . . . . . . . . .  17\n   Authors' Addresses  . . . . .
+    . . . . . . . . . . . . . . . . . .  18\n"
+  title: Table of Contents
+- contents:
+  - "1.  Introduction\n   Most DNS [RFC1034] transactions take place over UDP [RFC768].
+    \ TCP\n   [RFC793] is always used for full zone transfers (using AXFR) and is\n
+    \  often used for messages whose sizes exceed the DNS protocol's\n   original
+    512-byte limit.  The growing deployment of DNS Security\n   (DNSSEC) and IPv6
+    has increased response sizes and therefore the use\n   of TCP.  The need for increased
+    TCP use has also been driven by the\n   protection it provides against address
+    spoofing and therefore\n   exploitation of DNS in reflection/amplification attacks.
+    \ It is now\n   widely used in Response Rate Limiting [RRL1] [RRL2].  Additionally,\n
+    \  recent work on DNS privacy solutions such as [DNS-over-TLS] is\n   another
+    motivation to revisit DNS-over-TCP requirements.\n   Section 6.1.3.2 of [RFC1123]
+    states:\n      DNS resolvers and recursive servers MUST support UDP, and SHOULD\n
+    \     support TCP, for sending (non-zone-transfer) queries.\n   However, some
+    implementors have taken the text quoted above to mean\n   that TCP support is
+    an optional feature of the DNS protocol.\n   The majority of DNS server operators
+    already support TCP, and the\n   default configuration for most software implementations
+    is to support\n   TCP.  The primary audience for this document is those implementors\n
+    \  whose limited support for TCP restricts interoperability and hinders\n   deployment
+    of new DNS features.\n   This document therefore updates the core DNS protocol
+    specifications\n   such that support for TCP is henceforth a REQUIRED part of
+    a full DNS\n   protocol implementation.\n   There are several advantages and disadvantages
+    to the increased use\n   of TCP (see Appendix A) as well as implementation details
+    that need\n   to be considered.  This document addresses these issues and presents\n
+    \  TCP as a valid transport alternative for DNS.  It extends the content\n   of
+    [RFC5966], with additional considerations and lessons learned from\n   research,
+    developments, and implementation of TCP in DNS and in other\n   Internet protocols.\n
+    \  Whilst this document makes no specific requirements for operators of\n   DNS
+    servers to meet, it does offer some suggestions to operators to\n   help ensure
+    that support for TCP on their servers and network is\n   optimal.  It should be
+    noted that failure to support TCP (or the\n   blocking of DNS over TCP at the
+    network layer) will probably result\n   in resolution failure and/or application-level
+    timeouts.\n"
+  title: 1.  Introduction
+- contents:
+  - "2.  Requirements Terminology\n   The key words \"MUST\", \"MUST NOT\", \"REQUIRED\",
+    \"SHALL\", \"SHALL NOT\",\n   \"SHOULD\", \"SHOULD NOT\", \"RECOMMENDED\", \"MAY\",
+    and \"OPTIONAL\" in this\n   document are to be interpreted as described in [RFC2119].\n"
+  title: 2.  Requirements Terminology
+- contents:
+  - "3.  Terminology\n   o  Persistent connection: a TCP connection that is not closed
+    either\n      by the server after sending the first response nor by the client\n
+    \     after receiving the first response.\n   o  Connection Reuse: the sending
+    of multiple queries and responses\n      over a single TCP connection.\n   o  Idle
+    DNS-over-TCP session: Clients and servers view application-\n      level idleness
+    differently.  A DNS client considers an established\n      DNS-over-TCP session
+    to be idle when it has no pending queries to\n      send and there are no outstanding
+    responses.  A DNS server\n      considers an established DNS-over-TCP session
+    to be idle when it\n      has sent responses to all the queries it has received
+    on that\n      connection.\n   o  Pipelining: the sending of multiple queries
+    and responses over a\n      single TCP connection but not waiting for any outstanding
+    replies\n      before sending another query.\n   o  Out-of-Order Processing: The
+    processing of queries concurrently\n      and the returning of individual responses
+    as soon as they are\n      available, possibly out of order.  This will most likely
+    occur in\n      recursive servers; however, it is possible in authoritative\n
+    \     servers that, for example, have different backend data stores.\n"
+  title: 3.  Terminology
+- contents:
+  - "4.  Discussion\n   In the absence of EDNS0 (Extension Mechanisms for DNS 0 [RFC6891];\n
+    \  see below), the normal behaviour of any DNS server that needs to send\n   a
+    UDP response that would exceed the 512-byte limit is for the server\n   to truncate
+    the response so that it fits within that limit and then\n   set the TC flag in
+    the response header.  When the client receives\n   such a response, it takes the
+    TC flag as an indication that it should\n   retry over TCP instead.\n   RFC 1123
+    also says:\n      ... it is also clear that some new DNS record types defined
+    in the\n      future will contain information exceeding the 512 byte limit that\n
+    \     applies to UDP, and hence will require TCP.  Thus, resolvers and\n      name
+    servers should implement TCP services as a backup to UDP\n      today, with the
+    knowledge that they will require the TCP service\n      in the future.\n   Existing
+    deployments of DNSSEC [RFC4033] have shown that truncation\n   at the 512-byte
+    boundary is now commonplace.  For example, a Non-\n   Existent Domain (NXDOMAIN)
+    (RCODE == 3) response from a DNSSEC-signed\n   zone using NextSECure 3 (NSEC3)
+    [RFC5155] is almost invariably larger\n   than 512 bytes.\n   Since the original
+    core specifications for DNS were written, the\n   extension mechanisms for DNS
+    have been introduced.  These extensions\n   can be used to indicate that the client
+    is prepared to receive UDP\n   responses larger than 512 bytes.  An EDNS0-compatible
+    server\n   receiving a request from an EDNS0-compatible client may send UDP\n
+    \  packets up to that client's announced buffer size without truncation.\n   However,
+    transport of UDP packets that exceed the size of the path\n   MTU causes IP packet
+    fragmentation, which has been found to be\n   unreliable in many circumstances.
+    \ Many firewalls routinely block\n   fragmented IP packets, and some do not implement
+    the algorithms\n   necessary to reassemble fragmented packets.  Worse still, some\n
+    \  network devices deliberately refuse to handle DNS packets containing\n   EDNS0
+    options.  Other issues relating to UDP transport and packet\n   size are discussed
+    in [RFC5625].\n   The MTU most commonly found in the core of the Internet is around\n
+    \  1500 bytes, and even that limit is routinely exceeded by DNSSEC-\n   signed
+    responses.\n   The future that was anticipated in RFC 1123 has arrived, and the
+    only\n   standardised UDP-based mechanism that may have resolved the packet\n
+    \  size issue has been found inadequate.\n"
+  title: 4.  Discussion
+- contents:
+  - "5.  Transport Protocol Selection\n   Section 6.1.3.2 of [RFC1123] is updated:
+    All general-purpose DNS\n   implementations MUST support both UDP and TCP transport.\n
+    \  o  Authoritative server implementations MUST support TCP so that they\n      do
+    not limit the size of responses to what fits in a single UDP\n      packet.\n
+    \  o  Recursive server (or forwarder) implementations MUST support TCP\n      so
+    that they do not prevent large responses from a TCP-capable\n      server from
+    reaching its TCP-capable clients.\n   o  Stub resolver implementations (e.g.,
+    an operating system's DNS\n      resolution library) MUST support TCP since to
+    do otherwise would\n      limit the interoperability between their own clients
+    and upstream\n      servers.\n   Regarding the choice of when to use UDP or TCP,
+    Section 6.1.3.2 of\n   RFC 1123 also says:\n      ... a DNS resolver or server
+    that is sending a non-zone-transfer\n      query MUST send a UDP query first.\n
+    \  This requirement is hereby relaxed.  Stub resolvers and recursive\n   resolvers
+    MAY elect to send either TCP or UDP queries depending on\n   local operational
+    reasons.  TCP MAY be used before sending any UDP\n   queries.  If the resolver
+    already has an open TCP connection to the\n   server, it SHOULD reuse this connection.
+    \ In essence, TCP ought to be\n   considered a valid alternative transport to
+    UDP, not purely a retry\n   option.\n   In addition, it is noted that all recursive
+    and authoritative servers\n   MUST send responses using the same transport as
+    the query arrived on.\n   In the case of TCP, this MUST also be the same connection.\n"
+  title: 5.  Transport Protocol Selection
+- contents:
   - '6.  Connection Handling
 
     '
-- title: 6.1.  Current Practices
-  contents:
-  - "6.1.  Current Practices\n   Section 4.2.2 of [RFC1035] says:\n   -  The server\
-    \ should assume that the client will initiate connection\n      closing, and should\
-    \ delay closing its end of the connection until\n      all outstanding client\
-    \ requests have been satisfied.\n   -  If the server needs to close a dormant\
-    \ connection to reclaim\n      resources, it should wait until the connection\
-    \ has been idle for a\n      period on the order of two minutes.  In particular,\
-    \ the server\n      should allow the SOA and AXFR request sequence (which begins\
-    \ a\n      refresh operation) to be made on a single connection.  Since the\n\
-    \      server would be unable to answer queries anyway, a unilateral\n      close\
-    \ or reset may be used instead of graceful close.\n   Other more modern protocols\
-    \ (e.g., HTTP/1.1 [RFC7230], HTTP/2\n   [RFC7540]) have support by default for\
-    \ persistent TCP connections for\n   all requests.  Connections are then normally\
-    \ closed via a 'connection\n   close' signal from one party.\n   The description\
-    \ in [RFC1035] is clear that servers should view\n   connections as persistent\
-    \ (particularly after receiving an SOA), but\n   unfortunately does not provide\
-    \ enough detail for an unambiguous\n   interpretation of client behaviour for\
-    \ queries other than a SOA.\n   Additionally, DNS does not yet have a signalling\
-    \ mechanism for\n   connection timeout or close, although some have been proposed.\n"
-- title: 6.1.1.  Clients
-  contents:
-  - "6.1.1.  Clients\n   There is no clear guidance today in any RFC as to when a\
-    \ DNS client\n   should close a TCP connection, and there are no specific\n  \
-    \ recommendations with regard to DNS client idle timeouts.  However, at\n   the\
-    \ time of writing, it is common practice for clients to close the\n   TCP connection\
-    \ after sending a single request (apart from the SOA/\n   AXFR case).\n"
-- title: 6.1.2.  Servers
-  contents:
-  - "6.1.2.  Servers\n   Many DNS server implementations use a long fixed idle timeout\
-    \ and\n   default to a small number of TCP connections.  They also offer little\n\
-    \   in the way of TCP connection management options.  The disadvantages\n   of\
-    \ this include:\n   o  Operational experience has shown that long server timeouts\
-    \ can\n      easily cause resource exhaustion and poor response under heavy\n\
-    \      load.\n   o  Intentionally opening many connections and leaving them idle\
-    \ can\n      trivially create a TCP denial of service (DoS) attack as many DNS\n\
-    \      servers are poorly equipped to defend against this by modifying\n     \
-    \ their idle timeouts or other connection management policies.\n   o  A modest\
-    \ number of clients that all concurrently attempt to use\n      persistent connections\
-    \ with non-zero idle timeouts to such a\n      server could unintentionally cause\
-    \ the same DoS problem.\n   Note that this DoS is only on the TCP service.  However,\
-    \ in these\n   cases, it affects not only clients that wish to use TCP for their\n\
-    \   queries for operational reasons, but all clients that choose to fall\n   back\
-    \ to TCP from UDP after receiving a TC=1 flag.\n"
-- title: 6.2.  Recommendations
-  contents:
-  - "6.2.  Recommendations\n   The following sections include recommendations that\
-    \ are intended to\n   result in more consistent and scalable implementations of\
-    \ DNS-over-\n   TCP.\n"
-- title: 6.2.1.  Connection Reuse
-  contents:
-  - "6.2.1.  Connection Reuse\n   One perceived disadvantage to DNS over TCP is the\
-    \ added connection\n   setup latency, generally equal to one RTT.  To amortise\
-    \ connection\n   setup costs, both clients and servers SHOULD support connection\
-    \ reuse\n   by sending multiple queries and responses over a single persistent\n\
-    \   TCP connection.\n   When sending multiple queries over a TCP connection, clients\
-    \ MUST NOT\n   reuse the DNS Message ID of an in-flight query on that connection\
-    \ in\n   order to avoid Message ID collisions.  This is especially important\n\
-    \   if the server could be performing out-of-order processing (see\n   Section\
-    \ 7).\n"
-- title: 6.2.1.1.  Query Pipelining
-  contents:
-  - "6.2.1.1.  Query Pipelining\n   Due to the historical use of TCP primarily for\
-    \ zone transfer and\n   truncated responses, no existing RFC discusses the idea\
-    \ of pipelining\n   DNS queries over a TCP connection.\n   In order to achieve\
-    \ performance on par with UDP, DNS clients SHOULD\n   pipeline their queries.\
-    \  When a DNS client sends multiple queries to\n   a server, it SHOULD NOT wait\
-    \ for an outstanding reply before sending\n   the next query.  Clients SHOULD\
-    \ treat TCP and UDP equivalently when\n   considering the time at which to send\
-    \ a particular query.\n   It is likely that DNS servers need to process pipelined\
-    \ queries\n   concurrently and also send out-of-order responses over TCP in order\n\
-    \   to provide the level of performance possible with UDP transport.  If\n   TCP\
-    \ performance is of importance, clients might find it useful to use\n   server\
-    \ processing times as input to server and transport selection\n   algorithms.\n\
-    \   DNS servers (especially recursive) MUST expect to receive pipelined\n   queries.\
-    \  The server SHOULD process TCP queries concurrently, just as\n   it would for\
-    \ UDP.  The server SHOULD answer all pipelined queries,\n   even if they are received\
-    \ in quick succession.  The handling of\n   responses to pipelined queries is\
-    \ covered in Section 7.\n"
-- title: 6.2.2.  Concurrent Connections
-  contents:
-  - "6.2.2.  Concurrent Connections\n   To mitigate the risk of unintentional server\
-    \ overload, DNS clients\n   MUST take care to minimize the number of concurrent\
-    \ TCP connections\n   made to any individual server.  It is RECOMMENDED that for\
-    \ any given\n   client/server interaction there SHOULD be no more than one connection\n\
-    \   for regular queries, one for zone transfers, and one for each\n   protocol\
-    \ that is being used on top of TCP (for example, if the\n   resolver was using\
-    \ TLS).  However, it is noted that certain primary/\n   secondary configurations\
-    \ with many busy zones might need to use more\n   than one TCP connection for\
-    \ zone transfers for operational reasons\n   (for example, to support concurrent\
-    \ transfers of multiple zones).\n   Similarly, servers MAY impose limits on the\
-    \ number of concurrent TCP\n   connections being handled for any particular client\
-    \ IP address or\n   subnet.  These limits SHOULD be much looser than the client\n\
-    \   guidelines above, because the server does not know, for example, if a\n  \
-    \ client IP address belongs to a single client, is multiple resolvers\n   on a\
-    \ single machine, or is multiple clients behind a device\n   performing Network\
-    \ Address Translation (NAT).\n"
-- title: 6.2.3.  Idle Timeouts
-  contents:
-  - "6.2.3.  Idle Timeouts\n   To mitigate the risk of unintentional server overload,\
-    \ DNS clients\n   MUST take care to minimise the idle time of established DNS-over-TCP\n\
-    \   sessions made to any individual server.  DNS clients SHOULD close the\n  \
-    \ TCP connection of an idle session, unless an idle timeout has been\n   established\
-    \ using some other signalling mechanism, for example,\n   [edns-tcp-keepalive].\n\
-    \   To mitigate the risk of unintentional server overload, it is\n   RECOMMENDED\
-    \ that the default server application-level idle period be\n   on the order of\
-    \ seconds, but no particular value is specified.  In\n   practice, the idle period\
-    \ can vary dynamically, and servers MAY allow\n   idle connections to remain open\
-    \ for longer periods as resources\n   permit.  A timeout of at least a few seconds\
-    \ is advisable for normal\n   operations to support those clients that expect\
-    \ the SOA and AXFR\n   request sequence to be made on a single connection as originally\n\
-    \   specified in [RFC1035].  Servers MAY use zero timeouts when they are\n   experiencing\
-    \ heavy load or are under attack.\n   DNS messages delivered over TCP might arrive\
-    \ in multiple segments.  A\n   DNS server that resets its idle timeout after receiving\
-    \ a single\n   segment might be vulnerable to a \"slow-read attack\".  For this\n\
-    \   reason, servers SHOULD reset the idle timeout on the receipt of a\n   full\
-    \ DNS message, rather than on receipt of any part of a DNS\n   message.\n"
-- title: 6.2.4.  Teardown
-  contents:
-  - "6.2.4.  Teardown\n   Under normal operation DNS clients typically initiate connection\n\
-    \   closing on idle connections; however, DNS servers can close the\n   connection\
-    \ if the idle timeout set by local policy is exceeded.\n   Also, connections can\
-    \ be closed by either end under unusual\n   conditions such as defending against\
-    \ an attack or system failure/\n   reboot.\n   DNS clients SHOULD retry unanswered\
-    \ queries if the connection closes\n   before receiving all outstanding responses.\
-    \  No specific retry\n   algorithm is specified in this document.\n   If a DNS\
-    \ server finds that a DNS client has closed a TCP session (or\n   if the session\
-    \ has been otherwise interrupted) before all pending\n   responses have been sent,\
-    \ then the server MUST NOT attempt to send\n   those responses.  Of course, the\
-    \ DNS server MAY cache those\n   responses.\n"
-- title: 7.  Response Reordering
-  contents:
-  - "7.  Response Reordering\n   RFC 1035 is ambiguous on the question of whether\
-    \ TCP responses may be\n   reordered -- the only relevant text is in Section 4.2.1,\
-    \ which\n   relates to UDP:\n      Queries or their responses may be reordered\
-    \ by the network, or by\n      processing in name servers, so resolvers should\
-    \ not depend on them\n      being returned in order.\n   For the avoidance of\
-    \ future doubt, this requirement is clarified.\n   Authoritative servers and recursive\
-    \ resolvers are RECOMMENDED to\n   support the preparing of responses in parallel\
-    \ and sending them out\n   of order, regardless of the transport protocol in use.\
-    \  Stub and\n   recursive resolvers MUST be able to process responses that arrive\
-    \ in\n   a different order than that in which the requests were sent,\n   regardless\
-    \ of the transport protocol in use.\n   In order to achieve performance on par\
-    \ with UDP, recursive resolvers\n   SHOULD process TCP queries in parallel and\
-    \ return individual\n   responses as soon as they are available, possibly out\
-    \ of order.\n   Since pipelined responses can arrive out of order, clients MUST\
-    \ match\n   responses to outstanding queries on the same TCP connection using\
-    \ the\n   Message ID.  If the response contains a question section, the client\n\
-    \   MUST match the QNAME, QCLASS, and QTYPE fields.  Failure by clients\n   to\
-    \ properly match responses to outstanding queries can have serious\n   consequences\
-    \ for interoperability.\n"
-- title: 8.  TCP Message Length Field
-  contents:
-  - "8.  TCP Message Length Field\n   DNS clients and servers SHOULD pass the two-octet\
-    \ length field, and\n   the message described by that length field, to the TCP\
-    \ layer at the\n   same time (e.g., in a single \"write\" system call) to make\
-    \ it more\n   likely that all the data will be transmitted in a single TCP segment.\n\
-    \   This is for reasons of both efficiency and to avoid problems due to\n   some\
-    \ DNS server implementations behaving undesirably when reading\n   data from the\
-    \ TCP layer (due to a lack of clarity in previous\n   documents).  For example,\
-    \ some DNS server implementations might abort\n   a TCP session if the first \"\
-    read\" from the TCP layer does not contain\n   both the length field and the entire\
-    \ message.\n   To clarify, DNS servers MUST NOT close a connection simply because\n\
-    \   the first \"read\" from the TCP layer does not contain the entire DNS\n  \
-    \ message, and servers SHOULD apply the connection timeouts as\n   specified in\
-    \ Section 6.2.3.\n"
-- title: 9.  TCP Fast Open
-  contents:
-  - "9.  TCP Fast Open\n   This section is non-normative.\n   TCP Fast Open (TFO)\
-    \ [RFC7413] allows data to be carried in the SYN\n   packet, reducing the cost\
-    \ of reopening TCP connections.  It also\n   saves up to one RTT compared to standard\
-    \ TCP.\n   TFO mitigates the security vulnerabilities inherent in sending data\n\
-    \   in the SYN, especially on a system like DNS where amplification\n   attacks\
-    \ are possible, by use of a server-supplied cookie.  TFO\n   clients request a\
-    \ server cookie in the initial SYN packet at the\n   start of a new connection.\
-    \  The server returns a cookie in its SYN-\n   ACK.  The client caches the cookie\
-    \ and reuses it when opening\n   subsequent connections to the same server.\n\
-    \   The cookie is stored by the client's TCP stack (kernel) and persists\n   if\
-    \ either the client or server processes are restarted.  TFO also\n   falls back\
-    \ to a regular TCP handshake gracefully.\n   DNS services taking advantage of\
-    \ IP anycast [RFC4786] might need to\n   take additional steps when enabling TFO.\
-    \  From [RFC7413]:\n      Servers behind load balancers that accept connection\
-    \ requests to\n      the same server IP address should use the same key such that\
-    \ they\n      generate identical Fast Open cookies for a particular client IP\n\
-    \      address.  Otherwise, a client may get different cookies across\n      connections;\
-    \ its Fast Open attempts would fall back to the regular\n      3WHS.\n   When\
-    \ DNS-over-TCP is a transport for DNS private exchange, as in\n   [DNS-over-TLS],\
-    \ the implementor needs to be aware of TFO and to\n   ensure that data requiring\
-    \ protection (e.g. data for a DNS query) is\n   not accidentally transported in\
-    \ the clear.  See [DNS-over-TLS] for\n   discussion.\n"
-- title: 10.  Security Considerations
-  contents:
-  - "10.  Security Considerations\n   Some DNS server operators have expressed concern\
-    \ that wider promotion\n   and use of DNS over TCP will expose them to a higher\
-    \ risk of DoS\n   attacks on TCP (both accidental and deliberate).\n   Although\
-    \ there is a higher risk of some specific attacks against TCP-\n   enabled servers,\
-    \ techniques for the mitigation of DoS attacks at the\n   network level have improved\
-    \ substantially since DNS was first\n   designed.\n   Readers are advised to familiarise\
-    \ themselves with [CPNI-TCP], a\n   security assessment of TCP that details known\
-    \ TCP attacks and\n   countermeasures and that references most of the relevant\
-    \ RFCs on this\n   topic.\n   To mitigate the risk of DoS attacks, DNS servers\
-    \ are advised to\n   engage in TCP connection management.  This could include\
-    \ maintaining\n   state on existing connections, reusing existing connections,\
-    \ and\n   controlling request queues to enable fair use.  It is likely to be\n\
-    \   advantageous to provide configurable connection management options,\n   for\
-    \ example:\n   o  total number of TCP connections\n   o  maximum TCP connections\
-    \ per source IP address or subnet\n   o  TCP connection idle timeout\n   o  maximum\
-    \ DNS transactions per TCP connection\n   o  maximum TCP connection duration\n\
-    \   No specific values are recommended for these parameters.\n   Operators are\
-    \ advised to familiarise themselves with the\n   configuration and tuning parameters\
-    \ available in the TCP stack of the\n   operating system.  However, detailed advice\
-    \ on this is outside the\n   scope of this document.\n   Operators of recursive\
-    \ servers are advised to ensure that they only\n   accept connections from expected\
-    \ clients (for example, by the use of\n   an Access Control List (ACL)) and do\
-    \ not accept them from unknown\n   sources.  In the case of UDP traffic, this\
-    \ will help protect against\n   reflection attacks [RFC5358]; and in the case\
-    \ of TCP traffic, it will\n   prevent an unknown client from exhausting the server's\
-    \ limits on the\n   number of concurrent connections.\n"
-- title: 11.  References
-  contents:
+  - contents:
+    - "6.1.  Current Practices\n   Section 4.2.2 of [RFC1035] says:\n   -  The server
+      should assume that the client will initiate connection\n      closing, and should
+      delay closing its end of the connection until\n      all outstanding client
+      requests have been satisfied.\n   -  If the server needs to close a dormant
+      connection to reclaim\n      resources, it should wait until the connection
+      has been idle for a\n      period on the order of two minutes.  In particular,
+      the server\n      should allow the SOA and AXFR request sequence (which begins
+      a\n      refresh operation) to be made on a single connection.  Since the\n
+      \     server would be unable to answer queries anyway, a unilateral\n      close
+      or reset may be used instead of graceful close.\n   Other more modern protocols
+      (e.g., HTTP/1.1 [RFC7230], HTTP/2\n   [RFC7540]) have support by default for
+      persistent TCP connections for\n   all requests.  Connections are then normally
+      closed via a 'connection\n   close' signal from one party.\n   The description
+      in [RFC1035] is clear that servers should view\n   connections as persistent
+      (particularly after receiving an SOA), but\n   unfortunately does not provide
+      enough detail for an unambiguous\n   interpretation of client behaviour for
+      queries other than a SOA.\n   Additionally, DNS does not yet have a signalling
+      mechanism for\n   connection timeout or close, although some have been proposed.\n"
+    - contents:
+      - "6.1.1.  Clients\n   There is no clear guidance today in any RFC as to when
+        a DNS client\n   should close a TCP connection, and there are no specific\n
+        \  recommendations with regard to DNS client idle timeouts.  However, at\n
+        \  the time of writing, it is common practice for clients to close the\n   TCP
+        connection after sending a single request (apart from the SOA/\n   AXFR case).\n"
+      title: 6.1.1.  Clients
+    - contents:
+      - "6.1.2.  Servers\n   Many DNS server implementations use a long fixed idle
+        timeout and\n   default to a small number of TCP connections.  They also offer
+        little\n   in the way of TCP connection management options.  The disadvantages\n
+        \  of this include:\n   o  Operational experience has shown that long server
+        timeouts can\n      easily cause resource exhaustion and poor response under
+        heavy\n      load.\n   o  Intentionally opening many connections and leaving
+        them idle can\n      trivially create a TCP denial of service (DoS) attack
+        as many DNS\n      servers are poorly equipped to defend against this by modifying\n
+        \     their idle timeouts or other connection management policies.\n   o  A
+        modest number of clients that all concurrently attempt to use\n      persistent
+        connections with non-zero idle timeouts to such a\n      server could unintentionally
+        cause the same DoS problem.\n   Note that this DoS is only on the TCP service.
+        \ However, in these\n   cases, it affects not only clients that wish to use
+        TCP for their\n   queries for operational reasons, but all clients that choose
+        to fall\n   back to TCP from UDP after receiving a TC=1 flag.\n"
+      title: 6.1.2.  Servers
+    title: 6.1.  Current Practices
+  - contents:
+    - "6.2.  Recommendations\n   The following sections include recommendations that
+      are intended to\n   result in more consistent and scalable implementations of
+      DNS-over-\n   TCP.\n"
+    - contents:
+      - "6.2.1.  Connection Reuse\n   One perceived disadvantage to DNS over TCP is
+        the added connection\n   setup latency, generally equal to one RTT.  To amortise
+        connection\n   setup costs, both clients and servers SHOULD support connection
+        reuse\n   by sending multiple queries and responses over a single persistent\n
+        \  TCP connection.\n   When sending multiple queries over a TCP connection,
+        clients MUST NOT\n   reuse the DNS Message ID of an in-flight query on that
+        connection in\n   order to avoid Message ID collisions.  This is especially
+        important\n   if the server could be performing out-of-order processing (see\n
+        \  Section 7).\n"
+      - contents:
+        - "6.2.1.1.  Query Pipelining\n   Due to the historical use of TCP primarily
+          for zone transfer and\n   truncated responses, no existing RFC discusses
+          the idea of pipelining\n   DNS queries over a TCP connection.\n   In order
+          to achieve performance on par with UDP, DNS clients SHOULD\n   pipeline
+          their queries.  When a DNS client sends multiple queries to\n   a server,
+          it SHOULD NOT wait for an outstanding reply before sending\n   the next
+          query.  Clients SHOULD treat TCP and UDP equivalently when\n   considering
+          the time at which to send a particular query.\n   It is likely that DNS
+          servers need to process pipelined queries\n   concurrently and also send
+          out-of-order responses over TCP in order\n   to provide the level of performance
+          possible with UDP transport.  If\n   TCP performance is of importance, clients
+          might find it useful to use\n   server processing times as input to server
+          and transport selection\n   algorithms.\n   DNS servers (especially recursive)
+          MUST expect to receive pipelined\n   queries.  The server SHOULD process
+          TCP queries concurrently, just as\n   it would for UDP.  The server SHOULD
+          answer all pipelined queries,\n   even if they are received in quick succession.
+          \ The handling of\n   responses to pipelined queries is covered in Section
+          7.\n"
+        title: 6.2.1.1.  Query Pipelining
+      title: 6.2.1.  Connection Reuse
+    - contents:
+      - "6.2.2.  Concurrent Connections\n   To mitigate the risk of unintentional
+        server overload, DNS clients\n   MUST take care to minimize the number of
+        concurrent TCP connections\n   made to any individual server.  It is RECOMMENDED
+        that for any given\n   client/server interaction there SHOULD be no more than
+        one connection\n   for regular queries, one for zone transfers, and one for
+        each\n   protocol that is being used on top of TCP (for example, if the\n
+        \  resolver was using TLS).  However, it is noted that certain primary/\n
+        \  secondary configurations with many busy zones might need to use more\n
+        \  than one TCP connection for zone transfers for operational reasons\n   (for
+        example, to support concurrent transfers of multiple zones).\n   Similarly,
+        servers MAY impose limits on the number of concurrent TCP\n   connections
+        being handled for any particular client IP address or\n   subnet.  These limits
+        SHOULD be much looser than the client\n   guidelines above, because the server
+        does not know, for example, if a\n   client IP address belongs to a single
+        client, is multiple resolvers\n   on a single machine, or is multiple clients
+        behind a device\n   performing Network Address Translation (NAT).\n"
+      title: 6.2.2.  Concurrent Connections
+    - contents:
+      - "6.2.3.  Idle Timeouts\n   To mitigate the risk of unintentional server overload,
+        DNS clients\n   MUST take care to minimise the idle time of established DNS-over-TCP\n
+        \  sessions made to any individual server.  DNS clients SHOULD close the\n
+        \  TCP connection of an idle session, unless an idle timeout has been\n   established
+        using some other signalling mechanism, for example,\n   [edns-tcp-keepalive].\n
+        \  To mitigate the risk of unintentional server overload, it is\n   RECOMMENDED
+        that the default server application-level idle period be\n   on the order
+        of seconds, but no particular value is specified.  In\n   practice, the idle
+        period can vary dynamically, and servers MAY allow\n   idle connections to
+        remain open for longer periods as resources\n   permit.  A timeout of at least
+        a few seconds is advisable for normal\n   operations to support those clients
+        that expect the SOA and AXFR\n   request sequence to be made on a single connection
+        as originally\n   specified in [RFC1035].  Servers MAY use zero timeouts when
+        they are\n   experiencing heavy load or are under attack.\n   DNS messages
+        delivered over TCP might arrive in multiple segments.  A\n   DNS server that
+        resets its idle timeout after receiving a single\n   segment might be vulnerable
+        to a \"slow-read attack\".  For this\n   reason, servers SHOULD reset the
+        idle timeout on the receipt of a\n   full DNS message, rather than on receipt
+        of any part of a DNS\n   message.\n"
+      title: 6.2.3.  Idle Timeouts
+    - contents:
+      - "6.2.4.  Teardown\n   Under normal operation DNS clients typically initiate
+        connection\n   closing on idle connections; however, DNS servers can close
+        the\n   connection if the idle timeout set by local policy is exceeded.\n
+        \  Also, connections can be closed by either end under unusual\n   conditions
+        such as defending against an attack or system failure/\n   reboot.\n   DNS
+        clients SHOULD retry unanswered queries if the connection closes\n   before
+        receiving all outstanding responses.  No specific retry\n   algorithm is specified
+        in this document.\n   If a DNS server finds that a DNS client has closed a
+        TCP session (or\n   if the session has been otherwise interrupted) before
+        all pending\n   responses have been sent, then the server MUST NOT attempt
+        to send\n   those responses.  Of course, the DNS server MAY cache those\n
+        \  responses.\n"
+      title: 6.2.4.  Teardown
+    title: 6.2.  Recommendations
+  title: 6.  Connection Handling
+- contents:
+  - "7.  Response Reordering\n   RFC 1035 is ambiguous on the question of whether
+    TCP responses may be\n   reordered -- the only relevant text is in Section 4.2.1,
+    which\n   relates to UDP:\n      Queries or their responses may be reordered by
+    the network, or by\n      processing in name servers, so resolvers should not
+    depend on them\n      being returned in order.\n   For the avoidance of future
+    doubt, this requirement is clarified.\n   Authoritative servers and recursive
+    resolvers are RECOMMENDED to\n   support the preparing of responses in parallel
+    and sending them out\n   of order, regardless of the transport protocol in use.
+    \ Stub and\n   recursive resolvers MUST be able to process responses that arrive
+    in\n   a different order than that in which the requests were sent,\n   regardless
+    of the transport protocol in use.\n   In order to achieve performance on par with
+    UDP, recursive resolvers\n   SHOULD process TCP queries in parallel and return
+    individual\n   responses as soon as they are available, possibly out of order.\n
+    \  Since pipelined responses can arrive out of order, clients MUST match\n   responses
+    to outstanding queries on the same TCP connection using the\n   Message ID.  If
+    the response contains a question section, the client\n   MUST match the QNAME,
+    QCLASS, and QTYPE fields.  Failure by clients\n   to properly match responses
+    to outstanding queries can have serious\n   consequences for interoperability.\n"
+  title: 7.  Response Reordering
+- contents:
+  - "8.  TCP Message Length Field\n   DNS clients and servers SHOULD pass the two-octet
+    length field, and\n   the message described by that length field, to the TCP layer
+    at the\n   same time (e.g., in a single \"write\" system call) to make it more\n
+    \  likely that all the data will be transmitted in a single TCP segment.\n   This
+    is for reasons of both efficiency and to avoid problems due to\n   some DNS server
+    implementations behaving undesirably when reading\n   data from the TCP layer
+    (due to a lack of clarity in previous\n   documents).  For example, some DNS server
+    implementations might abort\n   a TCP session if the first \"read\" from the TCP
+    layer does not contain\n   both the length field and the entire message.\n   To
+    clarify, DNS servers MUST NOT close a connection simply because\n   the first
+    \"read\" from the TCP layer does not contain the entire DNS\n   message, and servers
+    SHOULD apply the connection timeouts as\n   specified in Section 6.2.3.\n"
+  title: 8.  TCP Message Length Field
+- contents:
+  - "9.  TCP Fast Open\n   This section is non-normative.\n   TCP Fast Open (TFO)
+    [RFC7413] allows data to be carried in the SYN\n   packet, reducing the cost of
+    reopening TCP connections.  It also\n   saves up to one RTT compared to standard
+    TCP.\n   TFO mitigates the security vulnerabilities inherent in sending data\n
+    \  in the SYN, especially on a system like DNS where amplification\n   attacks
+    are possible, by use of a server-supplied cookie.  TFO\n   clients request a server
+    cookie in the initial SYN packet at the\n   start of a new connection.  The server
+    returns a cookie in its SYN-\n   ACK.  The client caches the cookie and reuses
+    it when opening\n   subsequent connections to the same server.\n   The cookie
+    is stored by the client's TCP stack (kernel) and persists\n   if either the client
+    or server processes are restarted.  TFO also\n   falls back to a regular TCP handshake
+    gracefully.\n   DNS services taking advantage of IP anycast [RFC4786] might need
+    to\n   take additional steps when enabling TFO.  From [RFC7413]:\n      Servers
+    behind load balancers that accept connection requests to\n      the same server
+    IP address should use the same key such that they\n      generate identical Fast
+    Open cookies for a particular client IP\n      address.  Otherwise, a client may
+    get different cookies across\n      connections; its Fast Open attempts would
+    fall back to the regular\n      3WHS.\n   When DNS-over-TCP is a transport for
+    DNS private exchange, as in\n   [DNS-over-TLS], the implementor needs to be aware
+    of TFO and to\n   ensure that data requiring protection (e.g. data for a DNS query)
+    is\n   not accidentally transported in the clear.  See [DNS-over-TLS] for\n   discussion.\n"
+  title: 9.  TCP Fast Open
+- contents:
+  - "10.  Security Considerations\n   Some DNS server operators have expressed concern
+    that wider promotion\n   and use of DNS over TCP will expose them to a higher
+    risk of DoS\n   attacks on TCP (both accidental and deliberate).\n   Although
+    there is a higher risk of some specific attacks against TCP-\n   enabled servers,
+    techniques for the mitigation of DoS attacks at the\n   network level have improved
+    substantially since DNS was first\n   designed.\n   Readers are advised to familiarise
+    themselves with [CPNI-TCP], a\n   security assessment of TCP that details known
+    TCP attacks and\n   countermeasures and that references most of the relevant RFCs
+    on this\n   topic.\n   To mitigate the risk of DoS attacks, DNS servers are advised
+    to\n   engage in TCP connection management.  This could include maintaining\n
+    \  state on existing connections, reusing existing connections, and\n   controlling
+    request queues to enable fair use.  It is likely to be\n   advantageous to provide
+    configurable connection management options,\n   for example:\n   o  total number
+    of TCP connections\n   o  maximum TCP connections per source IP address or subnet\n
+    \  o  TCP connection idle timeout\n   o  maximum DNS transactions per TCP connection\n
+    \  o  maximum TCP connection duration\n   No specific values are recommended for
+    these parameters.\n   Operators are advised to familiarise themselves with the\n
+    \  configuration and tuning parameters available in the TCP stack of the\n   operating
+    system.  However, detailed advice on this is outside the\n   scope of this document.\n
+    \  Operators of recursive servers are advised to ensure that they only\n   accept
+    connections from expected clients (for example, by the use of\n   an Access Control
+    List (ACL)) and do not accept them from unknown\n   sources.  In the case of UDP
+    traffic, this will help protect against\n   reflection attacks [RFC5358]; and
+    in the case of TCP traffic, it will\n   prevent an unknown client from exhausting
+    the server's limits on the\n   number of concurrent connections.\n"
+  title: 10.  Security Considerations
+- contents:
   - '11.  References
 
     '
-- title: 11.1.  Normative References
-  contents:
-  - "11.1.  Normative References\n   [RFC768]   Postel, J., \"User Datagram Protocol\"\
-    , STD 6, RFC 768,\n              DOI 10.17487/RFC0768, August 1980,\n        \
-    \      <http://www.rfc-editor.org/info/rfc768>.\n   [RFC793]   Postel, J., \"\
-    Transmission Control Protocol\", STD 7,\n              RFC 793, DOI 10.17487/RFC0793,\
-    \ September 1981,\n              <http://www.rfc-editor.org/info/rfc793>.\n  \
-    \ [RFC1034]  Mockapetris, P., \"Domain names - concepts and facilities\",\n  \
-    \            STD 13, RFC 1034, DOI 10.17487/RFC1034, November 1987,\n        \
-    \      <http://www.rfc-editor.org/info/rfc1034>.\n   [RFC1035]  Mockapetris, P.,\
-    \ \"Domain names - implementation and\n              specification\", STD 13,\
-    \ RFC 1035, DOI 10.17487/RFC1035,\n              November 1987, <http://www.rfc-editor.org/info/rfc1035>.\n\
-    \   [RFC1123]  Braden, R., Ed., \"Requirements for Internet Hosts -\n        \
-    \      Application and Support\", STD 3, RFC 1123,\n              DOI 10.17487/RFC1123,\
-    \ October 1989,\n              <http://www.rfc-editor.org/info/rfc1123>.\n   [RFC2119]\
-    \  Bradner, S., \"Key words for use in RFCs to Indicate\n              Requirement\
-    \ Levels\", BCP 14, RFC 2119,\n              DOI 10.17487/RFC2119, March 1997,\n\
-    \              <http://www.rfc-editor.org/info/rfc2119>.\n   [RFC4033]  Arends,\
-    \ R., Austein, R., Larson, M., Massey, D., and S.\n              Rose, \"DNS Security\
-    \ Introduction and Requirements\",\n              RFC 4033, DOI 10.17487/RFC4033,\
-    \ March 2005,\n              <http://www.rfc-editor.org/info/rfc4033>.\n   [RFC4786]\
-    \  Abley, J. and K. Lindqvist, \"Operation of Anycast\n              Services\"\
-    , BCP 126, RFC 4786, DOI 10.17487/RFC4786,\n              December 2006, <http://www.rfc-editor.org/info/rfc4786>.\n\
-    \   [RFC5155]  Laurie, B., Sisson, G., Arends, R., and D. Blacka, \"DNS\n    \
-    \          Security (DNSSEC) Hashed Authenticated Denial of\n              Existence\"\
-    , RFC 5155, DOI 10.17487/RFC5155, March 2008,\n              <http://www.rfc-editor.org/info/rfc5155>.\n\
-    \   [RFC5358]  Damas, J. and F. Neves, \"Preventing Use of Recursive\n       \
-    \       Nameservers in Reflector Attacks\", BCP 140, RFC 5358,\n             \
-    \ DOI 10.17487/RFC5358, October 2008,\n              <http://www.rfc-editor.org/info/rfc5358>.\n\
-    \   [RFC5625]  Bellis, R., \"DNS Proxy Implementation Guidelines\",\n        \
-    \      BCP 152, RFC 5625, DOI 10.17487/RFC5625, August 2009,\n              <http://www.rfc-editor.org/info/rfc5625>.\n\
-    \   [RFC5966]  Bellis, R., \"DNS Transport over TCP - Implementation\n       \
-    \       Requirements\", RFC 5966, DOI 10.17487/RFC5966, August\n             \
-    \ 2010, <http://www.rfc-editor.org/info/rfc5966>.\n   [RFC6891]  Damas, J., Graff,\
-    \ M., and P. Vixie, \"Extension Mechanisms\n              for DNS (EDNS(0))\"\
-    , STD 75, RFC 6891,\n              DOI 10.17487/RFC6891, April 2013,\n       \
-    \       <http://www.rfc-editor.org/info/rfc6891>.\n   [RFC7230]  Fielding, R.,\
-    \ Ed. and J. Reschke, Ed., \"Hypertext Transfer\n              Protocol (HTTP/1.1):\
-    \ Message Syntax and Routing\",\n              RFC 7230, DOI 10.17487/RFC7230,\
-    \ June 2014,\n              <http://www.rfc-editor.org/info/rfc7230>.\n   [RFC7540]\
-    \  Belshe, M., Peon, R., and M. Thomson, Ed., \"Hypertext\n              Transfer\
-    \ Protocol Version 2 (HTTP/2)\", RFC 7540,\n              DOI 10.17487/RFC7540,\
-    \ May 2015,\n              <http://www.rfc-editor.org/info/rfc7540>.\n"
-- title: 11.2.  Informative References
-  contents:
-  - "11.2.  Informative References\n   [Connection-Oriented-DNS]\n              Zhu,\
-    \ L., Hu, Z., Heidemann, J., Wessels, D., Mankin, A.,\n              and N. Somaiya,\
-    \ \"Connection-Oriented DNS to Improve\n              Privacy and Security\",\
-    \ 2015 IEEE Symposium on Security and\n              Privacy (SP), DOI 10.1109/SP.2015.18,\n\
-    \              <http://ieeexplore.ieee.org/xpl/\n              articleDetails.jsp?arnumber=7163025>.\n\
-    \   [CPNI-TCP]\n              CPNI, \"Security Assessment of the Transmission\
-    \ Control\n              Protocol (TCP)\", 2009, <http://www.gont.com.ar/papers/\n\
-    \              tn-03-09-security-assessment-TCP.pdf>.\n   [DNS-over-TLS]\n   \
-    \           Hu, Z., Zhu, L., Heidemann, J., Mankin, A., Wessels, D.,\n       \
-    \       and P. Hoffman, \"Specification for DNS over TLS\", Work in\n        \
-    \      Progress, draft-ietf-dprive-dns-over-tls-06, February\n              2016.\n\
-    \   [edns-tcp-keepalive]\n              Wouters, P., Abley, J., Dickinson, S.,\
-    \ and R. Bellis, \"The\n              edns-tcp-keepalive EDNS0 Option\", Work\
-    \ in Progress,\n              draft-ietf-dnsop-edns-tcp-keepalive-03, September\
-    \ 2015.\n   [fragmentation-considered-poisonous]\n              Herzberg, A. and\
-    \ H. Shulman, \"Fragmentation Considered\n              Poisonous\", May 2012,\
-    \ <http://arxiv.org/abs/1205.4011>.\n   [RFC5405]  Eggert, L. and G. Fairhurst,\
-    \ \"Unicast UDP Usage Guidelines\n              for Application Designers\", BCP\
-    \ 145, RFC 5405,\n              DOI 10.17487/RFC5405, November 2008,\n       \
-    \       <http://www.rfc-editor.org/info/rfc5405>.\n   [RFC6824]  Ford, A., Raiciu,\
-    \ C., Handley, M., and O. Bonaventure,\n              \"TCP Extensions for Multipath\
-    \ Operation with Multiple\n              Addresses\", RFC 6824, DOI 10.17487/RFC6824,\
-    \ January 2013,\n              <http://www.rfc-editor.org/info/rfc6824>.\n   [RFC7413]\
-    \  Cheng, Y., Chu, J., Radhakrishnan, S., and A. Jain, \"TCP\n              Fast\
-    \ Open\", RFC 7413, DOI 10.17487/RFC7413, December 2014,\n              <http://www.rfc-editor.org/info/rfc7413>.\n\
-    \   [RRL1]     Vixie, P. and V. Schryver, \"DNS Response Rate Limiting\n     \
-    \         (DNS RRL)\", ISC-TN 2012-1-Draft1, April 2012,\n              <https://ftp.isc.org/isc/pubs/tn/isc-tn-2012-1.txt>.\n\
-    \   [RRL2]     ISC Support, \"Using the Response Rate Limiting Feature in\n  \
-    \            BIND 9.10\", ISC Knowledge Base AA-00994, June 2013,\n          \
-    \    <https://kb.isc.org/article/AA-00994/>.\n"
-- title: Appendix A.  Summary of Advantages and Disadvantages to Using TCP for
-  contents:
-  - "Appendix A.  Summary of Advantages and Disadvantages to Using TCP for\n     \
-    \        DNS\n   The TCP handshake generally prevents address spoofing and, therefore,\n\
-    \   the reflection/amplification attacks that plague UDP.\n   IP fragmentation\
-    \ is less of a problem for TCP than it is for UDP.\n   TCP stacks generally implement\
-    \ Path MTU Discovery so they can avoid\n   IP fragmentation of TCP segments. \
-    \ UDP, on the other hand, does not\n   provide reassembly; this means datagrams\
-    \ that exceed the path MTU\n   size must experience fragmentation [RFC5405]. \
-    \ Middleboxes are known\n   to block IP fragments, leading to timeouts and forcing\
-    \ client\n   implementations to \"hunt\" for EDNS0 reply size values supported\
-    \ by\n   the network path.  Additionally, fragmentation may lead to cache\n  \
-    \ poisoning [fragmentation-considered-poisonous].\n   TCP setup costs an additional\
-    \ RTT compared to UDP queries.  Setup\n   costs can be amortised by reusing connections,\
-    \ pipelining queries,\n   and enabling TCP Fast Open.\n   TCP imposes additional\
-    \ state-keeping requirements on clients and\n   servers.  The use of TCP Fast\
-    \ Open reduces the cost of closing and\n   reopening TCP connections.\n   Long-lived\
-    \ TCP connections to anycast servers might be disrupted due\n   to routing changes.\
-    \  Clients utilizing TCP for DNS need to always be\n   prepared to re-establish\
-    \ connections or otherwise retry outstanding\n   queries.  It might also be possible\
-    \ for Multipath TCP [RFC6824] to\n   allow a server to hand a connection over\
-    \ from the anycast address to\n   a unicast address.\n   There are many \"middleboxes\"\
-    \ in use today that interfere with TCP\n   over port 53 [RFC5625].  This document\
-    \ does not propose any\n   solutions, other than to make it absolutely clear that\
-    \ TCP is a valid\n   transport for DNS and support for it is a requirement for\
-    \ all\n   implementations.\n   A more in-depth discussion of connection-oriented\
-    \ DNS can be found\n   elsewhere [Connection-Oriented-DNS].\n"
-- title: Appendix B.  Changes to RFC 5966
-  contents:
-  - "Appendix B.  Changes to RFC 5966\n   This document obsoletes [RFC5966] and differs\
-    \ from it in several\n   respects.  An overview of the most substantial changes/updates\
-    \ that\n   implementors should take note of is given below.\n   1.   A Terminology\
-    \ section (Section 3) is added defining several new\n        concepts.\n   2.\
-    \   Paragraph 3 of Section 5 puts TCP on a more equal footing with\n        UDP\
-    \ than RFC 5966 does.  For example, it states:\n        1.  TCP MAY be used before\
-    \ sending any UDP queries.\n        2.  TCP ought to be considered a valid alternative\
-    \ transport to\n            UDP, not purely a fallback option.\n   3.   Section\
-    \ 6.2.1 adds a new recommendation that TCP connection\n        reuse SHOULD be\
-    \ supported.\n   4.   Section 6.2.1.1 adds a new recommendation that DNS clients\n\
-    \        SHOULD pipeline their queries and DNS servers SHOULD process\n      \
-    \  pipelined queries concurrently.\n   5.   Section 6.2.2 adds new recommendations\
-    \ on the number and usage\n        of TCP connections for client/server interactions.\n\
-    \   6.   Section 6.2.3 adds a new recommendation that DNS clients SHOULD\n   \
-    \     close idle sessions unless using a signalling mechanism.\n   7.   Section\
-    \ 7 clarifies that servers are RECOMMENDED to prepare TCP\n        responses in\
-    \ parallel and send answers out of order.  It also\n        clarifies how TCP\
-    \ queries and responses should be matched by\n        clients.\n   8.   Section\
-    \ 8 adds a new recommendation about how DNS clients and\n        servers should\
-    \ handle the 2-byte message length field for TCP\n        messages.\n   9.   Section\
-    \ 9 adds a non-normative discussion of the use of TCP Fast\n        Open.\n  \
-    \ 10.  Section 10 adds new advice regarding DoS mitigation techniques.\n"
-- title: Acknowledgements
-  contents:
-  - "Acknowledgements\n   The authors would like to thank Francis Dupont and Paul\
-    \ Vixie for\n   their detailed reviews, as well as Andrew Sullivan, Tony Finch,\n\
-    \   Stephane Bortzmeyer, Joe Abley, Tatuya Jinmei, and the many others\n   who\
-    \ contributed to the mailing list discussion.  Also, the authors\n   thank Liang\
-    \ Zhu, Zi Hu, and John Heidemann for extensive DNS-over-TCP\n   discussions and\
-    \ code, and Lucie Guiraud and Danny McPherson for\n   reviewing early draft versions\
-    \ of this document.  We would also like\n   to thank all those who contributed\
-    \ to RFC 5966.\n"
-- title: Authors' Addresses
-  contents:
-  - "Authors' Addresses\n   John Dickinson\n   Sinodun Internet Technologies\n   Magdalen\
-    \ Centre\n   Oxford Science Park\n   Oxford  OX4 4GA\n   United Kingdom\n   Email:\
-    \ jad@sinodun.com\n   URI:   http://sinodun.com\n   Sara Dickinson\n   Sinodun\
-    \ Internet Technologies\n   Magdalen Centre\n   Oxford Science Park\n   Oxford\
-    \  OX4 4GA\n   United Kingdom\n   Email: sara@sinodun.com\n   URI:   http://sinodun.com\n\
-    \   Ray Bellis\n   Internet Systems Consortium, Inc\n   950 Charter Street\n \
-    \  Redwood City, CA  94063\n   United States\n   Phone: +1 650 423 1200\n   Email:\
-    \ ray@isc.org\n   URI:   http://www.isc.org\n   Allison Mankin\n   Verisign Labs\n\
-    \   12061 Bluemont Way\n   Reston, VA  20190\n   United States\n   Phone: +1 301\
-    \ 728 7198\n   Email: allison.mankin@gmail.com\n   Duane Wessels\n   Verisign\
-    \ Labs\n   12061 Bluemont Way\n   Reston, VA  20190\n   United States\n   Phone:\
-    \ +1 703 948 3200\n   Email: dwessels@verisign.com\n"
+  - contents:
+    - "11.1.  Normative References\n   [RFC768]   Postel, J., \"User Datagram Protocol\",
+      STD 6, RFC 768,\n              DOI 10.17487/RFC0768, August 1980,\n              <http://www.rfc-editor.org/info/rfc768>.\n
+      \  [RFC793]   Postel, J., \"Transmission Control Protocol\", STD 7,\n              RFC
+      793, DOI 10.17487/RFC0793, September 1981,\n              <http://www.rfc-editor.org/info/rfc793>.\n
+      \  [RFC1034]  Mockapetris, P., \"Domain names - concepts and facilities\",\n
+      \             STD 13, RFC 1034, DOI 10.17487/RFC1034, November 1987,\n              <http://www.rfc-editor.org/info/rfc1034>.\n
+      \  [RFC1035]  Mockapetris, P., \"Domain names - implementation and\n              specification\",
+      STD 13, RFC 1035, DOI 10.17487/RFC1035,\n              November 1987, <http://www.rfc-editor.org/info/rfc1035>.\n
+      \  [RFC1123]  Braden, R., Ed., \"Requirements for Internet Hosts -\n              Application
+      and Support\", STD 3, RFC 1123,\n              DOI 10.17487/RFC1123, October
+      1989,\n              <http://www.rfc-editor.org/info/rfc1123>.\n   [RFC2119]
+      \ Bradner, S., \"Key words for use in RFCs to Indicate\n              Requirement
+      Levels\", BCP 14, RFC 2119,\n              DOI 10.17487/RFC2119, March 1997,\n
+      \             <http://www.rfc-editor.org/info/rfc2119>.\n   [RFC4033]  Arends,
+      R., Austein, R., Larson, M., Massey, D., and S.\n              Rose, \"DNS Security
+      Introduction and Requirements\",\n              RFC 4033, DOI 10.17487/RFC4033,
+      March 2005,\n              <http://www.rfc-editor.org/info/rfc4033>.\n   [RFC4786]
+      \ Abley, J. and K. Lindqvist, \"Operation of Anycast\n              Services\",
+      BCP 126, RFC 4786, DOI 10.17487/RFC4786,\n              December 2006, <http://www.rfc-editor.org/info/rfc4786>.\n
+      \  [RFC5155]  Laurie, B., Sisson, G., Arends, R., and D. Blacka, \"DNS\n              Security
+      (DNSSEC) Hashed Authenticated Denial of\n              Existence\", RFC 5155,
+      DOI 10.17487/RFC5155, March 2008,\n              <http://www.rfc-editor.org/info/rfc5155>.\n
+      \  [RFC5358]  Damas, J. and F. Neves, \"Preventing Use of Recursive\n              Nameservers
+      in Reflector Attacks\", BCP 140, RFC 5358,\n              DOI 10.17487/RFC5358,
+      October 2008,\n              <http://www.rfc-editor.org/info/rfc5358>.\n   [RFC5625]
+      \ Bellis, R., \"DNS Proxy Implementation Guidelines\",\n              BCP 152,
+      RFC 5625, DOI 10.17487/RFC5625, August 2009,\n              <http://www.rfc-editor.org/info/rfc5625>.\n
+      \  [RFC5966]  Bellis, R., \"DNS Transport over TCP - Implementation\n              Requirements\",
+      RFC 5966, DOI 10.17487/RFC5966, August\n              2010, <http://www.rfc-editor.org/info/rfc5966>.\n
+      \  [RFC6891]  Damas, J., Graff, M., and P. Vixie, \"Extension Mechanisms\n              for
+      DNS (EDNS(0))\", STD 75, RFC 6891,\n              DOI 10.17487/RFC6891, April
+      2013,\n              <http://www.rfc-editor.org/info/rfc6891>.\n   [RFC7230]
+      \ Fielding, R., Ed. and J. Reschke, Ed., \"Hypertext Transfer\n              Protocol
+      (HTTP/1.1): Message Syntax and Routing\",\n              RFC 7230, DOI 10.17487/RFC7230,
+      June 2014,\n              <http://www.rfc-editor.org/info/rfc7230>.\n   [RFC7540]
+      \ Belshe, M., Peon, R., and M. Thomson, Ed., \"Hypertext\n              Transfer
+      Protocol Version 2 (HTTP/2)\", RFC 7540,\n              DOI 10.17487/RFC7540,
+      May 2015,\n              <http://www.rfc-editor.org/info/rfc7540>.\n"
+    title: 11.1.  Normative References
+  - contents:
+    - "11.2.  Informative References\n   [Connection-Oriented-DNS]\n              Zhu,
+      L., Hu, Z., Heidemann, J., Wessels, D., Mankin, A.,\n              and N. Somaiya,
+      \"Connection-Oriented DNS to Improve\n              Privacy and Security\",
+      2015 IEEE Symposium on Security and\n              Privacy (SP), DOI 10.1109/SP.2015.18,\n
+      \             <http://ieeexplore.ieee.org/xpl/\n              articleDetails.jsp?arnumber=7163025>.\n
+      \  [CPNI-TCP]\n              CPNI, \"Security Assessment of the Transmission
+      Control\n              Protocol (TCP)\", 2009, <http://www.gont.com.ar/papers/\n
+      \             tn-03-09-security-assessment-TCP.pdf>.\n   [DNS-over-TLS]\n              Hu,
+      Z., Zhu, L., Heidemann, J., Mankin, A., Wessels, D.,\n              and P. Hoffman,
+      \"Specification for DNS over TLS\", Work in\n              Progress, draft-ietf-dprive-dns-over-tls-06,
+      February\n              2016.\n   [edns-tcp-keepalive]\n              Wouters,
+      P., Abley, J., Dickinson, S., and R. Bellis, \"The\n              edns-tcp-keepalive
+      EDNS0 Option\", Work in Progress,\n              draft-ietf-dnsop-edns-tcp-keepalive-03,
+      September 2015.\n   [fragmentation-considered-poisonous]\n              Herzberg,
+      A. and H. Shulman, \"Fragmentation Considered\n              Poisonous\", May
+      2012, <http://arxiv.org/abs/1205.4011>.\n   [RFC5405]  Eggert, L. and G. Fairhurst,
+      \"Unicast UDP Usage Guidelines\n              for Application Designers\", BCP
+      145, RFC 5405,\n              DOI 10.17487/RFC5405, November 2008,\n              <http://www.rfc-editor.org/info/rfc5405>.\n
+      \  [RFC6824]  Ford, A., Raiciu, C., Handley, M., and O. Bonaventure,\n              \"TCP
+      Extensions for Multipath Operation with Multiple\n              Addresses\",
+      RFC 6824, DOI 10.17487/RFC6824, January 2013,\n              <http://www.rfc-editor.org/info/rfc6824>.\n
+      \  [RFC7413]  Cheng, Y., Chu, J., Radhakrishnan, S., and A. Jain, \"TCP\n              Fast
+      Open\", RFC 7413, DOI 10.17487/RFC7413, December 2014,\n              <http://www.rfc-editor.org/info/rfc7413>.\n
+      \  [RRL1]     Vixie, P. and V. Schryver, \"DNS Response Rate Limiting\n              (DNS
+      RRL)\", ISC-TN 2012-1-Draft1, April 2012,\n              <https://ftp.isc.org/isc/pubs/tn/isc-tn-2012-1.txt>.\n
+      \  [RRL2]     ISC Support, \"Using the Response Rate Limiting Feature in\n              BIND
+      9.10\", ISC Knowledge Base AA-00994, June 2013,\n              <https://kb.isc.org/article/AA-00994/>.\n"
+    title: 11.2.  Informative References
+  title: 11.  References
+- contents:
+  - "Appendix A.  Summary of Advantages and Disadvantages to Using TCP for\n             DNS\n
+    \  The TCP handshake generally prevents address spoofing and, therefore,\n   the
+    reflection/amplification attacks that plague UDP.\n   IP fragmentation is less
+    of a problem for TCP than it is for UDP.\n   TCP stacks generally implement Path
+    MTU Discovery so they can avoid\n   IP fragmentation of TCP segments.  UDP, on
+    the other hand, does not\n   provide reassembly; this means datagrams that exceed
+    the path MTU\n   size must experience fragmentation [RFC5405].  Middleboxes are
+    known\n   to block IP fragments, leading to timeouts and forcing client\n   implementations
+    to \"hunt\" for EDNS0 reply size values supported by\n   the network path.  Additionally,
+    fragmentation may lead to cache\n   poisoning [fragmentation-considered-poisonous].\n
+    \  TCP setup costs an additional RTT compared to UDP queries.  Setup\n   costs
+    can be amortised by reusing connections, pipelining queries,\n   and enabling
+    TCP Fast Open.\n   TCP imposes additional state-keeping requirements on clients
+    and\n   servers.  The use of TCP Fast Open reduces the cost of closing and\n   reopening
+    TCP connections.\n   Long-lived TCP connections to anycast servers might be disrupted
+    due\n   to routing changes.  Clients utilizing TCP for DNS need to always be\n
+    \  prepared to re-establish connections or otherwise retry outstanding\n   queries.
+    \ It might also be possible for Multipath TCP [RFC6824] to\n   allow a server
+    to hand a connection over from the anycast address to\n   a unicast address.\n
+    \  There are many \"middleboxes\" in use today that interfere with TCP\n   over
+    port 53 [RFC5625].  This document does not propose any\n   solutions, other than
+    to make it absolutely clear that TCP is a valid\n   transport for DNS and support
+    for it is a requirement for all\n   implementations.\n   A more in-depth discussion
+    of connection-oriented DNS can be found\n   elsewhere [Connection-Oriented-DNS].\n"
+  title: Appendix A.  Summary of Advantages and Disadvantages to Using TCP for
+- contents:
+  - "Appendix B.  Changes to RFC 5966\n   This document obsoletes [RFC5966] and differs
+    from it in several\n   respects.  An overview of the most substantial changes/updates
+    that\n   implementors should take note of is given below.\n   1.   A Terminology
+    section (Section 3) is added defining several new\n        concepts.\n   2.   Paragraph
+    3 of Section 5 puts TCP on a more equal footing with\n        UDP than RFC 5966
+    does.  For example, it states:\n        1.  TCP MAY be used before sending any
+    UDP queries.\n        2.  TCP ought to be considered a valid alternative transport
+    to\n            UDP, not purely a fallback option.\n   3.   Section 6.2.1 adds
+    a new recommendation that TCP connection\n        reuse SHOULD be supported.\n
+    \  4.   Section 6.2.1.1 adds a new recommendation that DNS clients\n        SHOULD
+    pipeline their queries and DNS servers SHOULD process\n        pipelined queries
+    concurrently.\n   5.   Section 6.2.2 adds new recommendations on the number and
+    usage\n        of TCP connections for client/server interactions.\n   6.   Section
+    6.2.3 adds a new recommendation that DNS clients SHOULD\n        close idle sessions
+    unless using a signalling mechanism.\n   7.   Section 7 clarifies that servers
+    are RECOMMENDED to prepare TCP\n        responses in parallel and send answers
+    out of order.  It also\n        clarifies how TCP queries and responses should
+    be matched by\n        clients.\n   8.   Section 8 adds a new recommendation about
+    how DNS clients and\n        servers should handle the 2-byte message length field
+    for TCP\n        messages.\n   9.   Section 9 adds a non-normative discussion
+    of the use of TCP Fast\n        Open.\n   10.  Section 10 adds new advice regarding
+    DoS mitigation techniques.\n"
+  title: Appendix B.  Changes to RFC 5966
+- contents:
+  - "Acknowledgements\n   The authors would like to thank Francis Dupont and Paul
+    Vixie for\n   their detailed reviews, as well as Andrew Sullivan, Tony Finch,\n
+    \  Stephane Bortzmeyer, Joe Abley, Tatuya Jinmei, and the many others\n   who
+    contributed to the mailing list discussion.  Also, the authors\n   thank Liang
+    Zhu, Zi Hu, and John Heidemann for extensive DNS-over-TCP\n   discussions and
+    code, and Lucie Guiraud and Danny McPherson for\n   reviewing early draft versions
+    of this document.  We would also like\n   to thank all those who contributed to
+    RFC 5966.\n"
+  title: Acknowledgements
+- contents:
+  - "Authors' Addresses\n   John Dickinson\n   Sinodun Internet Technologies\n   Magdalen
+    Centre\n   Oxford Science Park\n   Oxford  OX4 4GA\n   United Kingdom\n   Email:
+    jad@sinodun.com\n   URI:   http://sinodun.com\n   Sara Dickinson\n   Sinodun Internet
+    Technologies\n   Magdalen Centre\n   Oxford Science Park\n   Oxford  OX4 4GA\n
+    \  United Kingdom\n   Email: sara@sinodun.com\n   URI:   http://sinodun.com\n
+    \  Ray Bellis\n   Internet Systems Consortium, Inc\n   950 Charter Street\n   Redwood
+    City, CA  94063\n   United States\n   Phone: +1 650 423 1200\n   Email: ray@isc.org\n
+    \  URI:   http://www.isc.org\n   Allison Mankin\n   Verisign Labs\n   12061 Bluemont
+    Way\n   Reston, VA  20190\n   United States\n   Phone: +1 301 728 7198\n   Email:
+    allison.mankin@gmail.com\n   Duane Wessels\n   Verisign Labs\n   12061 Bluemont
+    Way\n   Reston, VA  20190\n   United States\n   Phone: +1 703 948 3200\n   Email:
+    dwessels@verisign.com\n"
+  title: Authors' Addresses
