@@ -155,7 +155,7 @@ def create_tree(sections: List[RFCSection]) -> List[RFCSection]:
     latest_section: Optional[RFCSection] = None
     temp_sections: List[RFCSection] = []
     for section in sections:
-        current_section_number: Optional[List[int]] = section_parse(section['title'])
+        current_section_number: Optional[List[int]] = section_parse(section.title)
         if not current_section_number:
             temp_sections.append(section)
             continue
@@ -170,14 +170,14 @@ def create_tree(sections: List[RFCSection]) -> List[RFCSection]:
                 new_sections += temp_sections
             else:
                 for temp_section in temp_sections:
-                    latest_section['contents'] += temp_section['contents']
+                    latest_section.contents += temp_section.contents
             temp_sections = []
         while len(stack) >= len(current_section_number):
             sec = stack.pop()
             if len(stack) == 0:
                 new_sections.append(sec)
             else:
-                stack[-1]['contents'].append(sec)
+                stack[-1].contents.append(sec)
         stack.append(section)
         latest_section_number = current_section_number
         latest_section = section
@@ -186,7 +186,7 @@ def create_tree(sections: List[RFCSection]) -> List[RFCSection]:
         if len(stack) == 0:
             new_sections.append(sec)
         else:
-            stack[-1]['contents'].append(sec)
+            stack[-1].contents.append(sec)
     if temp_sections:
         new_sections += temp_sections
     return new_sections
@@ -207,9 +207,9 @@ def is_successive_section(latest, current) -> bool:
 def check_dup(sections: List[RFCSection]):
     a = set()
     for section in sections:
-        if section['title'] in a:
+        if section.title in a:
             return True
-        a.add(section['title'])
+        a.add(section.title)
     return False
 
 
@@ -218,11 +218,11 @@ def main(start, end):
         try:
             rfc = RFC(i)
             sections = rfc.sections
-            if rfc.info['status'] in {
+            if rfc.info.status in {
                 RFCStatus.PROPOSED_STANDARD,
                 RFCStatus.INTERNET_STANDARD,
                 RFCStatus.DRAFT_STANDARD
-            } and not rfc.info['obsoleted_by']:
+            } and not rfc.info.obsoleted_by:
                 new_sections = create_tree(sections)
                 rfc = RFC(i, new_sections)
                 rfc.dump()
@@ -261,13 +261,13 @@ def concat_contents(x: int, start: str, end: str):
     sections = []
     stop = False
     for section in rfc.sections:
-        if section['title'] == end:
+        if section.title == end:
             stop = False
         if not stop:
             sections.append(section)
         else:
-            sections[-1]['contents'] += section['contents']
-        if section['title'] == start:
+            sections[-1].contents += section.contents
+        if section.title == start:
             stop = True
     r = RFC(x, sections)
     r.dump()
@@ -277,7 +277,7 @@ def remove_footer(x: int):
     rfc = RFC(x)
     sections = []
     for section in rfc.sections:
-        if re.match(f'RFC {x}', section['title']):
+        if re.match(f'RFC {x}', section.title):
             continue
         sections.append(section)
     r = RFC(x, sections)
@@ -288,21 +288,5 @@ def print_sec(sections: List[Union[str, RFCSection]], indent=0):
     for section in sections:
         if isinstance(section, str):
             continue
-        print('  ' * indent + section['title'])
-        print_sec(section['contents'], indent+1)
-
-if __name__ == '__main__':
-    # N = 9000
-    # start = 5600
-    # with tqdm(total=N-start) as t:
-    #     with Pool(4) as p:
-    #         for _ in p.imap_unordered(lines, range(start, N)):
-    #             t.update(1)
-    x = 1
-    # concat_contents(
-    #     x,
-    #     '__initial_text__',
-    #     '1.  Introduction',
-    # )
-    main(x, 9000)
-    # main(x, x)
+        print('  ' * indent + section.title)
+        print_sec(section.contents, indent+1)

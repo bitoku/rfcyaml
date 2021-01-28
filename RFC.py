@@ -3,16 +3,20 @@ from __future__ import annotations
 import json
 import pathlib
 import re
+from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, List, Union, TypedDict
+from typing import Optional, List, Union
 
 import yaml
+from dacite import from_dict
+
 try:
     from yaml import CLoader as Loader, CDumper as Dumper
 except ImportError:
     from yaml import Loader, Dumper
 
 RFC_DIR = pathlib.Path(__file__).parent / 'rfc'
+StrTree = List[Union[str, 'StrTree']]
 
 
 class RFC:
@@ -32,45 +36,73 @@ class RFC:
             raise FileNotFoundError
         if not self.line_file.exists():
             raise FileNotFoundError
-        self.info: RFCInfo = self._load_info()
-        self.sections: List[RFCSection] = sections or self._load_sections()
+        self._info: Optional[RFCInfo] = None
+        self._sections: Optional[List[RFCSection]] = sections
         self._lines: Optional[List[str]] = None
 
     @property
     def lines(self) -> List[str]:
         if self._lines:
             return self._lines
-        with open(RFC_DIR / f'rfclines{self.n}.txt') as f:
-            self._lines = f.readlines()
-            return self._lines
+        self._lines = self._load_lines()
+        return self._lines
+
+    @property
+    def sections(self) -> List[RFCSection]:
+        if self._sections:
+            return self._sections
+        self._sections = self._load_sections()
+        return self._sections
+
+    @property
+    def info(self) -> RFCInfo:
+        if self._info:
+            return self._info
+        self._info = self._load_info()
+        return self._info
 
     def _load_sections(self) -> List[RFCSection]:
         with open(self.yaml_file) as f:
-            return yaml.load(f, Loader)
+            dict_sections = yaml.load(f, Loader)
+        return [from_dict(data_class=RFCSection, data=section) for section in dict_sections]
 
     def _load_info(self) -> RFCInfo:
         with open(self.json_file) as f:
-            return json.load(f, object_hook=decode_rfc_info)
+            dict_info = json.load(f, object_hook=decode_rfc_info)
+        return from_dict(data_class=RFCInfo, data=dict_info)
+
+    def _load_lines(self) -> List[str]:
+        with open(self.line_file) as f:
+            self._lines = f.readlines()
+        return self._lines
 
     def dump(self):
         with open(self.yaml_file, "w") as f:
             yaml.dump(self.sections, f, Dumper)
 
-    def get_text(self):
+    def get_text(self) -> str:
         texts: List[str] = []
         for section in self.sections:
-            texts.append(get_section_text(section))
-        # TODO
-        one_text = ''.join(texts)
-        if one_text == '':
+            texts.append(section.get_text())
+        one_line_text = ''.join(texts)
+        # TODO: what should we do if there is no non-trivial sections...?
+        if one_line_text == '':
             return self.get_text_all()
         return ''.join(texts)
 
-    def get_text_all(self):
+    def get_text_all(self) -> str:
         ret: List[str] = []
         for section in self.sections:
-            ret.append(get_section_text_all(section))
+            ret.append(section.get_text_all())
         return ''.join(ret)
+
+    def get_structure(self) -> StrTree:
+        return [section.get_tree() for section in self.sections]
+
+    def print_structure(self):
+        print(self.info.title)
+        for section in self.sections:
+            section.print_structure(indent=2)
 
 
 def is_trivial_section(title: str) -> bool:
@@ -104,28 +136,6 @@ def is_trivial_section(title: str) -> bool:
     return False
 
 
-def get_section_text(section: RFCSection):
-    ret = []
-    if is_trivial_section(section['title']):
-        return ''
-    for content in section['contents']:
-        if type(content) == str:
-            ret.append(content)
-        else:
-            ret.append(get_section_text(content))
-    return ''.join(ret)
-
-
-def get_section_text_all(section: RFCSection):
-    ret = []
-    for content in section['contents']:
-        if type(content) == str:
-            ret.append(content)
-        else:
-            ret.append(get_section_text(content))
-    return ''.join(ret)
-
-
 class RFCStatus(Enum):
     BEST_CURRENT_PRACTICE = 'BEST CURRENT PRACTICE'
     DRAFT_STANDARD = 'DRAFT STANDARD'
@@ -155,10 +165,13 @@ def decode_rfc_info(dct):
         dct['pub_status'] = RFCStatus(dct['pub_status'])
     if 'format' in dct:
         dct['format'] = [RFCFormat(doc_format) for doc_format in dct['format']]
+    if 'page_count' in dct:
+        dct['page_count'] = int(dct['page_count'])
     return dct
 
 
-class RFCInfo(TypedDict):
+@dataclass
+class RFCInfo:
     draft: str
     doc_id: str
     title: str
@@ -180,6 +193,37 @@ class RFCInfo(TypedDict):
     errata_url: Optional[str]
 
 
-class RFCSection(TypedDict):
+@dataclass
+class RFCSection:
     title: str
     contents: List[Union[RFCSection, str]]
+
+    def get_text(self) -> str:
+        ret = []
+        if is_trivial_section(self.title):
+            return ''
+        for content in self.contents:
+            if type(content) == str:
+                ret.append(content)
+            else:
+                ret.append(content.get_text())
+        return ''.join(ret)
+
+    def get_text_all(self) -> str:
+        ret = []
+        for content in self.contents:
+            if type(content) == str:
+                ret.append(content)
+            else:
+                ret.append(content.get_text_all())
+        return ''.join(ret)
+
+    def get_tree(self) -> StrTree:
+        return [self.title, [content.get_tree() for content in self.contents if type(content) == RFCSection]]
+
+    def print_structure(self, indent=0):
+        for content in self.contents:
+            if isinstance(content, str):
+                continue
+            print(f"{' ' * indent}{content.title}")
+            content.print_structure(indent+2)
