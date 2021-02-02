@@ -12,5 +12,7 @@ setuptools.setup(
     description='RFC in yaml format',
     url='https://github.com/bitoku/rfcyaml',
     packages=setuptools.find_packages(),
+    package_data={'rfcyaml': ['rfc/*']},
+    include_package_data=True,
     python_requires='>=3.8',
 )
