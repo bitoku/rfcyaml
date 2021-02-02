@@ -1,5 +1,5 @@
 import unittest
-from RFC import RFC
+from rfcyaml.RFC import RFC
 
 
 class TestRFC(unittest.TestCase):

@@ -1,15 +1,11 @@
 import codecs
-import json
 import pathlib
 import re
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Union
 
 from tqdm import tqdm
 
-from RFC import RFC, RFCSection, RFCStatus
-from matplotlib import pyplot as plt
-import spacy
-from multiprocessing import Pool
+from rfcyaml.RFC import RFC, RFCSection, RFCStatus
 
 RFC_DIR = pathlib.Path(__file__).parent / 'rfc'
 # nlp = spacy.load('en_core_web_sm')
