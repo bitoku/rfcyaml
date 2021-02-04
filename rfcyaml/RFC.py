@@ -34,8 +34,6 @@ class RFC:
         self.line_file = RFC_DIR / f'rfclines{self.n}.txt'
         if not self.json_file.exists():
             raise FileNotFoundError
-        if not self.line_file.exists():
-            raise FileNotFoundError
         self._info: Optional[RFCInfo] = None
         self._sections: Optional[List[RFCSection]] = sections
         self._lines: Optional[List[str]] = None
@@ -44,6 +42,8 @@ class RFC:
     def lines(self) -> List[str]:
         if self._lines:
             return self._lines
+        if not self.line_file.exists():
+            raise FileNotFoundError
         self._lines = self._load_lines()
         return self._lines
 
