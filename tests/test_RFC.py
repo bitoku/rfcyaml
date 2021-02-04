@@ -1,10 +1,24 @@
 import unittest
+
+from parameterized import parameterized
+
 from rfcyaml.RFC import RFC
 
 
 class TestRFC(unittest.TestCase):
     def setUp(self):
         self.rfc = RFC(20)
+
+    @parameterized.expand([
+        (num, ) for num in range(1, 9000)
+    ])
+    def test_info(self, num):
+        try:
+            rfc = RFC(num)
+        except FileNotFoundError:
+            return
+        # noinspection PyStatementEffect
+        rfc.info
 
     def test_get_text(self):
         text = self.rfc.get_text()

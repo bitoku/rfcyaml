@@ -172,7 +172,7 @@ def decode_rfc_info(dct):
 
 @dataclass
 class RFCInfo:
-    draft: str
+    draft: Optional[str]
     doc_id: str
     title: str
     authors: List[str]
@@ -181,7 +181,7 @@ class RFCInfo:
     pub_status: RFCStatus
     status: RFCStatus
     source: str
-    abstract: str
+    abstract: Optional[str]
     pub_date: str
     keywords: List[str]
     obsoletes: List[str]
@@ -189,7 +189,7 @@ class RFCInfo:
     updates: List[str]
     updated_by: List[str]
     see_also: List[str]
-    doi: str
+    doi: Optional[str]
     errata_url: Optional[str]
 
 
