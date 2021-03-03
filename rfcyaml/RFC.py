@@ -80,7 +80,7 @@ class RFC:
 
     def dump(self):
         with open(self.yaml_file, "w") as f:
-            yaml.dump(self.sections, f, Dumper)
+            yaml.dump([section.to_dict() for section in self.sections], f, Dumper)
 
     def get_text(self) -> str:
         texts: List[str] = []
@@ -220,3 +220,10 @@ class RFCSection:
                 continue
             print(f"{' ' * indent}{content.title}")
             content.print_structure(indent+2)
+
+    def to_dict(self):
+        ret = {
+            'title': self.title,
+            'contents': [content if isinstance(content, str) else content.to_dict() for content in self.contents]
+        }
+        return ret
