@@ -222,6 +222,7 @@ def main(start, end):
                 new_sections = create_tree(sections)
                 rfc = RFC(i, new_sections)
                 rfc.dump()
+                print_sec(rfc.sections)
         except FileNotFoundError:
             continue
 
@@ -286,3 +287,5 @@ def print_sec(sections: List[Union[str, RFCSection]], indent=0):
             continue
         print('  ' * indent + section.title)
         print_sec(section.contents, indent+1)
+
+main(8881, 8881)
