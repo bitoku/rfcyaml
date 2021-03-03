@@ -108,33 +108,21 @@ class RFC:
 
 
 def is_trivial_section(title: str) -> bool:
-    initial_text = r'__initial_text__'
-    status_of_this_memo = r'[Ss]tatus [Oo]f [Tt]his [Mm]emo'
-    copyright_notice = r'[Cc]opyright [Nn]otice'
-    table_of_contents = r'[Tt]able [Oo]f [Cc]ontents?'
-    authors_address = r"[Aa]uthor('s|s')? [Aa]ddress(es)?"
-    full_copyright_statement = r'[Ff]ull [Cc]opyright [Ss]tatement'
-    intellectual_property = r'[Ii]ntellectual [Pp]roperty'
-    acknowledgment = r'[Aa]cknowledge?ments?$'
-    references = r'[Rr]eferences?$'
-    if re.search(initial_text, title):
-        return True
-    if re.search(status_of_this_memo, title):
-        return True
-    if re.search(copyright_notice, title):
-        return True
-    if re.search(table_of_contents, title):
-        return True
-    if re.search(authors_address, title):
-        return True
-    if re.search(full_copyright_statement, title):
-        return True
-    if re.search(intellectual_property, title):
-        return True
-    if re.search(acknowledgment, title):
-        return True
-    if re.search(references, title):
-        return True
+    trivial_sections = [
+        r'__initial_text__',
+        r'[Ss]tatus [Oo]f [Tt]his [Mm]emo',
+        r'[Cc]opyright',
+        r'[Tt]able [Oo]f [Cc]ontents?',
+        r"[Aa]uthor('s|s')? [Aa]ddress(es)?",
+        r'[Ii]ntellectual [Pp]roperty',
+        r'[Aa]cknowledge?ments?$',
+        r'[Rr]eferences?$',
+        r'IANA Considerations?$',
+        r'Table of Figures'
+    ]
+    for trivial_section in trivial_sections:
+        if re.search(trivial_section, title):
+            return True
     return False
 
 

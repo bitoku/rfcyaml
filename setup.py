@@ -2,7 +2,7 @@ import setuptools
 
 setuptools.setup(
     name='rfcyaml',
-    version='0.0.6',
+    version='0.0.7',
     install_requires=[
         'dacite==1.6.0',
         'PyYAML==5.4.1'
