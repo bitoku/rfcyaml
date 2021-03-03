@@ -118,7 +118,10 @@ def is_trivial_section(title: str) -> bool:
         r'[Aa]cknowledge?ments?$',
         r'[Rr]eferences?$',
         r'IANA Considerations?$',
-        r'Table of Figures'
+        r'Security Considerations?$',
+        r'Table of Figures',
+        r'Abstract',
+        r'Example',
     ]
     for trivial_section in trivial_sections:
         if re.search(trivial_section, title):
