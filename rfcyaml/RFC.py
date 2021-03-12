@@ -113,6 +113,7 @@ def is_trivial_section(title: str) -> bool:
         r'[Ss]tatus [Oo]f [Tt]his [Mm]emo',
         r'[Cc]opyright',
         r'[Tt]able [Oo]f [Cc]ontents?',
+        r'TABLE OF CONTENTS?',
         r"[Aa]uthor('s|s')? [Aa]ddress(es)?",
         r'[Ii]ntellectual [Pp]roperty',
         r'[Aa]cknowledge?ments?$',
@@ -120,8 +121,8 @@ def is_trivial_section(title: str) -> bool:
         r'IANA Considerations?$',
         r'Security Considerations?$',
         r'Table of Figures',
+        r'List of Tables',
         r'Abstract',
-        r'Example',
     ]
     for trivial_section in trivial_sections:
         if re.search(trivial_section, title):
